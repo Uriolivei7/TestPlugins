@@ -52,7 +52,7 @@ jobs:
           chmod +x gradlew # Otorga permisos de ejecución al script gradlew
           ./gradlew make makePluginsJson # Ejecuta las tareas de Gradle para construir
           
-          #Asegura que los directorios de destino existan antes de copiar
+          # Asegura que los directorios de destino existan antes de copiar
           mkdir -p $GITHUB_WORKSPACE/builds
           # Copia los archivos .cs3 y plugins.json a la carpeta 'builds'
           cp **/build/*.cs3 $GITHUB_WORKSPACE/builds/ || true # '|| true' para no fallar si no se encuentran .cs3
