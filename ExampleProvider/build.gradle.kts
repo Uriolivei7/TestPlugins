@@ -22,7 +22,7 @@ cloudstream {
     // Todas estas propiedades son opcionales, puedes eliminarlas con seguridad si no las necesitas.
 
     description = "Plugin para SoloLatino.net" // Descripción de tu plugin
-    authors = listOf("Ruth Riveiro") // TU NOMBRE AQUÍ
+    authors = listOf("Ranita") // TU NOMBRE AQUÍ
 
     /**
      * Status int como uno de siguiente:
