@@ -6,7 +6,7 @@ plugins {
     // Aplica el plugin de Kotlin para Android
     kotlin("android")
     // ¡IMPORTANTE! Aplicar el ID del plugin de CloudStream que se define en el build.gradle.kts de la raíz
-    id("com.lagradost.cloudstream3.gradle")
+    id("com.lagradost.cloudstream3.gradle") // ESTA LÍNEA DEBE PERMANECER
 }
 
 // AÑADIDO: Bloque repositories directamente en el módulo para resolver dependencias específicas.
@@ -21,7 +21,7 @@ repositories {
 cloudstream {
     // Todas estas propiedades son opcionales, puedes eliminarlas con seguridad si no las necesitas.
 
-    description = "Plugin para SoloLatino.net" // Descripción de tu plugin
+    description = "Plugin para SoloLatino" // Descripción de tu plugin
     authors = listOf("Ranita") // TU NOMBRE AQUÍ
 
     /**
@@ -84,10 +84,12 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.fragment:fragment-ktx:1.8.1") // Necesario para Fragment y BottomSheetDialogFragment
 
-    // Librería CloudStream3 (ahora con versión específica)
-    // Se usa 'cloudstream' para la dependencia principal de CloudStream.
-    val cloudstream by configurations // Declara la configuración 'cloudstream'
-    cloudstream("com.lagradost:cloudstream3:pre-release") // <--- ¡VERSIÓN ESPECÍFICA!
+    // ** LÍNEAS ELIMINADAS **
+    // Anteriormente tenías:
+    // val cloudstream by configurations
+    // cloudstream("com.lagradost:cloudstream3:pre-release")
+    // Estas líneas han sido ELIMINADAS porque el plugin 'com.lagradost.cloudstream3.gradle'
+    // ya gestiona la dependencia principal de CloudStream automáticamente.
 
     // Jsoup para el parseo de HTML (ya presente en tu SoloLatinoProvider.kt)
     implementation("org.jsoup:jsoup:1.17.2") // Asegúrate de que esta versión sea compatible
