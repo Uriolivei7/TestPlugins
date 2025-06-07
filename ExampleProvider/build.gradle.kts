@@ -55,7 +55,7 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.1")
 
     // ¡¡¡LA LIBRERÍA DE CLOUDSTREAM!!! ESTA ES LA CLAVE PARA EL ERROR ANTERIOR
-    implementation("com.lagradost:cloudstream3:pre-release") // ¡Esta es la librería que tu código usa!
+    implementation("com.github.LagradostZ:CloudStream3:pre-release")// ¡Esta es la librería que tu código usa!
 
     // Otras dependencias que tu plugin necesita
     implementation("com.github.Blatzar:NiceHttp:0.4.13") // librería http
