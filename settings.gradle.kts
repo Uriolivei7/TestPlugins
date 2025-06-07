@@ -7,8 +7,8 @@ pluginManagement {
         gradlePluginPortal()
         // Repositorio de Maven Central, donde se encuentran muchos plugins y dependencias.
         mavenCentral()
-        // Si el plugin de CloudStream estuviera en JitPack (o si tuvieras otros plugins allí),
-        // lo añadirías de esta manera:
+        // SI EL PLUGIN DE CLOUDSTREAM ESTÁ EN JITPACK (ES MUY PROBABLE PARA VER. PRE-RELEASE)
+        // DEBE ESTAR AQUÍ PARA QUE GRADLE LO ENCUENTRE.
         maven { url = uri("https://jitpack.io") } // <-- ¡AÑADIDA/CORREGIDA!
     }
 }
