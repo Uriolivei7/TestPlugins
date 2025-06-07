@@ -9,9 +9,20 @@ pluginManagement {
         mavenCentral()
         // SI EL PLUGIN DE CLOUDSTREAM ESTÁ EN JITPACK (ES MUY PROBABLE PARA VER. PRE-RELEASE)
         // DEBE ESTAR AQUÍ PARA QUE GRADLE LO ENCUENTRE.
-        maven { url = uri("https://jitpack.io") } // <-- ¡AÑADIDA/CORREGIDA!
+        maven { url = uri("https://jitpack.io") }
     }
 }
+
+// *** ¡¡¡AÑADE ESTE NUEVO BLOQUE ABAJO DE 'pluginManagement' Y ARRIBA DE 'rootProject.name'!!! ***
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") } // <-- ¡IMPORTANTE! Para las dependencias de los módulos
+    }
+}
+// ************************************************************************************************
 
 rootProject.name = "CloudstreamPlugins" // Asegúrate de que este nombre sea correcto para tu proyecto
 

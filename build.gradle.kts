@@ -26,13 +26,13 @@ buildscript {
 }
 
 // Bloque allprojects: Define los repositorios para las dependencias de todos los submódulos.
-allprojects {
+/*allprojects {
     repositories {
         google() // Repositorio de Google (para dependencias de AndroidX, etc.)
         mavenCentral() // Repositorio Maven Central
         maven("https://jitpack.io") // JitPack para otras dependencias o forks
     }
-}
+}*/
 
 // Funciones de extensión para CloudStream y Android (para un DSL más limpio)
 fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()

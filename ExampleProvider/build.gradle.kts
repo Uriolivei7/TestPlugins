@@ -6,15 +6,16 @@ plugins {
     // Aplica el plugin de Kotlin para Android
     kotlin("android")
     // ¡IMPORTANTE! Aplicar el ID del plugin de CloudStream que se define en el build.gradle.kts de la raíz
-    id("com.lagradost.cloudstream3.gradle") // ESTA LÍNEA DEBE PERMANECER
+    id("com.lagradost.cloudstream3.gradle")
 }
 
-// AÑADIDO: Bloque repositories directamente en el módulo para resolver dependencias específicas.
-repositories {
-    google() // Repositorio de Google (para dependencias de AndroidX, etc.)
-    mavenCentral() // Repositorio Maven Central
-    maven("https://jitpack.io") // JitPack para cloudstream3:pre-release y otras dependencias específicas
-}
+// *** ¡¡¡ELIMINA ESTE BLOQUE 'repositories'!!! ***
+// repositories {
+//     google()
+//     mavenCentral()
+//     maven("https://jitpack.io")
+// }
+// *************************************************
 
 // Configuración específica de CloudStream para este módulo.
 // Esta sección se usará para generar la información de tu plugin.
@@ -56,14 +57,12 @@ android {
 
     // Opciones de compilación de Java
     compileOptions {
-        // --- MODIFICADO AQUÍ: Actualizado a Java 17 para evitar la advertencia ---
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
     // Opciones del compilador de Kotlin
     kotlinOptions {
-        // --- MODIFICADO AQUÍ: Actualizado a JVM 17 para que coincida con Java ---
         jvmTarget = "17"
     }
 
@@ -82,12 +81,13 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
-    implementation("androidx.fragment:fragment-ktx:1.8.1") // Necesario para Fragment y BottomSheetDialogFragment
+    implementation("androidx.fragment:fragment-ktx:1.8.1")
 
-    // ¡¡¡IMPORTANTE!!! AÑADE ESTA LÍNEA DE NUEVO:
-    // Esta línea asegura que la librería principal de CloudStream esté en el classpath para la compilación de tu código Kotlin.
+    // ¡¡¡DEJA ESTA LÍNEA DE IMPLEMENTACIÓN!!!
+    // Esta línea es crucial para que tu código Kotlin pueda usar las clases de CloudStream.
+    // Aunque los repositorios estén en settings.gradle.kts, la declaración de la dependencia va aquí.
     implementation("com.lagradost:cloudstream3:pre-release")
 
     // Jsoup para el parseo de HTML (ya presente en tu SoloLatinoProvider.kt)
-    implementation("org.jsoup:jsoup:1.17.2") // Asegúrate de que esta versión sea compatible
+    implementation("org.jsoup:jsoup:1.17.2")
 }
