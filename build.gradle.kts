@@ -1,29 +1,96 @@
-// build.gradle.kts (Raíz del proyecto CloudstreamPlugins)
+import com.android.build.gradle.BaseExtension
+import com.lagradost.cloudstream3.gradle.CloudstreamExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
-// Bloque buildscript: Define los repositorios y dependencias para los propios plugins de Gradle.
-// Aquí es donde se le dice a Gradle dónde encontrar el plugin de CloudStream.
 buildscript {
     repositories {
-        google() // Repositorio de Google (para plugins de Android)
-        mavenCentral() // Repositorio Maven Central
-        // Repositorio de JitPack, donde se aloja el plugin de Gradle de CloudStream
+        google()
+        mavenCentral()
+        // Shitpack repo which contains our tools and dependencies
         maven("https://jitpack.io")
     }
 
     dependencies {
-        // Plugin de Gradle para Android. Usar una versión compatible con tu Android Studio.
         classpath("com.android.tools.build:gradle:8.7.3")
-        // El plugin de Gradle de CloudStream que facilita la construcción de plugins.
-        // Asegúrate de que esta versión sea la correcta para el plugin de CloudStream.
-        classpath("com.github.recloudstream:gradle:-SNAPSHOT") // O la versión específica que se espera
-        // Plugin de Kotlin para Gradle
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0") // Versión de Kotlin para Gradle
+        // Cloudstream gradle plugin which makes everything work and builds plugins
+        classpath("com.github.recloudstream:gradle:-SNAPSHOT")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
     }
 }
 
-// NO NECESITAS EL BLOQUE 'allprojects' NI 'subprojects' aquí
-// ya que 'dependencyResolutionManagement' en settings.gradle.kts maneja los repositorios globales
-// y cada módulo (como ExampleProvider) definirá sus propios plugins y dependencias.
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://jitpack.io")
+    }
+}
+
+fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
+
+fun Project.android(configuration: BaseExtension.() -> Unit) = extensions.getByName<BaseExtension>("android").configuration()
+
+subprojects {
+    apply(plugin = "com.android.library")
+    apply(plugin = "kotlin-android")
+    apply(plugin = "com.lagradost.cloudstream3.gradle")
+
+    cloudstream {
+        // when running through github workflow, GITHUB_REPOSITORY should contain current repository name
+        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/SaurabhKaperwan/CSX")
+
+        authors = listOf("megix")
+    }
+
+    android {
+        namespace = "com.megix"
+
+        defaultConfig {
+            minSdk = 21
+            compileSdkVersion(35)
+            targetSdk = 35
+        }
+
+        compileOptions {
+            sourceCompatibility = JavaVersion.VERSION_1_8
+            targetCompatibility = JavaVersion.VERSION_1_8
+        }
+
+        tasks.withType<KotlinJvmCompile> {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_1_8)
+                freeCompilerArgs.addAll(
+                    "-Xno-call-assertions",
+                    "-Xno-param-assertions",
+                    "-Xno-receiver-assertions"
+                )
+            }
+        }
+    }
+
+    dependencies {
+        val cloudstream by configurations
+        val implementation by configurations
+
+        // Stubs for all Cloudstream classes
+        cloudstream("com.lagradost:cloudstream3:pre-release")
+
+        // these dependencies can include any of those which are added by the app,
+        // but you dont need to include any of them if you dont need them
+        // https://github.com/recloudstream/cloudstream/blob/master/app/build.gradle.kts
+
+        implementation(kotlin("stdlib")) // adds standard kotlin features, like listOf, mapOf etc
+        implementation("com.github.Blatzar:NiceHttp:0.4.13") // http library
+        implementation("org.jsoup:jsoup:1.18.3") // html parser
+        implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0")
+        implementation("com.squareup.okhttp3:okhttp:4.12.0")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
+        implementation("org.mozilla:rhino:1.8.0") //run JS
+        implementation("com.google.code.gson:gson:2.11.0")
+
+    }
+}
 
 task<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
