@@ -1,0 +1,13 @@
+[
+  {
+    "url": "https://uriolivei.github.io/TestPlugins/docs/plugins/ExampleProvider.aar",
+    "name": "SoloLatino",
+    "version": 1,
+    "description": "Un proveedor de contenido de solo latino.",
+    "authors": [
+      "Ranita"
+    ],
+    "minimumCloudstreamVersion": 4,
+    "language": "es"
+  }
+]

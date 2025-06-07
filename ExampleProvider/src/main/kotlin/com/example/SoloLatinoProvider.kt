@@ -13,6 +13,7 @@ import org.jsoup.nodes.Element // Importa Element de Jsoup
 
 // ELIMINADAS: import kotlinx.coroutines.async y kotlinx.coroutines.awaitAll
 
+// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
     override var mainUrl = "https://sololatino.net" // Asegúrate de que la URL no termine en '/'
     override var name = "SoloLatino" // Alineado con el nombre de tu ejemplo "SoloLatino"
@@ -93,18 +94,6 @@ class SoloLatinoProvider : MainAPI() {
             } else null
         }
     }
-
-    // ELIMINADA: Class MainTemporada - ya que no se utiliza
-    // class MainTemporada(elements: Map<String, List<MainTemporadaElement>>) :
-    //     HashMap<String, List<MainTemporadaElement>>(elements)
-
-    // ELIMINADA: Data class MainTemporadaElement - ya que no se utiliza
-    // data class MainTemporadaElement(
-    //     val title: String? = null,
-    //     val image: String? = null,
-    //     val season: Int? = null,
-    //     val episode: Int? = null
-    // )
 
     // Data class para pasar datos a newEpisode y loadLinks, como en NetflixMirrorProvider
     data class EpisodeLoadData(

@@ -49,14 +49,14 @@ subprojects {
     cloudstream {
         // cuando se ejecuta a través de github workflow, GITHUB_REPOSITORY debería contener el nombre del repositorio actual
         setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/SaurabhKaperwan/CSX")
-        // Eliminada la propiedad 'authors' de aquí para evitar conflictos, ya que se define en el módulo ExampleProvider.
+        // Eliminada la propiedad 'authors' de aquí, ya que se define en el módulo ExampleProvider.
         // description y language tampoco son necesarios aquí si se definen a nivel de módulo.
     }
 
     // Configuración de Android para el módulo
     android {
         // Namespace de tu módulo. Debe coincidir con el 'package' de tus archivos Kotlin.
-        namespace = "com.example" // <--- ¡IMPORTANTE! Asegúrate de que esto coincida con tu paquete real (com.example o com.stormunblessed)
+        namespace = "com.example" // ¡MUY IMPORTANTE! ASEGÚRATE DE QUE ESTO COINCIDA CON EL PAQUETE REAL (com.example o com.stormunblessed)
 
         defaultConfig {
             minSdk = 21 // Versión mínima de SDK compatible
@@ -71,7 +71,7 @@ subprojects {
 
         tasks.withType<KotlinJvmCompile> {
             compilerOptions {
-                jvmTarget.set(JvmTarget.JVM_1_8)
+                jvmTarget.set(JvmTarget.JVM_17)
                 freeCompilerArgs.addAll(
                     "-Xno-call-assertions",
                     "-Xno-param-assertions",
@@ -83,11 +83,9 @@ subprojects {
 
     // Dependencias comunes para todos los módulos
     dependencies {
-        val cloudstream by configurations
-        val implementation by configurations
-
-        // Stubs para todas las clases de Cloudstream (la librería principal)
-        cloudstream("com.lagradost:cloudstream3:pre-release")
+        // La configuración 'cloudstream' ahora SOLO se declara en el build.gradle.kts del módulo individual.
+        // NO SE DECLARA AQUÍ para evitar duplicados.
+        val implementation by configurations // Necesario para otras dependencias
 
         // Estas dependencias pueden incluir cualquiera de las añadidas por la aplicación,
         // pero no necesitas incluir ninguna de ellas si no las necesitas.
