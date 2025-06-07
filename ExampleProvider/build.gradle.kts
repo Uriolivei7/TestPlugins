@@ -1,93 +1,84 @@
-// build.gradle.kts (Módulo ExampleProvider)
+// ExampleProvider/build.gradle.kts (MÓDULO de tu plugin)
 
 plugins {
-    // Aplica el plugin de Android Library
     id("com.android.library")
-    // Aplica el plugin de Kotlin para Android
     kotlin("android")
-    // ¡IMPORTANTE! Aplicar el ID del plugin de CloudStream que se define en el build.gradle.kts de la raíz
+    // ¡IMPORTANTE! Aplicar el ID del plugin de CloudStream
     id("com.lagradost.cloudstream3.gradle")
 }
 
-// *** ¡¡¡ELIMINA ESTE BLOQUE 'repositories'!!! ***
+// YA NO NECESITAS UN BLOQUE 'repositories' AQUÍ si lo tienes en settings.gradle.kts
 // repositories {
 //     google()
 //     mavenCentral()
 //     maven("https://jitpack.io")
 // }
-// *************************************************
-
-// Configuración específica de CloudStream para este módulo.
-// Esta sección se usará para generar la información de tu plugin.
-cloudstream {
-    // Todas estas propiedades son opcionales, puedes eliminarlas con seguridad si no las necesitas.
-
-    description = "Plugin para SoloLatino.net" // Descripción de tu plugin
-    authors = listOf("Ranita") // TU NOMBRE AQUÍ
-
-    /**
-     * Status int como uno de siguiente:
-     * 0: Caído
-     * 1: Ok
-     * 2: Lento
-     * 3: Solo Beta
-     **/
-    status = 1 // Será 3 si no se especifica
-
-    tvTypes = listOf("Movie", "TvSeries", "Anime", "Cartoon") // Tipos de contenido que soporta tu plugin
-
-    requiresResources = true // Si tu plugin usa recursos (layouts, strings, drawables)
-    language = "es" // Idioma principal del contenido que extrae
-
-    // URL de un ícono para tu plugin. Puedes usar una imagen pública o un ícono SVG incrustado.
-    iconUrl = "https://placehold.co/128x128/FF0000/FFFFFF?text=SL" // Placeholder, puedes cambiarlo
-}
 
 android {
     // Namespace de tu módulo. Debe coincidir con el 'package' de tus archivos Kotlin.
     // EJEMPLO: si tu SoloLatinoProvider.kt empieza con 'package com.example', el namespace es 'com.example'
-    namespace = "com.example" // ¡MUY IMPORTANTE! ASEGÚRATE DE QUE ESTO COINCIDA CON EL PAQUETE DE TUS ARCHIVOS KOTLIN
+    namespace = "com.example" // ¡MUY IMPORTANTE! AJUSTA ESTO A TU PAQUETE REAL (e.g., com.lagradost.provider.sololatino)
 
-    // Versiones del SDK
-    compileSdk = 34 // Ya definido en el build.gradle.kts de la raíz, pero puedes especificarlo aquí también
+    compileSdk = 35 // Versión de compilación de SDK
+
     defaultConfig {
         minSdk = 21
-        // targetSdk se infiere del compileSdk para módulos de librería
+        targetSdk = 35
     }
 
-    // Opciones de compilación de Java
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
-    // Opciones del compilador de Kotlin
     kotlinOptions {
         jvmTarget = "17"
+        freeCompilerArgs = listOf(
+            "-Xno-call-assertions",
+            "-Xno-param-assertions",
+            "-Xno-receiver-assertions"
+        )
     }
 
-    // Habilitar características de compilación necesarias
     buildFeatures {
-        buildConfig = true // Asegura que BuildConfig.java/kt sea generado
-        viewBinding = true // Si usas View Binding en tus layouts
+        buildConfig = true
+        viewBinding = true
     }
 }
 
-// Dependencias específicas para este módulo.
-// Las dependencias comunes ya están en el build.gradle.kts de la raíz.
 dependencies {
-    // Dependencias necesarias para BlankFragment.kt
+    // Dependencias comunes de Android y Kotlin
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.fragment:fragment-ktx:1.8.1")
 
-    // ¡¡¡DEJA ESTA LÍNEA DE IMPLEMENTACIÓN!!!
-    // Esta línea es crucial para que tu código Kotlin pueda usar las clases de CloudStream.
-    // Aunque los repositorios estén en settings.gradle.kts, la declaración de la dependencia va aquí.
-    implementation("com.lagradost:cloudstream3:pre-release")
+    // ¡¡¡LA LIBRERÍA DE CLOUDSTREAM!!! ESTA ES LA CLAVE PARA EL ERROR ANTERIOR
+    implementation("com.lagradost:cloudstream3:pre-release") // ¡Esta es la librería que tu código usa!
 
-    // Jsoup para el parseo de HTML (ya presente en tu SoloLatinoProvider.kt)
-    implementation("org.jsoup:jsoup:1.17.2")
+    // Otras dependencias que tu plugin necesita
+    implementation("com.github.Blatzar:NiceHttp:0.4.13") // librería http
+    implementation("org.jsoup:jsoup:1.18.3") // html parser
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
+    implementation("org.mozilla:rhino:1.8.0") //run JS
+    implementation("com.google.code.gson:gson:2.11.0")
+
+    // La configuración 'cloudstream' ahora va dentro del módulo, no en las dependencias como antes.
+    // YA NO VA AQUÍ LA CONFIGURACIÓN cloudstream { ... }
+}
+
+// Configuración específica de CloudStream para este módulo.
+// Esta sección se usará para generar la información de tu plugin.
+cloudstream {
+    description = "Plugin para SoloLatino.net"
+    authors = listOf("Ranita")
+    status = 1
+    tvTypes = listOf("Movie", "TvSeries", "Anime", "Cartoon")
+    requiresResources = true
+    language = "es"
+    iconUrl = "https://placehold.co/128x128/FF0000/FFFFFF?text=SL"
+    // setRepo NO VA AQUÍ, eso es del plugin global, no del módulo individual
 }
