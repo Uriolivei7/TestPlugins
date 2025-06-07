@@ -46,11 +46,11 @@ jobs:
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v2 # ¡IMPORTANTE! Usa una versión específica para estabilidad
 
-      - name: Construir Plugins
+      - name: Construir Plugins # <-- ¡AQUÍ ESTÁ EL CAMBIO!
         run: |
           cd $GITHUB_WORKSPACE/src # Cambia al directorio del código fuente
           chmod +x gradlew # Otorga permisos de ejecución al script gradlew
-          ./gradlew make makePluginsJson # Ejecuta las tareas de Gradle para construir
+          ./gradlew clean make makePluginsJson --refresh-dependencies # <-- ¡LÍNEA MODIFICADA!
           
           # Asegura que los directorios de destino existan antes de copiar
           mkdir -p $GITHUB_WORKSPACE/builds
@@ -81,4 +81,4 @@ jobs:
           
           # Push normal, no forzado, ya que estamos creando un nuevo commit
           git push origin builds
-        shell: bash # Especifica el shell para mayor claridad
+        shell: bash
