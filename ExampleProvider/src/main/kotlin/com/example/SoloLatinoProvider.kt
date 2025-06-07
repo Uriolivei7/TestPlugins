@@ -87,7 +87,7 @@ class SoloLatinoProvider : MainAPI() {
                     title, // Nombre del contenido
                     DataId(fixUrl(link)).toJson() // Datos (URL o ID) como JSON
                 ) {
-                    this.type = TvType.TvSeries // Asume TvSeries para búsquedas
+                    this.type = TvType.TvSeries // Asume TvType.TvSeries para búsquedas
                     this.posterUrl = img
                 }
             } else null
