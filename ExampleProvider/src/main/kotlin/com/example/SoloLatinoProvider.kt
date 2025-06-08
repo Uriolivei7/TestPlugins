@@ -1,6 +1,6 @@
 package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
 
-import android.util.Log
+import android.util.Log // Importar Log para depuración
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
@@ -82,7 +82,7 @@ class SoloLatinoProvider : MainAPI() {
                     title,
                     fixUrl(link) // Pasa la URL directamente
                 ) {
-                    this.type = TvType.TvSeries // Asume TvType.TvSeries para búsquedas
+                    this.type = TvType.TvSeries // Asume TvType.TvSeries para búsquedas, puedes ajustar esto si sabes el tipo real
                     this.posterUrl = img
                 }
             } else null
@@ -101,12 +101,19 @@ class SoloLatinoProvider : MainAPI() {
 
         var cleanUrl = url
         // Intentar limpiar la URL si viene envuelta en {"url":"..."}
+        // Esta regex asegura que el contenido capturado sea una URL válida con http/https
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("SoloLatino", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
-            Log.d("SoloLatino", "load - URL no necesitaba limpieza JSON Regex, usando original: $cleanUrl")
+            // Si no viene en formato JSON, intenta limpiar la URL para que siempre tenga un esquema
+            // Esto es importante para el caso de search() que devuelve la URL directa.
+            if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+                cleanUrl = "https://" + cleanUrl.removePrefix("//") // Asume HTTPS y quita // si existe
+                Log.d("SoloLatino", "load - URL limpiada con HTTPS: $cleanUrl")
+            }
+            Log.d("SoloLatino", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
         }
 
         if (cleanUrl.isBlank()) {
@@ -117,7 +124,7 @@ class SoloLatinoProvider : MainAPI() {
 
         // Usa 'cleanUrl' en lugar de 'url' para todas las operaciones posteriores
         val doc = app.get(cleanUrl).document // <<-- ¡Esta es la línea 110 ahora!
-        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries
+        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries // Puede que necesites una lógica más robusta aquí
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.wp-content")?.text() ?: ""
@@ -213,8 +220,9 @@ class SoloLatinoProvider : MainAPI() {
             Log.d("SoloLatino", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
             // Si no es JSON de episodio, 'cleanedData' YA DEBE SER una URL directa (para películas).
-            targetUrl = cleanedData
-            Log.d("SoloLatino", "loadLinks - URL final de película (directa o ya limpia): $targetUrl")
+            // APLICA fixUrl AQUÍ para asegurar que tenga el esquema correcto si viene de otra fuente
+            targetUrl = fixUrl(cleanedData)
+            Log.d("SoloLatino", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
