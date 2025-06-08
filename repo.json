@@ -1,13 +1,21 @@
 [
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatino.cs3",
-    "name": "SoloLatino",
-    "version": 1,
-    "description": "Un proveedor de contenido de solo latino.",
+    "iconUrl": "https://www.google.com/s2/favicons?domain=animeflv.io&sz=%size%",
+    "apiVersion": 1,
+    "repositoryUrl": "https://github.com/Uriolivei/TestPlugins.git",
+    "fileSize": 17048,
+    "status": 1,
+    "language": "es",
     "authors": [
       "Ranita"
     ],
-    "minimumCloudstreamVersion": 4,
-    "language": "es"
+    "tvTypes": [
+      "Movies",
+      "Series"
+    ],
+    "version": 2,
+    "internalName": "SoloLatinoProvider",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatino.cs3",
+    "name": "SoloLatinoProvider"
   }
 ]
