@@ -1,26 +1,24 @@
 package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
 
-import android.util.Log // Importar Log para los mensajes de depuración
+import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller // Necesario si el sitio usa Cloudflare
-import com.lagradost.cloudstream3.utils.* // Importa todas las utilidades como en NetflixMirrorProvider
-import com.lagradost.cloudstream3.APIHolder.unixTime // Importación de unixTime como en NetflixMirrorProvider
-import com.lagradost.cloudstream3.utils.AppUtils.toJson // ¡CORREGIDA! Importación explícita de toJson
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // ¡CORREGIDA! Importación explícita de tryParseJson
+import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.APIHolder.unixTime
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
-import org.jsoup.Jsoup // Importa Jsoup para parsear HTML
-import org.jsoup.nodes.Element // Importa Element de Jsoup
-
-// ELIMINADAS: import kotlinx.coroutines.async y kotlinx.coroutines.awaitAll
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 
 // ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
-    override var mainUrl = "https://sololatino.net" // Asegúrate de que la URL no termine en '/'
-    override var name = "SoloLatino" // Alineado con el nombre de tu ejemplo "SoloLatino"
+    override var mainUrl = "https://sololatino.net"
+    override var name = "SoloLatino"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
-        TvType.Anime, // Añadido Anime y Cartoon si los soportas
+        TvType.Anime,
         TvType.Cartoon,
     )
 
@@ -36,11 +34,10 @@ class SoloLatinoProvider : MainAPI() {
             Pair("Peliculas", "$mainUrl/peliculas"),
             Pair("Series", "$mainUrl/series"),
             Pair("Animes", "$mainUrl/animes"),
-            Pair("Cartoons", "$mainUrl/genre_series/toons"), // Ejemplo de categoría de cartoons
+            Pair("Cartoons", "$mainUrl/genre_series/toons"),
         )
 
-        // CORRECCIÓN CRÍTICA: Usando apmap para concurrencia (como en NetflixMirrorProvider)
-        val homePageLists = urls.apmap { (name, url) -> // apmap es una extensión de CloudStream
+        val homePageLists = urls.apmap { (name, url) ->
             val tvType = when (name) {
                 "Peliculas" -> TvType.Movie
                 "Series" -> TvType.TvSeries
@@ -55,23 +52,21 @@ class SoloLatinoProvider : MainAPI() {
                 val img = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset") ?: it.selectFirst("div.poster img")?.attr("src")
 
                 if (title != null && link != null) {
-                    // Usando newAnimeSearchResponse como en NetflixMirror
                     newAnimeSearchResponse(
-                        title, // Nombre del contenido
-                        DataId(fixUrl(link)).toJson() // Datos (URL o ID) como JSON
+                        title,
+                        fixUrl(link) // ¡CORRECCIÓN! Pasa la URL directamente para load()
                     ) {
-                        this.type = tvType // Tipo de contenido (Movie, TvSeries, etc.)
-                        this.posterUrl = img // URL del póster
+                        this.type = tvType
+                        this.posterUrl = img
                     }
                 } else null
             }
-            HomePageList(name, homeItems) // Crear HomePageList aquí
+            HomePageList(name, homeItems)
         }
 
         items.addAll(homePageLists)
 
-        // Usando newHomePageResponse (como en tu ejemplo NetflixMirrorProvider)
-        return newHomePageResponse(items, false) // El segundo parámetro es para si es una lista horizontal, false por defecto
+        return newHomePageResponse(items, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -83,10 +78,9 @@ class SoloLatinoProvider : MainAPI() {
             val img = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset") ?: it.selectFirst("div.poster img")?.attr("src")
 
             if (title != null && link != null) {
-                // Usando newAnimeSearchResponse como en NetflixMirror
                 newAnimeSearchResponse(
-                    title, // Nombre del contenido
-                    DataId(fixUrl(link)).toJson() // Datos (URL o ID) como JSON
+                    title,
+                    fixUrl(link) // ¡CORRECCIÓN! Pasa la URL directamente para load()
                 ) {
                     this.type = TvType.TvSeries // Asume TvType.TvSeries para búsquedas
                     this.posterUrl = img
@@ -95,16 +89,13 @@ class SoloLatinoProvider : MainAPI() {
         }
     }
 
-    // Data class para pasar datos a newEpisode y loadLinks, como en NetflixMirrorProvider
+    // Data class para pasar datos a newEpisode y loadLinks cuando es un episodio
     data class EpisodeLoadData(
         val title: String,
-        val id: String // id (o url) para la data que se pasa
+        val url: String // Usamos 'url' para mayor claridad
     )
 
-    // Data class para pasar la URL o ID como data en SearchResponse
-    data class DataId(
-        val url: String // O 'id: String' if SoloLatino uses IDs like NetflixMirror
-    )
+    // Nota: DataId ya no es estrictamente necesaria para SearchResponse si pasamos la URL directamente
 
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url).document
@@ -120,23 +111,20 @@ class SoloLatinoProvider : MainAPI() {
                     val epTitle = element.selectFirst("div.episodiotitle div.epst")?.text() ?: ""
 
                     val seasonNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull() // Usando toIntOrNull()
+                        ?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
                     val episodeNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull() // Usando toIntOrNull()
+                        ?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
 
                     val realimg = element.selectFirst("div.imagen img")?.attr("src")
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                        // CORRECCIÓN CLAVE: newEpisode en NetflixMirrorProvider toma EpisodeLoadData
-                        // y luego un lambda para otras propiedades.
                         newEpisode(
-                            EpisodeLoadData(epTitle, epurl) // El primer parámetro 'data' es un objeto
+                            EpisodeLoadData(epTitle, epurl).toJson() // Pasa EpisodeLoadData como JSON
                         ) {
                             this.name = epTitle
                             this.season = seasonNumber
                             this.episode = episodeNumber
                             this.posterUrl = realimg
-                            // runTime también se puede establecer si está disponible
                         }
                     } else null
                 }
@@ -163,7 +151,7 @@ class SoloLatinoProvider : MainAPI() {
                     name = title,
                     url = url,
                     type = tvType,
-                    dataUrl = url
+                    dataUrl = url // 'url' es la URL de la película de la función load()
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -177,39 +165,51 @@ class SoloLatinoProvider : MainAPI() {
     }
 
     override suspend fun loadLinks(
-        data: String,
+        data: String, // ¡CORRECCIÓN! 'data' puede ser URL directa o JSON de episodio
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("SoloLatino", "loadLinks llamada para URL: $data")
+        Log.d("SoloLatino", "loadLinks llamada para data: $data")
 
-        // CORRECCIÓN: Parsear el String 'data' a EpisodeLoadData como en NetflixMirrorProvider
-        val (_, idForLink) = try { // Usar _ para ignorar titleForLink si no se usa
-            tryParseJson<EpisodeLoadData>(data) ?: return false
-        } catch (e: Exception) {
-            Log.e("SoloLatino", "Error parsing LoadData JSON: ${e.message}")
+        val targetUrl: String
+
+        // Intenta parsear 'data' como JSON (esto funcionará para episodios)
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
+        if (parsedEpisodeData != null) {
+            targetUrl = parsedEpisodeData.url // Usa 'url' del EpisodeLoadData
+            Log.d("SoloLatino", "loadLinks: Data JSON para episodio. URL a cargar: $targetUrl")
+        } else {
+            // Si no es JSON, asume que 'data' ya es una URL directa (para películas)
+            targetUrl = data
+            Log.d("SoloLatino", "loadLinks: Data es URL directa (película/búsqueda). URL a cargar: $targetUrl")
+        }
+
+        if (targetUrl.isBlank()) {
+            Log.e("SoloLatino", "loadLinks: URL objetivo está en blanco después de procesar 'data'.")
             return false
         }
 
+        // El resto del código de loadLinks ahora usará 'targetUrl'
+        // para todas las peticiones HTTP y como 'referer' para extractores.
+
         // 1. Intentar obtener el iframe del reproductor
-        val iframeSrc = app.get(idForLink).document.selectFirst("iframe")?.attr("src")
+        val iframeSrc = app.get(targetUrl).document.selectFirst("iframe")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("SoloLatino", "No se encontró iframe en la página principal del episodio/película.")
-            val scriptContent = app.get(idForLink).document.select("script").map { it.html() }.joinToString("\n")
+            Log.d("SoloLatino", "No se encontró iframe en la página principal del episodio/película. Intentando buscar en scripts.")
+            val scriptContent = app.get(targetUrl).document.select("script").map { it.html() }.joinToString("\n")
 
-            // CORRECCIÓN: Eliminar el escape redundante '\/'
-            val directRegex = """url:\s*['"](https?://[^'"]+)['"]""".toRegex() // Quitado \/
+            val directRegex = """url:\s*['"](https?://[^'"]+)['"]""".toRegex()
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (directMatches.isNotEmpty()) {
-                // CORRECCIÓN CRÍTICA: Usando apmap para concurrencia (como en NetflixMirrorProvider)
-                directMatches.apmap { directUrl -> // apmap es una extensión de CloudStream
-                    loadExtractor(directUrl, idForLink, subtitleCallback, callback)
+                directMatches.apmap { directUrl ->
+                    loadExtractor(directUrl, targetUrl, subtitleCallback, callback) // 'targetUrl' como referer
                 }
                 return true
             }
+            Log.d("SoloLatino", "No se encontraron enlaces directos en scripts.")
             return false
         }
 
@@ -227,7 +227,6 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "HTML del iframe (fragmento): ${frameHtml.take(500)}...")
 
         // 3. Aplicar regex para encontrar la URL del reproductor dentro del contenido del iframe
-        // CORRECCIÓN: Eliminar el escape redundante '\/'
         val regex = """(go_to_player|go_to_playerVast)\('(.*?)'""".toRegex()
         val playerLinks = regex.findAll(frameHtml).map {
             it.groupValues[2]
@@ -238,16 +237,14 @@ class SoloLatinoProvider : MainAPI() {
             val videoSrc = frameDoc.selectFirst("video source")?.attr("src") ?: frameDoc.selectFirst("video")?.attr("src")
             if (!videoSrc.isNullOrBlank()) {
                 callback.invoke(
-                    // CORRECCIÓN CLAVE: newExtractorLink como en NetflixMirrorProvider: name, label, file, type,
-                    // y luego un lambda para referer y quality.
                     newExtractorLink(
-                        name, // Nombre del proveedor
-                        "Direct Play", // label (fuente)
-                        fixUrl(videoSrc), // file (url del video)
-                        type = ExtractorLinkType.M3U8 // Tipo de enlace (M3U8 como en NetflixMirrorProvider)
+                        name,
+                        "Direct Play",
+                        fixUrl(videoSrc),
+                        type = ExtractorLinkType.M3U8
                     ) {
-                        this.referer = "$mainUrl/" // Referer (corregido a "$mainUrl/" como en NetflixMirrorProvider)
-                        this.quality = Qualities.Unknown.value // Calidad
+                        this.referer = targetUrl // 'targetUrl' como referer
+                        this.quality = Qualities.Unknown.value
                     }
                 )
                 return true
@@ -260,10 +257,9 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "Enlaces de reproductor encontrados por regex: $playerLinks")
 
         // 4. Cargar los enlaces encontrados usando loadExtractor
-        // CORRECCIÓN CRÍTICA: Usando apmap para concurrencia (como en NetflixMirrorProvider)
-        playerLinks.apmap { playerUrl -> // apmap es una extensión de CloudStream
+        playerLinks.apmap { playerUrl ->
             Log.d("SoloLatino", "Cargando extractor para: $playerUrl")
-            loadExtractor(fixUrl(playerUrl), idForLink, subtitleCallback, callback) // Usar idForLink para el referer de loadExtractor
+            loadExtractor(fixUrl(playerUrl), targetUrl, subtitleCallback, callback) // 'targetUrl' como referer
         }
         return true
     }
