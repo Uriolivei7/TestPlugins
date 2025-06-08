@@ -2,7 +2,6 @@
   {
     "iconUrl": "https://sololatino.net/wp-content/uploads/2022/11/logo-final.png",
     "apiVersion": 1,
-    "repositoryUrl": "https://github.com/Uriolivei/TestPlugins.git",
     "fileSize": 17048,
     "status": 1,
     "language": "es",
@@ -10,12 +9,14 @@
       "Ranita"
     ],
     "tvTypes": [
-      "Movies",
-      "Series"
+      "Movie",
+      "TvSeries",
+      "Anime",
+      "Cartoon"
     ],
     "version": 2,
     "internalName": "SoloLatinoProvider",
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatino.cs3",
-    "name": "SoloLatinoProvider"
+    "name": "SoloLatino" 
   }
 ]
