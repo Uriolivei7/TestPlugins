@@ -1,6 +1,6 @@
-package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
 
-import android.util.Log // Importar Log para depuración
+import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
@@ -10,6 +10,13 @@ import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+// import java.util.Base64 // ¡ELIMINAR O COMENTAR ESTA LÍNEA!
+import android.util.Base64 // ¡AÑADIR ESTA LÍNEA!
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.collections.ArrayList
+import kotlin.text.Charsets.UTF_8
 
 // ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
@@ -96,21 +103,16 @@ class SoloLatinoProvider : MainAPI() {
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        // --- INICIO DE LA CORRECCIÓN CLAVE ---
         Log.d("SoloLatino", "load - URL de entrada: $url")
 
         var cleanUrl = url
-        // Intentar limpiar la URL si viene envuelta en {"url":"..."}
-        // Esta regex asegura que el contenido capturado sea una URL válida con http/https
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("SoloLatino", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
-            // Si no viene en formato JSON, intenta limpiar la URL para que siempre tenga un esquema
-            // Esto es importante para el caso de search() que devuelve la URL directa.
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
-                cleanUrl = "https://" + cleanUrl.removePrefix("//") // Asume HTTPS y quita // si existe
+                cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("SoloLatino", "load - URL limpiada con HTTPS: $cleanUrl")
             }
             Log.d("SoloLatino", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
@@ -120,11 +122,9 @@ class SoloLatinoProvider : MainAPI() {
             Log.e("SoloLatino", "load - ERROR: URL limpia está en blanco.")
             return null
         }
-        // --- FIN DE LA CORRECCIÓN CLAVE ---
 
-        // Usa 'cleanUrl' en lugar de 'url' para todas las operaciones posteriores
         val doc = app.get(cleanUrl).document
-        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries // Puede que necesites una lógica más robusta aquí
+        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.wp-content")?.text() ?: ""
@@ -144,7 +144,7 @@ class SoloLatinoProvider : MainAPI() {
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                         newEpisode(
-                            EpisodeLoadData(epTitle, epurl).toJson() // Pasa EpisodeLoadData como JSON
+                            EpisodeLoadData(epTitle, epurl).toJson()
                         ) {
                             this.name = epTitle
                             this.season = seasonNumber
@@ -160,7 +160,7 @@ class SoloLatinoProvider : MainAPI() {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(
                     name = title,
-                    url = cleanUrl, // Usar cleanUrl
+                    url = cleanUrl,
                     type = tvType,
                     episodes = episodes,
                 ) {
@@ -174,9 +174,9 @@ class SoloLatinoProvider : MainAPI() {
             TvType.Movie -> {
                 newMovieLoadResponse(
                     name = title,
-                    url = cleanUrl, // Usar cleanUrl
+                    url = cleanUrl,
                     type = tvType,
-                    dataUrl = cleanUrl // Usar cleanUrl
+                    dataUrl = cleanUrl
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -189,6 +189,51 @@ class SoloLatinoProvider : MainAPI() {
         }
     }
 
+    // Data class para la estructura de `sortedEmbeds`
+    data class SortedEmbed(
+        val servername: String,
+        val link: String, // Esta es la URL encriptada en Base64
+        val type: String
+    )
+
+    // Data class para la estructura de `dataLink`
+    data class DataLinkEntry(
+        val file_id: String,
+        val video_language: String,
+        val sortedEmbeds: List<SortedEmbed>
+    )
+
+    // Función para desencriptar la URL (reimplementando la lógica de CryptoJS)
+    private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
+        try {
+            // Decodificar Base64 usando android.util.Base64
+            val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT) // Usa Base64.DEFAULT para opciones de codificación
+
+            // El IV son los primeros 16 bytes (128 bits)
+            val ivBytes = encryptedBytes.copyOfRange(0, 16)
+            val ivSpec = IvParameterSpec(ivBytes)
+
+            // El texto cifrado es el resto de los bytes
+            val cipherTextBytes = encryptedBytes.copyOfRange(16, encryptedBytes.size)
+
+            // Clave secreta
+            val keySpec = SecretKeySpec(secretKey.toByteArray(UTF_8), "AES")
+
+            // Inicializar el cifrador para el modo de descifrado
+            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding") // AES/CBC/PKCS5Padding es equivalente a PKCS7 en CryptoJS
+            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+
+            // Realizar el descifrado
+            val decryptedBytes = cipher.doFinal(cipherTextBytes)
+
+            // Convertir el resultado a String UTF-8
+            return String(decryptedBytes, UTF_8)
+        } catch (e: Exception) {
+            Log.e("SoloLatino", "Error al descifrar link: ${e.message}", e)
+            return null
+        }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -198,8 +243,6 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "loadLinks - Data de entrada: $data")
 
         var cleanedData = data
-        // PRIMERO: Intenta limpiar la cadena que viene con "url":"..." o cualquier otro formato.
-        // Esta regex es muy permisiva y capturará la primera URL http/https encontrada.
         val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
         val match = regexExtractUrl.find(data)
 
@@ -211,16 +254,11 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val targetUrl: String
-
-        // SEGUNDO: Intenta parsear la data limpia como JSON para episodios.
-        // Si no es un JSON de episodio, asume que 'cleanedData' es una URL directa (para películas).
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
         if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url // Usa 'url' del EpisodeLoadData
+            targetUrl = parsedEpisodeData.url
             Log.d("SoloLatino", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            // Si no es JSON de episodio, 'cleanedData' YA DEBE SER una URL directa (para películas).
-            // APLICA fixUrl AQUÍ para asegurar que tenga el esquema correcto si viene de otra fuente
             targetUrl = fixUrl(cleanedData)
             Log.d("SoloLatino", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
@@ -230,13 +268,7 @@ class SoloLatinoProvider : MainAPI() {
             return false
         }
 
-        // El resto del código de loadLinks ahora usará 'targetUrl'
-        // para todas las peticiones HTTP y como 'referer' para extractores.
-
-        // Obtener el documento de la página principal de SoloLatino.net
         val doc = app.get(targetUrl).document
-
-        // 1. Intentar obtener el iframe del reproductor usando el selector más específico
         val iframeSrc = doc.selectFirst("div#dooplay_player_response_1 iframe.metaframe")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
@@ -248,7 +280,7 @@ class SoloLatinoProvider : MainAPI() {
 
             if (directMatches.isNotEmpty()) {
                 directMatches.apmap { directUrl ->
-                    loadExtractor(directUrl, targetUrl, subtitleCallback, callback) // 'targetUrl' como referer
+                    loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
                 }
                 return true
             }
@@ -266,41 +298,54 @@ class SoloLatinoProvider : MainAPI() {
             return false
         }
 
-        // --- INICIO DE LA NUEVA LÓGICA PARA embed69.org ---
-        // La imagen muestra botones para StreamWish, Filemoon, Voe, Vidhide, Download.
-        // Necesitamos extraer las URLs de esos botones.
-        val playerButtonLinks = mutableListOf<String>()
+        // --- NUEVA LÓGICA: Extraer y desencriptar `dataLink` del JavaScript ---
+        val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
-        // Ejemplo de selector para los botones de reproductores en embed69.org
-        // Suponiendo que son divs con la clase 'item-host' y un atributo 'data-url' o similar
-        // O que son enlaces <a> directos. Necesitamos inspeccionar el HTML de embed69.org para esto.
+        // Regex para encontrar la variable `dataLink` en el script
+        val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
+        val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
 
-        // Por ahora, vamos a intentar con un selector genérico para div con clase que contenga un enlace o data-url.
-        // Basado en la imagen, parecen ser <a> tags o div con onclick/data-url.
-        // Necesitarás *inspeccionar el HTML REAL* de embed69.org en tu navegador para obtener los selectores correctos.
-        // Por ejemplo, si son <a href="https://streamwish.to/...">
-        val extractorLinks = frameDoc.select("div.server-item a").mapNotNull { // Este selector es una suposición, ajusta según el HTML real
-            it.attr("href")
-        }.ifEmpty {
-            // Si no son enlaces directos, podrían ser divs con un atributo de datos, o onclick
-            // Por ejemplo, si el HTML es <div class="server-item" data-url="https://streamwish.to/...">
-            frameDoc.select("div.server-item").mapNotNull {
-                it.attr("data-url").ifBlank { null }
+        if (dataLinkJsonString.isNullOrBlank()) {
+            Log.e("SoloLatino", "No se encontró la variable dataLink en el script de embed69.org.")
+            return false
+        }
+
+        Log.d("SoloLatino", "dataLink JSON string encontrado: $dataLinkJsonString")
+
+        // Parsear el JSON a nuestra data class
+        val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
+
+        if (dataLinkEntries.isNullOrEmpty()) {
+            Log.e("SoloLatino", "Error al parsear dataLink JSON o está vacío.")
+            return false
+        }
+
+        // Obtener la clave secreta directamente de tu análisis (es fija)
+        val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+
+        // Iterar sobre los embeds y desencriptar
+        val foundLinks = mutableListOf<String>()
+        for (entry in dataLinkEntries) {
+            for (embed in entry.sortedEmbeds) {
+                if (embed.type == "video") { // Solo nos interesan los enlaces de video
+                    val decryptedLink = decryptLink(embed.link, secretKey)
+                    if (decryptedLink != null) {
+                        Log.d("SoloLatino", "Link desencriptado para ${embed.servername}: $decryptedLink")
+                        foundLinks.add(decryptedLink)
+                    }
+                }
             }
         }
 
-        if (extractorLinks.isNotEmpty()) {
-            Log.d("SoloLatino", "Enlaces de reproductores encontrados en embed69.org: $extractorLinks")
-            extractorLinks.apmap { playerUrl ->
-                Log.d("SoloLatino", "Cargando extractor para link de embed69.org: $playerUrl")
-                loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback) // iframeSrc como referer para el extractor
+        if (foundLinks.isNotEmpty()) {
+            foundLinks.apmap { playerUrl ->
+                Log.d("SoloLatino", "Cargando extractor para link desencriptado: $playerUrl")
+                loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
             }
             return true
+        } else {
+            Log.d("SoloLatino", "No se encontraron enlaces de video desencriptados de embed69.org.")
+            return false
         }
-        // --- FIN DE LA NUEVA LÓGICA PARA embed69.org ---
-
-
-        Log.d("SoloLatino", "No se encontraron enlaces de reproductores en embed69.org.")
-        return false
     }
 }
