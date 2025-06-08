@@ -17,11 +17,11 @@
     ],
     "version": 1,
     "internalName": "SoloLatinoProvider",
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatino.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
     "name": "SoloLatino"
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/Gnula.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/GnulaProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 1,

@@ -6,7 +6,7 @@ cloudstream {
     // All of these properties are optional, you can safely remove them
 
     description = "Contenido en Latino"
-    authors = listOf("Ranita, Yeji", "Mina")
+    authors = listOf("Ranita", "Yeji", "Mina")
 
     /**
      * Status int as the following:
@@ -18,7 +18,9 @@ cloudstream {
     status = 1 // will be 3 if unspecified
     tvTypes = listOf(
         "Movie",
-        "TvSeries"
+        "TvSeries",
+        "Cartoon",
+        "Anime"
     )
 
     //iconUrl = "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/NetflixMirrorProvider/icon.png"
