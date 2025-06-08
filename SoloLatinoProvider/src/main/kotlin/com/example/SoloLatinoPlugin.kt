@@ -13,7 +13,6 @@ import com.lagradost.cloudstream3.MainAPI // Necesario para registrar MainAPI
 @CloudstreamPlugin
 class SoloLatinoPlugin : Plugin() {
     /**
-     * El método 'load' se llama cuando tu plugin es cargado por CloudStream.
      * Aquí debes registrar todos tus proveedores (MainAPI).
      *
      * @param context El contexto de la aplicación.

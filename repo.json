@@ -8,15 +8,33 @@
     "authors": [
       "Ranita"
     ],
+    "description": "Plugin para SoloLatino",
     "tvTypes": [
       "Movie",
       "TvSeries",
       "Anime",
       "Cartoon"
     ],
-    "version": 2,
+    "version": 1,
     "internalName": "SoloLatinoProvider",
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatino.cs3",
     "name": "SoloLatino"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/Gnula.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 1,
+    "name": "Gnula",
+    "internalName": "GnulaProvider",
+    "authors": ["Ranita"],
+    "description": "Plugin para Gnula",
+    "tvTypes": [
+      "Movie",
+      "TvSeries"
+    ],
+    "language": "es",
+    "iconUrl": "https://gnula.life/favicon.ico",
+    "fileSize": 0
   }
 ]
