@@ -96,8 +96,28 @@ class SoloLatinoProvider : MainAPI() {
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = app.get(url).document
-        val tvType = if (url.contains("peliculas")) TvType.Movie else TvType.TvSeries
+        // --- INICIO DE LA CORRECCIÓN CLAVE ---
+        Log.d("SoloLatino", "load - URL de entrada: $url")
+
+        var cleanUrl = url
+        // Intentar limpiar la URL si viene envuelta en {"url":"..."}
+        val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
+        if (urlJsonMatch != null) {
+            cleanUrl = urlJsonMatch.groupValues[1]
+            Log.d("SoloLatino", "load - URL limpia por JSON Regex: $cleanUrl")
+        } else {
+            Log.d("SoloLatino", "load - URL no necesitaba limpieza JSON Regex, usando original: $cleanUrl")
+        }
+
+        if (cleanUrl.isBlank()) {
+            Log.e("SoloLatino", "load - ERROR: URL limpia está en blanco.")
+            return null
+        }
+        // --- FIN DE LA CORRECCIÓN CLAVE ---
+
+        // Usa 'cleanUrl' en lugar de 'url' para todas las operaciones posteriores
+        val doc = app.get(cleanUrl).document // <<-- ¡Esta es la línea 110 ahora!
+        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.wp-content")?.text() ?: ""
@@ -133,7 +153,7 @@ class SoloLatinoProvider : MainAPI() {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(
                     name = title,
-                    url = url,
+                    url = cleanUrl, // Usar cleanUrl
                     type = tvType,
                     episodes = episodes,
                 ) {
@@ -147,10 +167,9 @@ class SoloLatinoProvider : MainAPI() {
             TvType.Movie -> {
                 newMovieLoadResponse(
                     name = title,
-                    url = url,
+                    url = cleanUrl, // Usar cleanUrl
                     type = tvType,
-                    // dataUrl para películas: CloudStream puede envolver esta URL en JSON para loadLinks.
-                    dataUrl = url
+                    dataUrl = cleanUrl // Usar cleanUrl
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
