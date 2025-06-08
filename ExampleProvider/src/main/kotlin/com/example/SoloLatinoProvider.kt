@@ -123,7 +123,7 @@ class SoloLatinoProvider : MainAPI() {
         // --- FIN DE LA CORRECCIÓN CLAVE ---
 
         // Usa 'cleanUrl' en lugar de 'url' para todas las operaciones posteriores
-        val doc = app.get(cleanUrl).document // <<-- ¡Esta es la línea 110 ahora!
+        val doc = app.get(cleanUrl).document
         val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries // Puede que necesites una lógica más robusta aquí
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
@@ -233,15 +233,20 @@ class SoloLatinoProvider : MainAPI() {
         // El resto del código de loadLinks ahora usará 'targetUrl'
         // para todas las peticiones HTTP y como 'referer' para extractores.
 
-        // 1. Intentar obtener el iframe del reproductor
-        // Aquí es donde el error original sucedía, ahora 'targetUrl' debería ser válida.
-        val iframeSrc = app.get(targetUrl).document.selectFirst("iframe")?.attr("src")
+        // --- INICIO DE LA CORRECCIÓN PARA EL IFRAME ESPECÍFICO ---
+        // 1. Intentar obtener el iframe del reproductor usando un selector más específico
+        // Ahora buscamos el iframe dentro de div#dooplay_player_response_1
+        // y con la clase "metaframe".
+        val doc = app.get(targetUrl).document
+        val iframeSrc = doc.selectFirst("div#dooplay_player_response_1 iframe.metaframe")?.attr("src")
+        // --- FIN DE LA CORRECCIÓN PARA EL IFRAME ESPECÍFICO ---
+
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("SoloLatino", "No se encontró iframe en la página principal del episodio/película. Intentando buscar en scripts.")
-            val scriptContent = app.get(targetUrl).document.select("script").map { it.html() }.joinToString("\n")
+            Log.d("SoloLatino", "No se encontró iframe del reproductor con el selector específico. Intentando buscar en scripts.")
+            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n") // Usar 'doc' en lugar de app.get(targetUrl).document de nuevo
 
-            val directRegex = """url:\s*['"](https?://[^'"]+)['"]""".toRegex()
+            val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (directMatches.isNotEmpty()) {
@@ -265,37 +270,40 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val frameHtml = frameDoc.html()
-        Log.d("SoloLatino", "HTML del iframe (fragmento): ${frameHtml.take(500)}...")
+        Log.d("SoloLatino", "HTML del iframe (fragmento): ${frameHtml.take(500)}...") // Reduce para ver más en logcat
 
         // 3. Aplicar regex para encontrar la URL del reproductor dentro del contenido del iframe
-        val regex = """(go_to_player|go_to_playerVast)\('(.*?)'""".toRegex()
-        val playerLinks = regex.findAll(frameHtml).map {
-            it.groupValues[2]
-        }.toList()
+        // La regex go_to_player/go_to_playerVast es común, vamos a intentar con ella.
+        // Si embed69.org usa un extractor conocido por CloudStream, loadExtractor lo manejará.
+        val playerLinks = mutableListOf<String>()
+
+        // Opción A: Buscar go_to_player/go_to_playerVast como en el código original
+        val regexPlayerJs = """(go_to_player|go_to_playerVast)\('(.*?)'""".toRegex()
+        regexPlayerJs.findAll(frameHtml).mapTo(playerLinks) { it.groupValues[2] }
+
+        // Opción B: Buscar URLs de video directas en scripts o en etiquetas <source> dentro del iframe
+        if (playerLinks.isEmpty()) {
+            Log.d("SoloLatino", "No se encontraron enlaces go_to_player/go_to_playerVast en el iframe. Buscando enlaces directos en scripts del iframe.")
+            val iframeScriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
+            val iframeDirectRegex = """(https?:\/\/[^"']+\.(mp4|m3u8|mkv|avi|webm)(?:[\?#][^\s"']*)?)""".toRegex() // Más específica para archivos de video
+            iframeDirectRegex.findAll(iframeScriptContent).mapTo(playerLinks) { it.groupValues[1] }
+        }
 
         if (playerLinks.isEmpty()) {
-            Log.d("SoloLatino", "No se encontraron enlaces go_to_player/go_to_playerVast en el iframe. Intentando buscar un reproductor directo...")
+            Log.d("SoloLatino", "No se encontraron enlaces de reproductor en scripts del iframe. Buscando <video> o <source> directos en el iframe.")
             val videoSrc = frameDoc.selectFirst("video source")?.attr("src") ?: frameDoc.selectFirst("video")?.attr("src")
             if (!videoSrc.isNullOrBlank()) {
-                callback.invoke(
-                    newExtractorLink(
-                        name,
-                        "Direct Play",
-                        fixUrl(videoSrc),
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.referer = targetUrl // 'targetUrl' como referer
-                        this.quality = Qualities.Unknown.value
-                    }
-                )
-                return true
+                playerLinks.add(fixUrl(videoSrc))
             }
+        }
 
+
+        if (playerLinks.isEmpty()) {
             Log.d("SoloLatino", "No se encontró ningún enlace de video obvio en el iframe ni en scripts.")
             return false
         }
 
-        Log.d("SoloLatino", "Enlaces de reproductor encontrados por regex: $playerLinks")
+        Log.d("SoloLatino", "Enlaces de reproductor encontrados: $playerLinks")
 
         // 4. Cargar los enlaces encontrados usando loadExtractor
         playerLinks.apmap { playerUrl ->
