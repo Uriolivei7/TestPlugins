@@ -168,33 +168,36 @@ class SoloLatinoProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("SoloLatino", "loadLinks llamada para data (original): $data")
+        Log.d("SoloLatino", "loadLinks - Data de entrada: $data")
 
-        var targetUrl: String
+        var cleanedData = data
+        // Primero, intenta eliminar la envoltura ("url":"...") o ('url':'...')
+        // Esto cubre casos como ("url":"https://..."), 'url':'https://...', url:"https://...", etc.
+        val regexExtractUrl = Regex("""^(?:["(']*url["':]*\s*)*["']*(https?:\/\/[^"')\s]+)["']*(?:[\s"')]*)?$""")
+        val match = regexExtractUrl.find(data)
 
-        // Intenta parsear 'data' como JSON (esto funcionará para episodios)
-        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
-        if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url
-            Log.d("SoloLatino", "loadLinks: Data JSON para episodio. URL a cargar: $targetUrl")
+        if (match != null) {
+            cleanedData = match.groupValues[1]
+            Log.d("SoloLatino", "loadLinks - Data limpia por Regex: $cleanedData")
         } else {
-            // Si no es JSON, asume que 'data' ya es una URL directa (para películas).
-            // ¡NUEVA LÓGICA DE LIMPIEZA AQUI!
-            // Esta regex busca un patrón como ("url":"http://..."), 'url':'http://...',
-            // o simplemente http://...
-            val regexCleanUrl = Regex("""^["(']*url["':]*\s*["']*(https?://[^"')]+)["']*\s*["')]?$""")
-            val match = regexCleanUrl.find(data)
+            Log.d("SoloLatino", "loadLinks - Data no necesita limpieza Regex, usando original: $cleanedData")
+        }
 
-            targetUrl = if (match != null) {
-                match.groupValues[1] // Captura solo la URL limpia (el grupo 1 de la regex)
-            } else {
-                data // Si no coincide con el patrón extraño, usa 'data' tal cual (debería ser una URL limpia)
-            }
-            Log.d("SoloLatino", "loadLinks: Data es URL directa (película/búsqueda). URL a cargar (limpia): $targetUrl")
+        val targetUrl: String
+
+        // Intenta parsear la data limpia como JSON (esto funcionará para episodios)
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
+        if (parsedEpisodeData != null) {
+            targetUrl = parsedEpisodeData.url // Usa 'url' del EpisodeLoadData
+            Log.d("SoloLatino", "loadLinks - URL final de episodio (de JSON): $targetUrl")
+        } else {
+            // Si no es JSON, asume que 'cleanedData' ya es una URL directa (para películas)
+            targetUrl = cleanedData
+            Log.d("SoloLatino", "loadLinks - URL final de película (directa): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
-            Log.e("SoloLatino", "loadLinks: URL objetivo está en blanco después de procesar 'data'.")
+            Log.e("SoloLatino", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
             return false
         }
 
