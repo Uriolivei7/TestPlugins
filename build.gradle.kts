@@ -38,13 +38,13 @@ subprojects {
 
     cloudstream {
         // when running through github workflow, GITHUB_REPOSITORY should contain current repository name
-        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/SaurabhKaperwan/CSX")
+        setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/Uriolivei/TestPlugins")
 
-        authors = listOf("megix")
+        authors = listOf("Ranita")
     }
 
     android {
-        namespace = "com.megix"
+        namespace = "com.example"
 
         defaultConfig {
             minSdk = 21
