@@ -233,18 +233,15 @@ class SoloLatinoProvider : MainAPI() {
         // El resto del código de loadLinks ahora usará 'targetUrl'
         // para todas las peticiones HTTP y como 'referer' para extractores.
 
-        // --- INICIO DE LA CORRECCIÓN PARA EL IFRAME ESPECÍFICO ---
-        // 1. Intentar obtener el iframe del reproductor usando un selector más específico
-        // Ahora buscamos el iframe dentro de div#dooplay_player_response_1
-        // y con la clase "metaframe".
+        // Obtener el documento de la página principal de SoloLatino.net
         val doc = app.get(targetUrl).document
-        val iframeSrc = doc.selectFirst("div#dooplay_player_response_1 iframe.metaframe")?.attr("src")
-        // --- FIN DE LA CORRECCIÓN PARA EL IFRAME ESPECÍFICO ---
 
+        // 1. Intentar obtener el iframe del reproductor usando el selector más específico
+        val iframeSrc = doc.selectFirst("div#dooplay_player_response_1 iframe.metaframe")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("SoloLatino", "No se encontró iframe del reproductor con el selector específico. Intentando buscar en scripts.")
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n") // Usar 'doc' en lugar de app.get(targetUrl).document de nuevo
+            Log.d("SoloLatino", "No se encontró iframe del reproductor con el selector específico en SoloLatino.net. Intentando buscar en scripts de la página principal.")
+            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
             val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
@@ -255,13 +252,13 @@ class SoloLatinoProvider : MainAPI() {
                 }
                 return true
             }
-            Log.d("SoloLatino", "No se encontraron enlaces directos en scripts.")
+            Log.d("SoloLatino", "No se encontraron enlaces directos en scripts de la página principal.")
             return false
         }
 
         Log.d("SoloLatino", "Iframe encontrado: $iframeSrc")
 
-        // 2. Hacer una petición al src del iframe para obtener su contenido
+        // 2. Hacer una petición al src del iframe (embed69.org) para obtener su contenido
         val frameDoc = try {
             app.get(fixUrl(iframeSrc)).document
         } catch (e: Exception) {
@@ -269,47 +266,41 @@ class SoloLatinoProvider : MainAPI() {
             return false
         }
 
-        val frameHtml = frameDoc.html()
-        Log.d("SoloLatino", "HTML del iframe (fragmento): ${frameHtml.take(500)}...") // Reduce para ver más en logcat
+        // --- INICIO DE LA NUEVA LÓGICA PARA embed69.org ---
+        // La imagen muestra botones para StreamWish, Filemoon, Voe, Vidhide, Download.
+        // Necesitamos extraer las URLs de esos botones.
+        val playerButtonLinks = mutableListOf<String>()
 
-        // 3. Aplicar regex para encontrar la URL del reproductor dentro del contenido del iframe
-        // La regex go_to_player/go_to_playerVast es común, vamos a intentar con ella.
-        // Si embed69.org usa un extractor conocido por CloudStream, loadExtractor lo manejará.
-        val playerLinks = mutableListOf<String>()
+        // Ejemplo de selector para los botones de reproductores en embed69.org
+        // Suponiendo que son divs con la clase 'item-host' y un atributo 'data-url' o similar
+        // O que son enlaces <a> directos. Necesitamos inspeccionar el HTML de embed69.org para esto.
 
-        // Opción A: Buscar go_to_player/go_to_playerVast como en el código original
-        val regexPlayerJs = """(go_to_player|go_to_playerVast)\('(.*?)'""".toRegex()
-        regexPlayerJs.findAll(frameHtml).mapTo(playerLinks) { it.groupValues[2] }
-
-        // Opción B: Buscar URLs de video directas en scripts o en etiquetas <source> dentro del iframe
-        if (playerLinks.isEmpty()) {
-            Log.d("SoloLatino", "No se encontraron enlaces go_to_player/go_to_playerVast en el iframe. Buscando enlaces directos en scripts del iframe.")
-            val iframeScriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
-            val iframeDirectRegex = """(https?:\/\/[^"']+\.(mp4|m3u8|mkv|avi|webm)(?:[\?#][^\s"']*)?)""".toRegex() // Más específica para archivos de video
-            iframeDirectRegex.findAll(iframeScriptContent).mapTo(playerLinks) { it.groupValues[1] }
-        }
-
-        if (playerLinks.isEmpty()) {
-            Log.d("SoloLatino", "No se encontraron enlaces de reproductor en scripts del iframe. Buscando <video> o <source> directos en el iframe.")
-            val videoSrc = frameDoc.selectFirst("video source")?.attr("src") ?: frameDoc.selectFirst("video")?.attr("src")
-            if (!videoSrc.isNullOrBlank()) {
-                playerLinks.add(fixUrl(videoSrc))
+        // Por ahora, vamos a intentar con un selector genérico para div con clase que contenga un enlace o data-url.
+        // Basado en la imagen, parecen ser <a> tags o div con onclick/data-url.
+        // Necesitarás *inspeccionar el HTML REAL* de embed69.org en tu navegador para obtener los selectores correctos.
+        // Por ejemplo, si son <a href="https://streamwish.to/...">
+        val extractorLinks = frameDoc.select("div.server-item a").mapNotNull { // Este selector es una suposición, ajusta según el HTML real
+            it.attr("href")
+        }.ifEmpty {
+            // Si no son enlaces directos, podrían ser divs con un atributo de datos, o onclick
+            // Por ejemplo, si el HTML es <div class="server-item" data-url="https://streamwish.to/...">
+            frameDoc.select("div.server-item").mapNotNull {
+                it.attr("data-url").ifBlank { null }
             }
         }
 
-
-        if (playerLinks.isEmpty()) {
-            Log.d("SoloLatino", "No se encontró ningún enlace de video obvio en el iframe ni en scripts.")
-            return false
+        if (extractorLinks.isNotEmpty()) {
+            Log.d("SoloLatino", "Enlaces de reproductores encontrados en embed69.org: $extractorLinks")
+            extractorLinks.apmap { playerUrl ->
+                Log.d("SoloLatino", "Cargando extractor para link de embed69.org: $playerUrl")
+                loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback) // iframeSrc como referer para el extractor
+            }
+            return true
         }
+        // --- FIN DE LA NUEVA LÓGICA PARA embed69.org ---
 
-        Log.d("SoloLatino", "Enlaces de reproductor encontrados: $playerLinks")
 
-        // 4. Cargar los enlaces encontrados usando loadExtractor
-        playerLinks.apmap { playerUrl ->
-            Log.d("SoloLatino", "Cargando extractor para: $playerUrl")
-            loadExtractor(fixUrl(playerUrl), targetUrl, subtitleCallback, callback) // 'targetUrl' como referer
-        }
-        return true
+        Log.d("SoloLatino", "No se encontraron enlaces de reproductores en embed69.org.")
+        return false
     }
 }
