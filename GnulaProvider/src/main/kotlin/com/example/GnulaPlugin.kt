@@ -1,9 +1,9 @@
-package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo.
+package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
 
 import android.content.Context
-import com.lagradost.cloudstream3.plugins.CloudstreamPlugin // Importa la anotación CloudstreamPlugin
-import com.lagradost.cloudstream3.plugins.Plugin // Importa la clase base Plugin
-import com.lagradost.cloudstream3.MainAPI // Necesario para registrar MainAPI
+import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.plugins.Plugin
+import com.lagradost.cloudstream3.MainAPI
 
 /**
  * Esta es la clase principal de tu plugin para CloudStream.
@@ -13,22 +13,13 @@ import com.lagradost.cloudstream3.MainAPI // Necesario para registrar MainAPI
 @CloudstreamPlugin
 class GnulaPlugin : Plugin() {
     /**
-     * El método 'load' se llama cuando tu plugin es cargado por CloudStream.
      * Aquí debes registrar todos tus proveedores (MainAPI).
      *
      * @param context El contexto de la aplicación.
      */
     override fun load(context: Context) {
-        // Inicializa cualquier configuración global si es necesario.
-        // Por ejemplo, si tu SoloLatinoProvider necesitara una inicialización global:
-        // SoloLatinoStorage.init(context.applicationContext) // Si tuvieras una clase de almacenamiento similar a NetflixMirror
-
-        // Registra tu SoloLatinoProvider.
-        // Asegúrate de que SoloLatinoProvider no tenga la anotación @CloudstreamPlugin.
+        // Registra tu GnulaProvider.
+        // GnulaProvider NO DEBE tener la anotación @CloudstreamPlugin.
         registerMainAPI(GnulaProvider())
-
-        // Si tuvieras otros proveedores, los registrarías aquí también:
-        // registerMainAPI(OtroProveedor())
-        // registerMainAPI(TercerProveedor())
     }
 }
