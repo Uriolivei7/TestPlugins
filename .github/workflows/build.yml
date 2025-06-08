@@ -3,7 +3,7 @@ name: Publicar Plugins CloudStream
 on:
   push:
     branches:
-      - master # o la rama principal de tu código fuente (ej: main)
+      - master # <--- ¡IMPORTANTE! Cambia esto a 'main' si esa es tu rama principal.
 
 jobs:
   build_and_publish:
@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout del código fuente
-        uses: actions/checkout@v4 # Asegura que se checkout la rama actual (master/main)
+        uses: actions/checkout@v4
 
       - name: Configurar Java
         uses: actions/setup-java@v4
@@ -21,19 +21,21 @@ jobs:
 
       - name: Construir Plugins
         run: |
-          cd $GITHUB_WORKSPACE/src # Cambia al directorio del código fuente
+          # El script 'gradlew' y el 'build.gradle.kts' principal
+          # están en la raíz del repositorio, así que no es necesario 'cd'
           chmod +x gradlew # Otorga permisos de ejecución al script gradlew
           ./gradlew clean make makePluginsJson --refresh-dependencies # Ejecuta las tareas de Gradle
           
-          # Copia el repo.json y plugins.json a la raíz del repositorio (rama master)
-          # Esto los hará accesibles vía raw.githubusercontent.com
-          cp build/repo.json $GITHUB_WORKSPACE/repo.json
-          cp build/plugins.json $GITHUB_WORKSPACE/plugins.json # Si también se usa plugins.json
+          # Copia el repo.json y plugins.json generados por Gradle a la raíz del repositorio.
+          # Esto los hará accesibles vía raw.githubusercontent.com/<tu_usuario>/<tu_repo>/master/repo.json
+          cp build/repo.json . 
+          cp build/plugins.json . # Copia plugins.json si también lo necesitas para tu repositorio
 
           # Asegura que la carpeta 'plugins' exista en la raíz del repositorio
-          # y copia los .cs3 allí. El repo.json ya espera esta ruta.
-          mkdir -p $GITHUB_WORKSPACE/plugins
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/plugins/ || true
+          # y copia todos los archivos .cs3 generados allí.
+          # El repo.json generado por el plugin de CloudStream esperará esta ruta.
+          mkdir -p plugins
+          cp **/build/*.cs3 plugins/ || true
 
         shell: bash
 
@@ -41,4 +43,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: 'Publicar archivos de CloudStream (repo.json, plugins.json, .cs3) en raw.githubusercontent.com'
-          # Los archivos se subirán a la misma rama que activó el workflow (master/main)
+          # Esta acción subirá automáticamente los archivos copiados en los pasos anteriores
+          # a la misma rama que activó el workflow (master/main).
