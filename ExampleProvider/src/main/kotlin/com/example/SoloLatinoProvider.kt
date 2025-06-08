@@ -14,7 +14,7 @@ import org.jsoup.nodes.Element
 // ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
     override var mainUrl = "https://sololatino.net"
-    override var name = "SoloLatino"
+    override var name = "SoloLatino" // Nombre más amigable para el usuario
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -54,7 +54,7 @@ class SoloLatinoProvider : MainAPI() {
                 if (title != null && link != null) {
                     newAnimeSearchResponse(
                         title,
-                        fixUrl(link) // ¡CORRECCIÓN! Pasa la URL directamente para load()
+                        fixUrl(link) // Pasa la URL directamente
                     ) {
                         this.type = tvType
                         this.posterUrl = img
@@ -80,7 +80,7 @@ class SoloLatinoProvider : MainAPI() {
             if (title != null && link != null) {
                 newAnimeSearchResponse(
                     title,
-                    fixUrl(link) // ¡CORRECCIÓN! Pasa la URL directamente para load()
+                    fixUrl(link) // Pasa la URL directamente
                 ) {
                     this.type = TvType.TvSeries // Asume TvType.TvSeries para búsquedas
                     this.posterUrl = img
@@ -149,7 +149,8 @@ class SoloLatinoProvider : MainAPI() {
                     name = title,
                     url = url,
                     type = tvType,
-                    dataUrl = url // 'url' es la URL de la película de la función load()
+                    // dataUrl para películas: CloudStream puede envolver esta URL en JSON para loadLinks.
+                    dataUrl = url
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -171,29 +172,30 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "loadLinks - Data de entrada: $data")
 
         var cleanedData = data
-        // Primero, intenta eliminar la envoltura ("url":"...") o ('url':'...')
-        // Esto cubre casos como ("url":"https://..."), 'url':'https://...', url:"https://...", etc.
-        val regexExtractUrl = Regex("""^(?:["(']*url["':]*\s*)*["']*(https?:\/\/[^"')\s]+)["']*(?:[\s"')]*)?$""")
+        // PRIMERO: Intenta limpiar la cadena que viene con "url":"..." o cualquier otro formato.
+        // Esta regex es muy permisiva y capturará la primera URL http/https encontrada.
+        val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
         val match = regexExtractUrl.find(data)
 
         if (match != null) {
             cleanedData = match.groupValues[1]
-            Log.d("SoloLatino", "loadLinks - Data limpia por Regex: $cleanedData")
+            Log.d("SoloLatino", "loadLinks - Data limpia por Regex (primer intento): $cleanedData")
         } else {
-            Log.d("SoloLatino", "loadLinks - Data no necesita limpieza Regex, usando original: $cleanedData")
+            Log.d("SoloLatino", "loadLinks - Regex inicial no encontró coincidencia. Usando data original: $cleanedData")
         }
 
         val targetUrl: String
 
-        // Intenta parsear la data limpia como JSON (esto funcionará para episodios)
+        // SEGUNDO: Intenta parsear la data limpia como JSON para episodios.
+        // Si no es un JSON de episodio, asume que 'cleanedData' es una URL directa (para películas).
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
         if (parsedEpisodeData != null) {
             targetUrl = parsedEpisodeData.url // Usa 'url' del EpisodeLoadData
             Log.d("SoloLatino", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            // Si no es JSON, asume que 'cleanedData' ya es una URL directa (para películas)
+            // Si no es JSON de episodio, 'cleanedData' YA DEBE SER una URL directa (para películas).
             targetUrl = cleanedData
-            Log.d("SoloLatino", "loadLinks - URL final de película (directa): $targetUrl")
+            Log.d("SoloLatino", "loadLinks - URL final de película (directa o ya limpia): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
@@ -205,6 +207,7 @@ class SoloLatinoProvider : MainAPI() {
         // para todas las peticiones HTTP y como 'referer' para extractores.
 
         // 1. Intentar obtener el iframe del reproductor
+        // Aquí es donde el error original sucedía, ahora 'targetUrl' debería ser válida.
         val iframeSrc = app.get(targetUrl).document.selectFirst("iframe")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
