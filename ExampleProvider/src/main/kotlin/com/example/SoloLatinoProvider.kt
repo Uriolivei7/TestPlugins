@@ -95,8 +95,6 @@ class SoloLatinoProvider : MainAPI() {
         val url: String // Usamos 'url' para mayor claridad
     )
 
-    // Nota: DataId ya no es estrictamente necesaria para SearchResponse si pasamos la URL directamente
-
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url).document
         val tvType = if (url.contains("peliculas")) TvType.Movie else TvType.TvSeries
@@ -165,24 +163,34 @@ class SoloLatinoProvider : MainAPI() {
     }
 
     override suspend fun loadLinks(
-        data: String, // ¡CORRECCIÓN! 'data' puede ser URL directa o JSON de episodio
+        data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("SoloLatino", "loadLinks llamada para data: $data")
+        Log.d("SoloLatino", "loadLinks llamada para data (original): $data")
 
-        val targetUrl: String
+        var targetUrl: String
 
         // Intenta parsear 'data' como JSON (esto funcionará para episodios)
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
         if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url // Usa 'url' del EpisodeLoadData
+            targetUrl = parsedEpisodeData.url
             Log.d("SoloLatino", "loadLinks: Data JSON para episodio. URL a cargar: $targetUrl")
         } else {
-            // Si no es JSON, asume que 'data' ya es una URL directa (para películas)
-            targetUrl = data
-            Log.d("SoloLatino", "loadLinks: Data es URL directa (película/búsqueda). URL a cargar: $targetUrl")
+            // Si no es JSON, asume que 'data' ya es una URL directa (para películas).
+            // ¡NUEVA LÓGICA DE LIMPIEZA AQUI!
+            // Esta regex busca un patrón como ("url":"http://..."), 'url':'http://...',
+            // o simplemente http://...
+            val regexCleanUrl = Regex("""^["(']*url["':]*\s*["']*(https?://[^"')]+)["']*\s*["')]?$""")
+            val match = regexCleanUrl.find(data)
+
+            targetUrl = if (match != null) {
+                match.groupValues[1] // Captura solo la URL limpia (el grupo 1 de la regex)
+            } else {
+                data // Si no coincide con el patrón extraño, usa 'data' tal cual (debería ser una URL limpia)
+            }
+            Log.d("SoloLatino", "loadLinks: Data es URL directa (película/búsqueda). URL a cargar (limpia): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
