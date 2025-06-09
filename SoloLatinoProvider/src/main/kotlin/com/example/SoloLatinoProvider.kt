@@ -282,7 +282,7 @@ class SoloLatinoProvider : MainAPI() {
 
         // --- LÓGICA PRINCIPAL: Manejar diferentes dominios de iframes ---
 
-        // 1. Manejar Xupalace.org
+        // 1. Manejar Xupalace.org (¡MODIFICADO!)
         if (iframeSrc.contains("xupalace.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe: $iframeSrc")
             val xupalaceDoc = try {
@@ -292,24 +292,25 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
+            // Regex para extraer la URL de go_to_playerVast
             val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
 
-            // Selector Jsoup ajustado para Xupalace.org
-            val liElements = xupalaceDoc.select("div.OD_1_REactiv li[onclick*='go_to_playerVast']")
+            // Buscar elementos con onclick que contengan 'go_to_playerVast'
+            val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
 
-            if (liElements.isEmpty()) {
-                Log.w("SoloLatino", "No se encontraron elementos <li> con 'go_to_playerVast' en xupalace.org con el selector actualizado.")
+            if (elementsWithOnclick.isEmpty()) {
+                Log.w("SoloLatino", "No se encontraron elementos con 'go_to_playerVast' en xupalace.org con el selector general.")
                 return false
             }
 
             val foundXupalaceLinks = mutableListOf<String>()
-            for (li in liElements) {
-                val onclickAttr = li.attr("onclick")
+            for (element in elementsWithOnclick) {
+                val onclickAttr = element.attr("onclick")
                 val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
 
                 if (matchPlayerUrl != null) {
                     val videoUrl = matchPlayerUrl.groupValues[1]
-                    val serverName = li.selectFirst("span")?.text()?.trim() ?: "Desconocido"
+                    val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
                     Log.d("SoloLatino", "Xupalace: Encontrado servidor '$serverName' con URL: $videoUrl")
                     if (videoUrl.isNotBlank()) {
                         foundXupalaceLinks.add(videoUrl)
@@ -330,7 +331,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 2. Manejar re.sololatino.net/embed.php (Nueva lógica, basada en image_9bd3b1.png)
+        // 2. Manejar re.sololatino.net/embed.php (¡MODIFICADO!)
         else if (iframeSrc.contains("re.sololatino.net/embed.php")) {
             Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $iframeSrc")
             val embedDoc = try {
@@ -340,24 +341,25 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
-            val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""") // Regex para go_to_player
+            // Regex para extraer la URL de go_to_player
+            val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""")
 
-            // Selector Jsoup ajustado para re.sololatino.net/embed.php
-            val liElements = embedDoc.select("div.OD_OD_LAT.Reactiv li[onclick*='go_to_player']")
+            // Buscar elementos con onclick que contengan 'go_to_player'
+            val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
 
-            if (liElements.isEmpty()) {
-                Log.w("SoloLatino", "No se encontraron elementos <li> con 'go_to_player' en re.sololatino.net/embed.php con el selector actualizado.")
+            if (elementsWithOnclick.isEmpty()) {
+                Log.w("SoloLatino", "No se encontraron elementos con 'go_to_player' en re.sololatino.net/embed.php con el selector general.")
                 return false
             }
 
             val foundReSoloLatinoLinks = mutableListOf<String>()
-            for (li in liElements) {
-                val onclickAttr = li.attr("onclick")
+            for (element in elementsWithOnclick) {
+                val onclickAttr = element.attr("onclick")
                 val matchPlayerUrl = regexGoToPlayerUrl.find(onclickAttr)
 
                 if (matchPlayerUrl != null) {
                     val videoUrl = matchPlayerUrl.groupValues[1]
-                    val serverName = li.selectFirst("span")?.text()?.trim() ?: "Desconocido" // Extrae el nombre del servidor del <span>
+                    val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
                     Log.d("SoloLatino", "re.sololatino.net: Encontrado servidor '$serverName' con URL: $videoUrl")
                     if (videoUrl.isNotBlank()) {
                         foundReSoloLatinoLinks.add(videoUrl)
@@ -378,7 +380,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 3. Manejar embed69.org (Lógica de dataLink existente)
+        // 3. Manejar embed69.org (Lógica de dataLink existente - FUNCIONANDO BIEN)
         else if (iframeSrc.contains("embed69.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado embed69.org iframe: $iframeSrc")
             val frameDoc = try {
@@ -433,7 +435,6 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // Si no es ninguno de los iframes conocidos
         else {
             Log.w("SoloLatino", "Tipo de iframe desconocido o no manejado: $iframeSrc")
             return false
