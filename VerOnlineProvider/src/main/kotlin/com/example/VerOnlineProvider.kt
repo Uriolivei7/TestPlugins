@@ -2,11 +2,10 @@ package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con l
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller // Posiblemente no exista o no sea necesaria en versiones muy antiguas
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.APIHolder.unixTime // Confirmado que existe en tu SoloLatino
-import com.lagradost.cloudstream3.utils.AppUtils.toJson // Confirmado que existe en tu SoloLatino
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Confirmado que existe en tu SoloLatino
+import com.lagradost.cloudstream3.APIHolder.unixTime
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -16,11 +15,6 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
-
-// ¡IMPORTANTE! Se eliminan estas importaciones, basándonos en tu confirmación de SoloLatino.
-// Si aún así da error, es un problema de Android Studio (caché) o de la versión real del API.
-// import com.lagradost.cloudstream3.extractors.ExtractorLink
-// import com.lagradost.cloudstream3.extractors.ExtractorLinkType
 
 class VerOnlineProvider : MainAPI() {
     override var mainUrl = "https://www.veronline.cfd"
@@ -54,7 +48,10 @@ class VerOnlineProvider : MainAPI() {
                 else -> TvType.Others
             }
             try {
+                Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url") // LOG NUEVO
                 val doc = app.get(url).document
+                // LOG NUEVO: Muestra los primeros 1000 caracteres del HTML para ver si hay contenido
+                Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
                 val homeItems = doc.select("div.owl-item article.item").mapNotNull { articleElement ->
                     val title = articleElement.selectFirst("a div.data h3")?.text()
                     val link = articleElement.selectFirst("a")?.attr("href")
@@ -72,9 +69,12 @@ class VerOnlineProvider : MainAPI() {
                         }
                     } else null
                 }
+                // LOG NUEVO: Muestra cuántos ítems se encontraron
+                Log.d("VerOnline", "getMainPage - Encontrados ${homeItems.size} ítems para $url")
                 HomePageList(name, homeItems)
             } catch (e: Exception) {
-                Log.e("VerOnline", "Error al obtener la página principal para $url: ${e.message}", e)
+                // Modificado para incluir el tipo de excepción
+                Log.e("VerOnline", "Error al obtener la página principal para $url: ${e.message} - ${e.stackTraceToString()}", e)
                 null
             }
         }.filterNotNull()
@@ -85,9 +85,12 @@ class VerOnlineProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
+        Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
-            return doc.select("div.result-item article.item").mapNotNull { articleElement ->
+            // LOG NUEVO: Muestra los primeros 1000 caracteres del HTML para ver si hay contenido
+            Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
+            val searchResults = doc.select("div.result-item article.item").mapNotNull { articleElement ->
                 val title = articleElement.selectFirst("a div.data h3")?.text()
                 val link = articleElement.selectFirst("a")?.attr("href")
                 val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
@@ -104,8 +107,12 @@ class VerOnlineProvider : MainAPI() {
                     }
                 } else null
             }
+            // LOG NUEVO: Muestra cuántos resultados se encontraron
+            Log.d("VerOnline", "search - Encontrados ${searchResults.size} resultados para '$query'")
+            return searchResults
         } catch (e: Exception) {
-            Log.e("VerOnline", "Error en la búsqueda para '$query': ${e.message}", e)
+            // Modificado para incluir el tipo de excepción y el stack trace completo
+            Log.e("VerOnline", "Error en la búsqueda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
             return emptyList()
         }
     }
@@ -139,7 +146,7 @@ class VerOnlineProvider : MainAPI() {
         val doc = try {
             app.get(cleanUrl).document
         } catch (e: Exception) {
-            Log.e("VerOnline", "load - ERROR al obtener el documento para URL: $cleanUrl - ${e.message}", e)
+            Log.e("VerOnline", "load - ERROR al obtener el documento para URL: $cleanUrl - ${e.message} - ${e.stackTraceToString()}", e)
             return null
         }
 
@@ -254,12 +261,11 @@ class VerOnlineProvider : MainAPI() {
 
             return String(decryptedBytes, UTF_8)
         } catch (e: Exception) {
-            Log.e("VerOnline", "Error al descifrar link: ${e.message}", e)
+            Log.e("VerOnline", "Error al descifrar link: ${e.message} - ${e.stackTraceToString()}", e)
             return null
         }
     }
 
-    // Firma de loadLinks con callback para Video, como en tu SoloLatino si no usa ExtractorLink
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -297,7 +303,7 @@ class VerOnlineProvider : MainAPI() {
         val doc = try {
             app.get(targetUrl).document
         } catch (e: Exception) {
-            Log.e("VerOnline", "loadLinks - ERROR al obtener el documento para URL: $targetUrl - ${e.message}", e)
+            Log.e("VerOnline", "loadLinks - ERROR al obtener el documento para URL: $targetUrl - ${e.message} - ${e.stackTraceToString()}", e)
             return false
         }
 
@@ -318,8 +324,6 @@ class VerOnlineProvider : MainAPI() {
             if (directMatches.isNotEmpty()) {
                 Log.d("VerOnline", "Encontrados ${directMatches.size} enlaces directos en script de página principal.")
                 directMatches.apmap { directUrl ->
-                    // loadExtractor sigue llamando al callback. Esto funcionará si loadExtractor
-                    // en tu API acepta un callback de (Video) -> Unit.
                     loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
                 }
                 return true
@@ -336,7 +340,7 @@ class VerOnlineProvider : MainAPI() {
                 val xupalaceDoc = try {
                     app.get(fixUrl(iframeSrc)).document
                 } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message}")
+                    Log.e("VerOnline", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
                     return false
                 }
 
@@ -376,7 +380,7 @@ class VerOnlineProvider : MainAPI() {
                 val embedDoc = try {
                     app.get(fixUrl(iframeSrc)).document
                 } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe de re.veronline.cfd ($iframeSrc): ${e.message}")
+                    Log.e("VerOnline", "Error al obtener el contenido del iframe de re.veronline.cfd ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
                     return false
                 }
 
@@ -416,7 +420,7 @@ class VerOnlineProvider : MainAPI() {
                 val frameDoc = try {
                     app.get(fixUrl(iframeSrc)).document
                 } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe ($iframeSrc): ${e.message}")
+                    Log.e("VerOnline", "Error al obtener el contenido del iframe ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
                     return false
                 }
 
