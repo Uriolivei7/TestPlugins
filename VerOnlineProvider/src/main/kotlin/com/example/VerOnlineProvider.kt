@@ -1,11 +1,11 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo.
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.APIHolder.unixTime
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import com.lagradost.cloudstream3.utils.* // Importa todas las utilidades generales
+import com.lagradost.cloudstream3.utils.AppUtils.toJson // Importa específicamente toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importa específicamente tryParseJson
+// import com.lagradost.cloudstream3.utils.AppUtils.fixUrl // Comentamos esta, ya que AppUtils.* debería cubrirla.
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -19,11 +19,10 @@ import kotlin.text.Charsets.UTF_8
 class VerOnlineProvider : MainAPI() {
     override var mainUrl = "https://www.veronline.cfd"
     override var name = "VerOnline"
-    // Modificado: Solo soporta TvSeries y Anime/Cartoon si la página es exclusivamente de series.
     override val supportedTypes = setOf(
         TvType.TvSeries,
-        TvType.Anime, // Mantener si el sitio tiene animes también
-        TvType.Cartoon, // Mantener si el sitio tiene cartoons también
+        TvType.Anime,
+        TvType.Cartoon,
     )
 
     override var lang = "es"
@@ -34,40 +33,33 @@ class VerOnlineProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        // URLs actualizadas basadas en tu observación y HTML.
-        // Se asume que solo hay "series-online.html".
-        // Si hay una URL diferente para "Estrenos de Series", deberías investigarla y añadirla.
         val urls = listOf(
             Pair("Últimas Series", "$mainUrl/series-online.html"),
-            // Eliminadas las URLs de películas
-            // Si hay una URL específica para "Estrenos de Series", añádela aquí
-            // Ejemplo: Pair("Estrenos de Series", "$mainUrl/estrenos-series.html"),
         )
 
         val homePageLists = urls.apmap { (name, url) ->
             val tvType = when {
                 name.contains("Series") -> TvType.TvSeries
-                else -> TvType.Others // TvType.Others en caso de que añadas algo que no sea directamente serie
+                else -> TvType.Others
             }
             try {
                 Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url")
                 val doc = app.get(url).document
                 Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-                // Selector CSS actualizado basado en image_1006dc.jpg
                 val homeItems = doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
                     val aElement = articleElement.selectFirst("a")
                     val title = aElement?.attr("title")
                     val link = aElement?.attr("href")
-                    val img = aElement?.selectFirst("img")?.attr("src")
+                    val img = aElement?.attr("src")
 
                     if (title != null && link != null) {
-                        newTvSeriesSearchResponse( // Usar newTvSeriesSearchResponse ya que solo son series
-                            title,
-                            fixUrl(link)
-                        ) {
-                            this.type = tvType
-                            this.posterUrl = img
-                        }
+                        TvSeriesSearchResponse(
+                            name = title,
+                            url = fixUrl(link),
+                            posterUrl = img,
+                            type = tvType,
+                            apiName = this.name
+                        )
                     } else null
                 }
                 Log.d("VerOnline", "getMainPage - Encontrados ${homeItems.size} ítems para $url")
@@ -79,7 +71,7 @@ class VerOnlineProvider : MainAPI() {
         }.filterNotNull()
 
         items.addAll(homePageLists)
-        return newHomePageResponse(items.toList(), false)
+        return HomePageResponse(items.toList(), false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -92,16 +84,16 @@ class VerOnlineProvider : MainAPI() {
                 val aElement = articleElement.selectFirst("a")
                 val title = aElement?.attr("title")
                 val link = aElement?.attr("href")
-                val img = aElement?.selectFirst("img")?.attr("src")
+                val img = aElement?.attr("src")
 
                 if (title != null && link != null) {
-                    newTvSeriesSearchResponse(
-                        title,
-                        fixUrl(link)
-                    ) {
-                        this.type = TvType.TvSeries
-                        this.posterUrl = img
-                    }
+                    TvSeriesSearchResponse(
+                        name = title,
+                        url = fixUrl(link),
+                        posterUrl = img,
+                        type = TvType.TvSeries,
+                        apiName = this.name
+                    )
                 } else null
             }
         } catch (e: Exception) {
@@ -147,6 +139,7 @@ class VerOnlineProvider : MainAPI() {
         Log.d("VerOnline", "load - HTML recibido para la URL de la serie (primeros 2000 chars): ${doc.html().take(2000)}")
         Log.d("VerOnline", "load - ¿Contiene 'serie-episodes'? ${doc.html().contains("serie-episodes")}")
         Log.d("VerOnline", "load - ¿Contiene 'episode-list'? ${doc.html().contains("episode-list")}")
+        Log.d("VerOnline", "load - ¿Contiene 'serie-seasons'? ${doc.html().contains("serie-seasons")}")
         // --- FIN de depuración adicional ---
 
         val tvType = TvType.TvSeries
@@ -158,81 +151,98 @@ class VerOnlineProvider : MainAPI() {
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
-        val episodes = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
-            val aElement = episodeElement.selectFirst("a")
-            val epurl = fixUrl(aElement?.attr("href") ?: "")
-            val epTitleText = aElement?.selectFirst("span")?.text() ?: ""
+        val allEpisodes = ArrayList<Episode>()
 
-            val episodeNumber = Regex("""Capítulo\s*(\d+)""").find(epTitleText)?.groupValues?.get(1)?.toIntOrNull()
-            val seasonNumber = Regex("""temporada-(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
+        // 1. Intentar extraer temporadas si existen
+        val seasonElements = doc.select("div#serie-seasons div.season-list div.shortstory-in a.short-images-link")
+        Log.d("VerOnline", "load - Temporadas encontradas en la página principal: ${seasonElements.size}")
 
-            val realimg = poster
+        if (seasonElements.isNotEmpty()) {
+            // Si hay temporadas, cargamos los episodios de cada página de temporada
+            seasonElements.apmap { seasonElement ->
+                val seasonUrl = fixUrl(seasonElement.attr("href"))
+                val seasonName = seasonElement.selectFirst("caption")?.text()?.trim() ?: "Temporada Desconocida"
+                val seasonNumber = Regex("""Temporada\s*(\d+)""").find(seasonName)?.groupValues?.get(1)?.toIntOrNull()
 
-            if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
-                Log.d("VerOnline", "load - Episodio encontrado: Título='$epTitleText', URL='$epurl', Temporada=$seasonNumber, Episodio=$episodeNumber")
-                newEpisode(
-                    EpisodeLoadData(epTitleText, epurl).toJson()
-                ) {
-                    this.name = epTitleText
-                    this.season = seasonNumber
-                    this.episode = episodeNumber
-                    this.posterUrl = realimg
+                Log.d("VerOnline", "load - Intentando cargar temporada: $seasonName ($seasonUrl)")
+
+                val seasonDoc = try {
+                    app.get(seasonUrl).document
+                } catch (e: Exception) {
+                    Log.e("VerOnline", "load - ERROR al obtener documento de temporada $seasonName ($seasonUrl): ${e.message}", e)
+                    return@apmap // Continúa con la siguiente temporada
                 }
-            } else {
-                Log.w("VerOnline", "load - Episodio incompleto encontrado (posiblemente filtro de selector falló): URL=$epurl, Título=$epTitleText")
-                null
+
+                // Ahora buscamos los episodios en el documento de la temporada
+                val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
+                    val aElement = episodeElement.selectFirst("a")
+                    val epurl = fixUrl(aElement?.attr("href") ?: "")
+                    val epTitleText = aElement?.selectFirst("span")?.text() ?: ""
+
+                    val episodeNumber = Regex("""Capítulo\s*(\d+)""").find(epTitleText)?.groupValues?.get(1)?.toIntOrNull()
+                    val finalSeasonNumber = seasonNumber ?: Regex("""temporada-(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
+
+                    val realimg = poster
+
+                    if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
+                        Log.d("VerOnline", "load - Episodio encontrado: Título='$epTitleText', URL='$epurl', Temporada=${finalSeasonNumber}, Episodio=$episodeNumber")
+                        Episode(
+                            data = EpisodeLoadData(epTitleText, epurl).toJson(),
+                            name = epTitleText,
+                            season = finalSeasonNumber,
+                            episode = episodeNumber,
+                            posterUrl = realimg
+                        )
+                    } else {
+                        Log.w("VerOnline", "load - Episodio incompleto encontrado en temporada $seasonName: URL=$epurl, Título=$epTitleText")
+                        null
+                    }
+                }
+                allEpisodes.addAll(episodesInSeason)
             }
+        } else {
+            // Si no se encontraron temporadas, intentar extraer episodios directamente de la página de la serie
+            Log.w("VerOnline", "load - No se encontraron elementos de temporada. Intentando extraer episodios directamente de la URL de la serie.")
+            val episodesDirectly = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
+                val aElement = episodeElement.selectFirst("a")
+                val epurl = fixUrl(aElement?.attr("href") ?: "")
+                val epTitleText = aElement?.selectFirst("span")?.text() ?: ""
+
+                val episodeNumber = Regex("""Capítulo\s*(\d+)""").find(epTitleText)?.groupValues?.get(1)?.toIntOrNull()
+                val seasonNumber = Regex("""temporada-(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
+
+                val realimg = poster
+
+                if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
+                    Log.d("VerOnline", "load - Episodio encontrado (directo): Título='$epTitleText', URL='$epurl', Temporada=$seasonNumber, Episodio=$episodeNumber")
+                    Episode(
+                        data = EpisodeLoadData(epTitleText, epurl).toJson(),
+                        name = epTitleText,
+                        season = seasonNumber,
+                        episode = episodeNumber,
+                        posterUrl = realimg
+                    )
+                } else {
+                    Log.w("VerOnline", "load - Episodio incompleto encontrado (directo): URL=$epurl, Título=$epTitleText")
+                    null
+                }
+            }
+            allEpisodes.addAll(episodesDirectly)
         }
 
-        Log.d("VerOnline", "load - Total de episodios encontrados: ${episodes.size}")
+        Log.d("VerOnline", "load - Total de episodios encontrados (final): ${allEpisodes.size}")
 
-
-        return newTvSeriesLoadResponse(
+        return TvSeriesLoadResponse(
             name = title,
             url = cleanUrl,
+            apiName = this.name,
             type = tvType,
-            episodes = episodes,
-        ) {
-            this.posterUrl = poster
-            this.backgroundPosterUrl = poster
-            this.plot = description
-            this.tags = tags
-        }
-    }
-
-    data class SortedEmbed(
-        val servername: String,
-        val link: String,
-        val type: String
-    )
-
-    data class DataLinkEntry(
-        val file_id: String,
-        val video_language: String,
-        val sortedEmbeds: List<SortedEmbed>
-    )
-
-    private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
-        try {
-            val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
-
-            val ivBytes = encryptedBytes.copyOfRange(0, 16)
-            val ivSpec = IvParameterSpec(ivBytes)
-
-            val cipherTextBytes = encryptedBytes.copyOfRange(16, encryptedBytes.size)
-
-            val keySpec = SecretKeySpec(secretKey.toByteArray(UTF_8), "AES")
-
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
-
-            val decryptedBytes = cipher.doFinal(cipherTextBytes)
-
-            return String(decryptedBytes, UTF_8)
-        } catch (e: Exception) {
-            Log.e("VerOnline", "Error al descifrar link: ${e.message} - ${e.stackTraceToString()}", e)
-            return null
-        }
+            episodes = allEpisodes,
+            posterUrl = poster,
+            backgroundPosterUrl = poster,
+            plot = description,
+            tags = tags
+        )
     }
 
     override suspend fun loadLinks(
@@ -297,7 +307,12 @@ class VerOnlineProvider : MainAPI() {
                     val decodedUrl = String(decodedBytes, UTF_8)
                     Log.d("VerOnline", "loadLinks - Decodificado URL para $serverName: $decodedUrl")
 
-                    val extracted = loadExtractor(fixUrl(decodedUrl), targetUrl, subtitleCallback, callback)
+                    val extracted = loadExtractor(
+                        url = fixUrl(decodedUrl),
+                        referer = targetUrl,
+                        subtitleCallback = subtitleCallback,
+                        callback = callback
+                    )
                     if (extracted) foundLinks = true
 
                 } catch (e: IllegalArgumentException) {
