@@ -11,7 +11,7 @@ import com.lagradost.cloudstream3.MainAPI
  * Aquí es donde registrarás todos tus proveedores (MainAPI).
  */
 @CloudstreamPlugin
-class GnulaPlugin : Plugin() {
+class AnizonePlugin : Plugin() {
     /**
      * Aquí debes registrar todos tus proveedores (MainAPI).
      *
@@ -20,6 +20,6 @@ class GnulaPlugin : Plugin() {
     override fun load(context: Context) {
         // Registra tu GnulaProvider.
         // GnulaProvider NO DEBE tener la anotación @CloudstreamPlugin.
-        registerMainAPI(GnulaProvider())
+        registerMainAPI(AnizoneProvider())
     }
 }

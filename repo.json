@@ -21,22 +21,24 @@
     "name": "SoloLatino"
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/GnulaProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 1,
-    "name": "Gnula",
-    "internalName": "GnulaProvider",
+    "name": "AniZone",
+    "internalName": "AnizoneProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para Gnula",
+    "description": "Plugin para AniZone",
     "tvTypes": [
       "Movie",
-      "TvSeries"
+      "TvSeries",
+      "Anime",
+      "Cartoon"
     ],
     "language": "es",
-    "iconUrl": "https://gnula.life/favicon.ico",
+    "iconUrl": "https://anizone.to/favicon.ico",
     "fileSize": 17048
   }
 ]
