@@ -83,15 +83,14 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // Asumiendo que la búsqueda ahora también se hace en el dominio principal
-        // y que el sitio manejará si es solo de series.
-        // ¡DEBES VERIFICAR LA URL DE BÚSQUEDA EN EL NAVEGADOR!
-        val url = "$mainUrl/?s=$query" // Esta URL es la misma que antes, pero el problema es el contenido de la respuesta.
+        // ¡URL de búsqueda actualizada según tu captura de pantalla!
+        val url = "$mainUrl/recherche?q=$query" // CAMBIO CLAVE AQUÍ
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-            // Selector CSS actualizado para la búsqueda, asumiendo que usa la misma estructura
+            // El selector CSS 'div.shortstory.radius-3' debería seguir siendo válido si la página de búsqueda
+            // utiliza la misma estructura para listar las series.
             return doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
                 val aElement = articleElement.selectFirst("a")
                 val title = aElement?.attr("title")
@@ -99,17 +98,17 @@ class VerOnlineProvider : MainAPI() {
                 val img = aElement?.selectFirst("img")?.attr("src")
 
                 if (title != null && link != null) {
-                    newTvSeriesSearchResponse( // Cambiado de newAnimeSearchResponse a newTvSeriesSearchResponse
+                    newTvSeriesSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
-                        this.type = TvType.TvSeries // Asegurarse que el tipo es TvSeries
+                        this.type = TvType.TvSeries
                         this.posterUrl = img
                     }
                 } else null
             }
         } catch (e: Exception) {
-            Log.e("VerOnline", "Error en la búsqueda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
+            Log.e("VerOnline", "Error en la b??squeda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
             return emptyList()
         }
     }
