@@ -2,8 +2,8 @@ package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con l
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.AppUtils.toJson // Importa específicamente toJson
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importa específicamente tryParseJson
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.* // Esta línea importa ExtractorLink, fixUrl, loadExtractor y otras utilidades
 
 import org.jsoup.Jsoup
@@ -33,7 +33,9 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
-            Pair("Últimas Series", "$mainUrl/series.html"), // URL para las series en la nueva web
+            // CAMBIO AQUÍ: Probando la URL de la página principal de series
+            Pair("Últimas Series", "$mainUrl/series-online.html"), // URL ajustada basada en la estructura de la antigua web y la nueva URL de series individuales
+            // Si la anterior no funciona, podríamos probar "$mainUrl/series" o "$mainUrl/series.html" de nuevo si hay un cambio.
         )
 
         val homePageLists = urls.apmap { (name, url) ->
@@ -52,6 +54,7 @@ class VerOnlineProvider : MainAPI() {
                     val title = aElement.selectFirst("div.th-title")?.text() // Título dentro de div.th-title
                     val link = aElement.attr("href") // Enlace en el atributo href del <a>
                     val img = aElement.selectFirst("img")?.attr("src") // Imagen src dentro del <a>
+                        ?: aElement.selectFirst("img")?.attr("data-src") // Puede ser data-src también
 
                     if (title != null && link.isNotBlank()) {
                         TvSeriesSearchResponse(
@@ -87,6 +90,7 @@ class VerOnlineProvider : MainAPI() {
                 val title = aElement.selectFirst("div.th-title")?.text() // Título dentro de div.th-title
                 val link = aElement.attr("href") // Enlace en el atributo href del <a>
                 val img = aElement.selectFirst("img")?.attr("src") // Imagen src dentro del <a>
+                    ?: aElement.selectFirst("img")?.attr("data-src") // Puede ser data-src también
 
                 if (title != null && link.isNotBlank()) {
                     TvSeriesSearchResponse(
@@ -143,16 +147,16 @@ class VerOnlineProvider : MainAPI() {
         Log.d("VerOnline", "load - HTML recibido para la URL de la serie (primeros 2000 chars): ${doc.html().take(2000)}")
         Log.d("VerOnline", "load - ¿Contiene 'serie-episodes'? ${doc.html().contains("serie-episodes")}")
         Log.d("VerOnline", "load - ¿Contiene 'episode-list'? ${doc.html().contains("episode-list")}")
-        Log.d("VerOnline", "load - ¿Contiene 'season-list'? ${doc.html().contains("season-list")}") // Nuevo check para 'season-list'
+        Log.d("VerOnline", "load - ¿Contiene 'season-list'? ${doc.html().contains("season-list")}")
         // --- FIN de depuración adicional ---
 
         val tvType = TvType.TvSeries
         // Selectores de título y descripción actualizados para la nueva web
-        val title = doc.selectFirst("h1.post-title")?.text() //
+        val title = doc.selectFirst("h1.post-title")?.text()
             ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
-        val poster = doc.selectFirst("div.full-content-inner img.lazy-loaded")?.attr("data-src") // Puede ser 'data-src' en vez de 'src'
+        val poster = doc.selectFirst("div.full-content-inner img.lazy-loaded")?.attr("data-src")
             ?: doc.selectFirst("meta[property=\"og:image\"]")?.attr("content") ?: ""
-        val description = doc.selectFirst("div.full_content-desc p")?.text() //
+        val description = doc.selectFirst("div.full_content-desc p")?.text()
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = emptyList<String>() // Ajustado si no hay tags visibles en los HTML proporcionados, o si la estructura ha cambiado
 
@@ -210,6 +214,7 @@ class VerOnlineProvider : MainAPI() {
             }
         } else {
             // Si no se encontraron temporadas, intentar extraer episodios directamente de la página de la serie
+            // (esto es menos probable para series con temporadas, pero se mantiene por si acaso)
             Log.w("VerOnline", "load - No se encontraron elementos de temporada. Intentando extraer episodios directamente de la URL de la serie.")
             val episodesDirectly = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
                 val aElement = episodeElement.selectFirst("a")
