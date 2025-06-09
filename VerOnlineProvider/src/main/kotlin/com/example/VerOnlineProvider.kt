@@ -19,11 +19,11 @@ import kotlin.text.Charsets.UTF_8
 class VerOnlineProvider : MainAPI() {
     override var mainUrl = "https://www.veronline.cfd"
     override var name = "VerOnline"
+    // Modificado: Solo soporta TvSeries y Anime/Cartoon si la página es exclusivamente de series.
     override val supportedTypes = setOf(
-        TvType.Movie,
         TvType.TvSeries,
-        TvType.Anime,
-        TvType.Cartoon,
+        TvType.Anime, // Mantener si el sitio tiene animes también
+        TvType.Cartoon, // Mantener si el sitio tiene cartoons también
     )
 
     override var lang = "es"
@@ -34,23 +34,24 @@ class VerOnlineProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
+        // URLs actualizadas basadas en tu observación y HTML.
+        // Se asume que solo hay "series-online.html".
+        // Si hay una URL diferente para "Estrenos de Series", deberías investigarla y añadirla.
         val urls = listOf(
-            Pair("Últimas Series", "$mainUrl/series"),
-            Pair("Últimas Películas", "$mainUrl/peliculas"),
-            Pair("Estrenos de Series", "$mainUrl/generos/estrenos-series"),
-            Pair("Estrenos de Películas", "$mainUrl/generos/estrenos-peliculas"),
+            Pair("Últimas Series", "$mainUrl/series-online.html"), // URL CORREGIDA
+            // Eliminadas las URLs de películas
+            // Si hay una URL específica para "Estrenos de Series", añádela aquí
+            // Ejemplo: Pair("Estrenos de Series", "$mainUrl/estrenos-series.html"),
         )
 
         val homePageLists = urls.apmap { (name, url) ->
             val tvType = when {
-                name.contains("Películas") -> TvType.Movie
                 name.contains("Series") -> TvType.TvSeries
-                else -> TvType.Others
+                else -> TvType.Others // TvType.Others en caso de que añadas algo que no sea directamente serie
             }
             try {
-                Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url") // LOG NUEVO
+                Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url")
                 val doc = app.get(url).document
-                // LOG NUEVO: Muestra los primeros 1000 caracteres del HTML para ver si hay contenido
                 Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
                 val homeItems = doc.select("div.owl-item article.item").mapNotNull { articleElement ->
                     val title = articleElement.selectFirst("a div.data h3")?.text()
@@ -60,7 +61,7 @@ class VerOnlineProvider : MainAPI() {
                         ?: articleElement.selectFirst("div.poster img")?.attr("src")
 
                     if (title != null && link != null) {
-                        newAnimeSearchResponse(
+                        newAnimeSearchResponse( // Usar newTvSeriesSearchResponse si no es específicamente anime
                             title,
                             fixUrl(link)
                         ) {
@@ -69,11 +70,9 @@ class VerOnlineProvider : MainAPI() {
                         }
                     } else null
                 }
-                // LOG NUEVO: Muestra cuántos ítems se encontraron
                 Log.d("VerOnline", "getMainPage - Encontrados ${homeItems.size} ítems para $url")
                 HomePageList(name, homeItems)
             } catch (e: Exception) {
-                // Modificado para incluir el tipo de excepción
                 Log.e("VerOnline", "Error al obtener la página principal para $url: ${e.message} - ${e.stackTraceToString()}", e)
                 null
             }
@@ -84,13 +83,15 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/?s=$query"
+        // Asumiendo que la búsqueda ahora también se hace en el dominio principal
+        // y que el sitio manejará si es solo de series.
+        // ¡DEBES VERIFICAR LA URL DE BÚSQUEDA EN EL NAVEGADOR!
+        val url = "$mainUrl/?s=$query" // Esta URL es la misma que antes, pero el problema es el contenido de la respuesta.
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
-            // LOG NUEVO: Muestra los primeros 1000 caracteres del HTML para ver si hay contenido
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-            val searchResults = doc.select("div.result-item article.item").mapNotNull { articleElement ->
+            return doc.select("div.result-item article.item").mapNotNull { articleElement ->
                 val title = articleElement.selectFirst("a div.data h3")?.text()
                 val link = articleElement.selectFirst("a")?.attr("href")
                 val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
@@ -98,20 +99,16 @@ class VerOnlineProvider : MainAPI() {
                     ?: articleElement.selectFirst("div.poster img")?.attr("src")
 
                 if (title != null && link != null) {
-                    newAnimeSearchResponse(
+                    newTvSeriesSearchResponse( // Cambiado de newAnimeSearchResponse a newTvSeriesSearchResponse
                         title,
                         fixUrl(link)
                     ) {
-                        this.type = TvType.TvSeries
+                        this.type = TvType.TvSeries // Asegurarse que el tipo es TvSeries
                         this.posterUrl = img
                     }
                 } else null
             }
-            // LOG NUEVO: Muestra cuántos resultados se encontraron
-            Log.d("VerOnline", "search - Encontrados ${searchResults.size} resultados para '$query'")
-            return searchResults
         } catch (e: Exception) {
-            // Modificado para incluir el tipo de excepción y el stack trace completo
             Log.e("VerOnline", "Error en la búsqueda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
             return emptyList()
         }
@@ -150,7 +147,8 @@ class VerOnlineProvider : MainAPI() {
             return null
         }
 
-        val tvType = if (cleanUrl.contains("/peliculas/")) TvType.Movie else TvType.TvSeries
+        // Tipo siempre será TvSeries ya que no hay películas.
+        val tvType = TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text()
             ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src")
@@ -159,75 +157,46 @@ class VerOnlineProvider : MainAPI() {
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
-        val episodes = if (tvType == TvType.TvSeries || tvType == TvType.Anime || tvType == TvType.Cartoon) {
-            var episodeListElements = doc.select("div#seasons ul.episodios li")
+        val episodes = doc.select("div#seasons ul.episodios li").mapNotNull { episodeElement ->
+            val epurl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
+            val epTitleText = episodeElement.selectFirst("div.episodiotitle div.epst")?.text()
+                ?: episodeElement.selectFirst("div.episodiotitle a")?.text()
+                ?: episodeElement.selectFirst("h3")?.text()
+                ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: ""
 
-            if (episodeListElements.isEmpty()) {
-                Log.d("VerOnline", "load - No se encontraron episodios con selector de temporada principal. Intentando selector alternativo de UL.")
-                episodeListElements = doc.select("div.episodes ul.episodios li")
-            }
+            val numerandoText = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
+            val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
+            val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
+                ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
 
-            episodeListElements.mapNotNull { episodeElement ->
-                val epurl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
-                val epTitleText = episodeElement.selectFirst("div.episodiotitle div.epst")?.text()
-                    ?: episodeElement.selectFirst("div.episodiotitle a")?.text()
-                    ?: episodeElement.selectFirst("h3")?.text()
-                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: ""
+            val realimg = episodeElement.selectFirst("div.imagen img")?.attr("src")
+                ?: episodeElement.selectFirst("img")?.attr("src")
 
-                val numerandoText = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
-                val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
-                val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
-                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
-
-                val realimg = episodeElement.selectFirst("div.imagen img")?.attr("src")
-                    ?: episodeElement.selectFirst("img")?.attr("src")
-
-                if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
-                    newEpisode(
-                        EpisodeLoadData(epTitleText, epurl).toJson()
-                    ) {
-                        this.name = epTitleText
-                        this.season = seasonNumber
-                        this.episode = episodeNumber
-                        this.posterUrl = realimg
-                    }
-                } else {
-                    Log.w("VerOnline", "load - Episodio incompleto encontrado: URL=$epurl, Título=$epTitleText")
-                    null
-                }
-            }
-        } else listOf()
-
-        return when (tvType) {
-            TvType.TvSeries, TvType.Anime, TvType.Cartoon -> {
-                newTvSeriesLoadResponse(
-                    name = title,
-                    url = cleanUrl,
-                    type = tvType,
-                    episodes = episodes,
+            if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
+                newEpisode(
+                    EpisodeLoadData(epTitleText, epurl).toJson()
                 ) {
-                    this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
-                    this.plot = description
-                    this.tags = tags
+                    this.name = epTitleText
+                    this.season = seasonNumber
+                    this.episode = episodeNumber
+                    this.posterUrl = realimg
                 }
+            } else {
+                Log.w("VerOnline", "load - Episodio incompleto encontrado: URL=$epurl, Título=$epTitleText")
+                null
             }
+        }
 
-            TvType.Movie -> {
-                newMovieLoadResponse(
-                    name = title,
-                    url = cleanUrl,
-                    type = tvType,
-                    dataUrl = cleanUrl
-                ) {
-                    this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
-                    this.plot = description
-                    this.tags = tags
-                }
-            }
-
-            else -> null
+        return newTvSeriesLoadResponse( // Siempre TvSeries
+            name = title,
+            url = cleanUrl,
+            type = tvType,
+            episodes = episodes,
+        ) {
+            this.posterUrl = poster
+            this.backgroundPosterUrl = poster
+            this.plot = description
+            this.tags = tags
         }
     }
 
@@ -384,7 +353,7 @@ class VerOnlineProvider : MainAPI() {
                     return false
                 }
 
-                val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""")
+                val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'""")
                 val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
 
                 if (elementsWithOnclick.isEmpty()) {
