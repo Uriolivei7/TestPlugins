@@ -53,15 +53,15 @@ class VerOnlineProvider : MainAPI() {
                 Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url")
                 val doc = app.get(url).document
                 Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-                val homeItems = doc.select("div.owl-item article.item").mapNotNull { articleElement ->
-                    val title = articleElement.selectFirst("a div.data h3")?.text()
-                    val link = articleElement.selectFirst("a")?.attr("href")
-                    val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
-                        ?: articleElement.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull()
-                        ?: articleElement.selectFirst("div.poster img")?.attr("src")
+                // Selector CSS actualizado basado en image_1006dc.jpg
+                val homeItems = doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
+                    val aElement = articleElement.selectFirst("a")
+                    val title = aElement?.attr("title") // Título de la serie
+                    val link = aElement?.attr("href") // Enlace a la serie
+                    val img = aElement?.selectFirst("img")?.attr("src") // URL del póster
 
                     if (title != null && link != null) {
-                        newAnimeSearchResponse( // Usar newTvSeriesSearchResponse si no es específicamente anime
+                        newTvSeriesSearchResponse( // Usar newTvSeriesSearchResponse ya que solo son series
                             title,
                             fixUrl(link)
                         ) {
@@ -91,12 +91,12 @@ class VerOnlineProvider : MainAPI() {
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-            return doc.select("div.result-item article.item").mapNotNull { articleElement ->
-                val title = articleElement.selectFirst("a div.data h3")?.text()
-                val link = articleElement.selectFirst("a")?.attr("href")
-                val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
-                    ?: articleElement.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull()
-                    ?: articleElement.selectFirst("div.poster img")?.attr("src")
+            // Selector CSS actualizado para la búsqueda, asumiendo que usa la misma estructura
+            return doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
+                val aElement = articleElement.selectFirst("a")
+                val title = aElement?.attr("title")
+                val link = aElement?.attr("href")
+                val img = aElement?.selectFirst("img")?.attr("src")
 
                 if (title != null && link != null) {
                     newTvSeriesSearchResponse( // Cambiado de newAnimeSearchResponse a newTvSeriesSearchResponse
