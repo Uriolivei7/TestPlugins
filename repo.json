@@ -27,7 +27,9 @@
     "apiVersion": 1,
     "name": "Gnula",
     "internalName": "GnulaProvider",
-    "authors": ["Ranita"],
+    "authors": [
+      "Ranita"
+    ],
     "description": "Plugin para Gnula",
     "tvTypes": [
       "Movie",
@@ -35,6 +37,6 @@
     ],
     "language": "es",
     "iconUrl": "https://gnula.life/favicon.ico",
-    "fileSize": 0
+    "fileSize": 17048
   }
 ]

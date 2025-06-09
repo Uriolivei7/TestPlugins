@@ -269,10 +269,14 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val doc = app.get(targetUrl).document
+        // Primero, busca el iframe principal del reproductor
         val iframeSrc = doc.selectFirst("div#dooplay_player_response_1 iframe.metaframe")?.attr("src")
+        // Intenta con un selector alternativo si el primero falla
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src") // <-- MODIFICADO: Selector más general
 
         if (iframeSrc.isNullOrBlank()) {
             Log.d("SoloLatino", "No se encontró iframe del reproductor con el selector específico en SoloLatino.net. Intentando buscar en scripts de la página principal.")
+            // Tu lógica existente para enlaces directos en scripts de la página principal
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
             val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
@@ -290,6 +294,66 @@ class SoloLatinoProvider : MainAPI() {
 
         Log.d("SoloLatino", "Iframe encontrado: $iframeSrc")
 
+        // --- NUEVA LÓGICA: Manejar Xupalace.org primero ---
+        if (iframeSrc.contains("xupalace.org")) { // <-- NUEVO: Condición para Xupalace
+            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe: $iframeSrc")
+            // Ir directamente al iframe de xupalace.org para extraer los enlaces
+            val xupalaceDoc = try {
+                app.get(fixUrl(iframeSrc)).document
+            } catch (e: Exception) {
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message}")
+                return false
+            }
+
+            // Seleccionar los elementos <li> que tienen el onclick
+            // Regex para buscar go_to_playerVast con la URL entre comillas simples
+            val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""") // <-- NUEVO: Regex para extraer URL del onclick
+
+            // Asegúrate de que este selector HTML sea el correcto para las opciones de servidor en Xupalace.org
+            // Basado en la imagen, podría ser algo como li.server-option (si tienen una clase)
+            // O simplemente "li[onclick*='go_to_playerVast']" que busca cualquier li con ese onclick
+            val liElements = xupalaceDoc.select("ul.server-list li[onclick*='go_to_playerVast'], div.options li[onclick*='go_to_playerVast']") // <-- MODIFICADO: Selectores de ejemplo
+            // Si la imagen HTML de xupalace.org es exactamente como lo que obtienes,
+            // el selector podría ser más simple como "li[onclick*='go_to_playerVast']"
+
+            if (liElements.isEmpty()) {
+                Log.w("SoloLatino", "No se encontraron elementos <li> con 'go_to_playerVast' en xupalace.org")
+                return false
+            }
+
+            val foundXupalaceLinks = mutableListOf<String>()
+            for (li in liElements) {
+                val onclickAttr = li.attr("onclick")
+                val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
+
+                if (matchPlayerUrl != null) {
+                    val videoUrl = matchPlayerUrl.groupValues[1]
+                    // Puedes intentar obtener el nombre del servidor si es visible en el HTML,
+                    // por ejemplo, del texto del li o de un div dentro del li.
+                    val serverName = li.selectFirst("div.server-name")?.text() ?: li.text().trim() // <-- NUEVO: Obtener nombre del servidor
+                    Log.d("SoloLatino", "Xupalace: Encontrado servidor '$serverName' con URL: $videoUrl")
+                    if (videoUrl.isNotBlank()) {
+                        foundXupalaceLinks.add(videoUrl)
+                    }
+                } else {
+                    Log.w("SoloLatino", "Xupalace: No se pudo extraer la URL del onclick: $onclickAttr")
+                }
+            }
+
+            if (foundXupalaceLinks.isNotEmpty()) {
+                foundXupalaceLinks.apmap { playerUrl ->
+                    Log.d("SoloLatino", "Cargando extractor para link de Xupalace: $playerUrl")
+                    loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
+                }
+                return true
+            } else {
+                Log.d("SoloLatino", "No se encontraron enlaces de video de Xupalace.org.")
+                return false
+            }
+        }
+        // --- FIN NUEVA LÓGICA XUPALACE ---
+
+        // --- Lógica existente para embed69.org (u otros que usen dataLink JSON) ---
         // 2. Hacer una petición al src del iframe (embed69.org) para obtener su contenido
         val frameDoc = try {
             app.get(fixUrl(iframeSrc)).document
@@ -298,11 +362,11 @@ class SoloLatinoProvider : MainAPI() {
             return false
         }
 
-        // --- NUEVA LÓGICA: Extraer y desencriptar `dataLink` del JavaScript ---
+        // --- Extracción y desencriptación `dataLink` del JavaScript (para embed69.org) ---
         val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
         // Regex para encontrar la variable `dataLink` en el script
-        val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
+        val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex() // <-- Asegúrate que esta regex sea la correcta para el script de embed69.org
         val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
 
         if (dataLinkJsonString.isNullOrBlank()) {
@@ -324,22 +388,22 @@ class SoloLatinoProvider : MainAPI() {
         val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
 
         // Iterar sobre los embeds y desencriptar
-        val foundLinks = mutableListOf<String>()
+        val foundEmbed69Links = mutableListOf<String>()
         for (entry in dataLinkEntries) {
             for (embed in entry.sortedEmbeds) {
                 if (embed.type == "video") { // Solo nos interesan los enlaces de video
                     val decryptedLink = decryptLink(embed.link, secretKey)
                     if (decryptedLink != null) {
                         Log.d("SoloLatino", "Link desencriptado para ${embed.servername}: $decryptedLink")
-                        foundLinks.add(decryptedLink)
+                        foundEmbed69Links.add(decryptedLink)
                     }
                 }
             }
         }
 
-        if (foundLinks.isNotEmpty()) {
-            foundLinks.apmap { playerUrl ->
-                Log.d("SoloLatino", "Cargando extractor para link desencriptado: $playerUrl")
+        if (foundEmbed69Links.isNotEmpty()) {
+            foundEmbed69Links.apmap { playerUrl ->
+                Log.d("SoloLatino", "Cargando extractor para link desencriptado (embed69.org): $playerUrl")
                 loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
             }
             return true
