@@ -38,7 +38,7 @@ class VerOnlineProvider : MainAPI() {
         // Se asume que solo hay "series-online.html".
         // Si hay una URL diferente para "Estrenos de Series", deberías investigarla y añadirla.
         val urls = listOf(
-            Pair("Últimas Series", "$mainUrl/series-online.html"), // URL CORREGIDA
+            Pair("Últimas Series", "$mainUrl/series-online.html"),
             // Eliminadas las URLs de películas
             // Si hay una URL específica para "Estrenos de Series", añádela aquí
             // Ejemplo: Pair("Estrenos de Series", "$mainUrl/estrenos-series.html"),
@@ -56,9 +56,9 @@ class VerOnlineProvider : MainAPI() {
                 // Selector CSS actualizado basado en image_1006dc.jpg
                 val homeItems = doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
                     val aElement = articleElement.selectFirst("a")
-                    val title = aElement?.attr("title") // Título de la serie
-                    val link = aElement?.attr("href") // Enlace a la serie
-                    val img = aElement?.selectFirst("img")?.attr("src") // URL del póster
+                    val title = aElement?.attr("title")
+                    val link = aElement?.attr("href")
+                    val img = aElement?.selectFirst("img")?.attr("src")
 
                     if (title != null && link != null) {
                         newTvSeriesSearchResponse( // Usar newTvSeriesSearchResponse ya que solo son series
@@ -83,14 +83,11 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // ¡URL de búsqueda actualizada según tu captura de pantalla!
-        val url = "$mainUrl/recherche?q=$query" // CAMBIO CLAVE AQUÍ
+        val url = "$mainUrl/recherche?q=$query"
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
-            // El selector CSS 'div.shortstory.radius-3' debería seguir siendo válido si la página de búsqueda
-            // utiliza la misma estructura para listar las series.
             return doc.select("div.shortstory.radius-3").mapNotNull { articleElement ->
                 val aElement = articleElement.selectFirst("a")
                 val title = aElement?.attr("title")
@@ -146,7 +143,6 @@ class VerOnlineProvider : MainAPI() {
             return null
         }
 
-        // Tipo siempre será TvSeries ya que no hay películas.
         val tvType = TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text()
             ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
@@ -156,20 +152,15 @@ class VerOnlineProvider : MainAPI() {
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
-        val episodes = doc.select("div#seasons ul.episodios li").mapNotNull { episodeElement ->
-            val epurl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
-            val epTitleText = episodeElement.selectFirst("div.episodiotitle div.epst")?.text()
-                ?: episodeElement.selectFirst("div.episodiotitle a")?.text()
-                ?: episodeElement.selectFirst("h3")?.text()
-                ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: ""
+        val episodes = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
+            val aElement = episodeElement.selectFirst("a")
+            val epurl = fixUrl(aElement?.attr("href") ?: "")
+            val epTitleText = aElement?.selectFirst("span")?.text() ?: ""
 
-            val numerandoText = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
-            val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
-            val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
-                ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
+            val episodeNumber = Regex("""Capítulo\s*(\d+)""").find(epTitleText)?.groupValues?.get(1)?.toIntOrNull()
+            val seasonNumber = Regex("""temporada-(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
 
-            val realimg = episodeElement.selectFirst("div.imagen img")?.attr("src")
-                ?: episodeElement.selectFirst("img")?.attr("src")
+            val realimg = poster
 
             if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
                 newEpisode(
@@ -186,7 +177,7 @@ class VerOnlineProvider : MainAPI() {
             }
         }
 
-        return newTvSeriesLoadResponse( // Siempre TvSeries
+        return newTvSeriesLoadResponse(
             name = title,
             url = cleanUrl,
             type = tvType,
@@ -275,168 +266,46 @@ class VerOnlineProvider : MainAPI() {
             return false
         }
 
-        val iframeSrc = doc.selectFirst("div[id*=\"player-ajax\"] iframe")?.attr("src")
-            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
-            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
-            ?: doc.selectFirst("div#full-video iframe")?.attr("src")
-            ?: doc.selectFirst("div#player_div_1 iframe")?.attr("src")
-            ?: doc.selectFirst("iframe[src*='embed']")?.attr("src")
+        // --- INICIO DEL CAMBIO CLAVE PARA loadLinks ---
 
-        if (iframeSrc.isNullOrBlank()) {
-            Log.d("VerOnline", "No se encontró iframe del reproductor con los selectores específicos en VerOnline. Intentando buscar en scripts de la página principal.")
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+        val streamerElements = doc.select("li.streamer")
 
-            val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
-            val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
-
-            if (directMatches.isNotEmpty()) {
-                Log.d("VerOnline", "Encontrados ${directMatches.size} enlaces directos en script de página principal.")
-                directMatches.apmap { directUrl ->
-                    loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
-                }
-                return true
-            }
-            Log.d("VerOnline", "No se encontraron enlaces directos en scripts de la página principal.")
-            return false
+        if (streamerElements.isEmpty()) {
+            Log.w("VerOnline", "loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. No se pudieron extraer enlaces.")
+            // Tu lógica anterior para iframes o scripts directos podría seguir siendo útil como fallback
+            // si algunos episodios usan otro método, pero para este caso particular, esto es lo que necesitamos.
+            return false // O true si quieres intentar los fallbacks, pero por ahora, indica que no se encontraron links específicos.
         }
 
-        Log.d("VerOnline", "Iframe encontrado: $iframeSrc")
+        var foundLinks = false
+        streamerElements.apmap { streamerElement ->
+            val encodedUrl = streamerElement.attr("data-url")
+            val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text() // Para obtener Vidoza, Doodstream, etc.
+                ?: streamerElement.selectFirst("span")?.text()?.replace("OPCIÓN ", "Opción ")?.trim() // Para "Opción 2", "Opción 3", etc.
 
-        when {
-            iframeSrc.contains("xupalace.org") -> {
-                Log.d("VerOnline", "loadLinks - Detectado Xupalace.org iframe: $iframeSrc")
-                val xupalaceDoc = try {
-                    app.get(fixUrl(iframeSrc)).document
+            if (encodedUrl.isNotBlank()) {
+                // El atributo data-url ya contiene la ruta /streamer/...
+                // Necesitamos decodificar la parte de Base64 que viene después de /streamer/
+                val base64Part = encodedUrl.substringAfter("/streamer/")
+
+                try {
+                    val decodedBytes = Base64.decode(base64Part, Base64.DEFAULT)
+                    val decodedUrl = String(decodedBytes, UTF_8)
+                    Log.d("VerOnline", "loadLinks - Decodificado URL para $serverName: $decodedUrl")
+
+                    // Ahora pasamos la URL decodificada al loadExtractor
+                    val extracted = loadExtractor(fixUrl(decodedUrl), targetUrl, subtitleCallback, callback)
+                    if (extracted) foundLinks = true
+
+                } catch (e: IllegalArgumentException) {
+                    Log.e("VerOnline", "loadLinks - Error al decodificar Base64 de $encodedUrl: ${e.message}")
                 } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
-                    return false
+                    Log.e("VerOnline", "loadLinks - Error general al procesar link de $serverName ($encodedUrl): ${e.message} - ${e.stackTraceToString()}", e)
                 }
-
-                val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
-                val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
-
-                if (elementsWithOnclick.isEmpty()) {
-                    Log.w("VerOnline", "No se encontraron elementos con 'go_to_playerVast' en xupalace.org.")
-                    return false
-                }
-
-                val foundXupalaceLinks = mutableListOf<String>()
-                for (element: Element in elementsWithOnclick) {
-                    val onclickAttr = element.attr("onclick")
-                    val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
-
-                    if (matchPlayerUrl != null) {
-                        val videoUrl = matchPlayerUrl.groupValues[1]
-                        Log.d("VerOnline", "Xupalace: Encontrada URL: $videoUrl")
-                        if (videoUrl.isNotBlank()) {
-                            foundXupalaceLinks.add(videoUrl)
-                        }
-                    } else {
-                        Log.w("VerOnline", "Xupalace: No se pudo extraer la URL del onclick: $onclickAttr")
-                    }
-                }
-                if (foundXupalaceLinks.isNotEmpty()) {
-                    foundXupalaceLinks.apmap { playerUrl ->
-                        loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
-                    }
-                    return true
-                }
-                return false
-            }
-            iframeSrc.contains("re.veronline.cfd/embed.php") || iframeSrc.contains("re.sololatino.net/embed.php") || iframeSrc.contains("re.anizone.net/embed.php") -> {
-                Log.d("VerOnline", "loadLinks - Detectado re.veronline.cfd/embed.php o similar iframe: $iframeSrc")
-                val embedDoc = try {
-                    app.get(fixUrl(iframeSrc)).document
-                } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe de re.veronline.cfd ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
-                    return false
-                }
-
-                val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'""")
-                val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
-
-                if (elementsWithOnclick.isEmpty()) {
-                    Log.w("VerOnline", "No se encontraron elementos con 'go_to_player' en re.veronline.cfd/embed.php o similar.")
-                    return false
-                }
-
-                val foundEmbedLinks = mutableListOf<String>()
-                for (element: Element in elementsWithOnclick) {
-                    val onclickAttr = element.attr("onclick")
-                    val matchPlayerUrl = regexGoToPlayerUrl.find(onclickAttr)
-
-                    if (matchPlayerUrl != null) {
-                        val videoUrl = matchPlayerUrl.groupValues[1]
-                        Log.d("VerOnline", "re.veronline.cfd: Encontrada URL: $videoUrl")
-                        if (videoUrl.isNotBlank()) {
-                            foundEmbedLinks.add(videoUrl)
-                        }
-                    } else {
-                        Log.w("VerOnline", "re.veronline.cfd: No se pudo extraer la URL del onclick: $onclickAttr")
-                    }
-                }
-                if (foundEmbedLinks.isNotEmpty()) {
-                    foundEmbedLinks.apmap { playerUrl ->
-                        loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
-                    }
-                    return true
-                }
-                return false
-            }
-            iframeSrc.contains("embed69.org") -> {
-                Log.d("VerOnline", "loadLinks - Detectado embed69.org iframe: $iframeSrc")
-                val frameDoc = try {
-                    app.get(fixUrl(iframeSrc)).document
-                } catch (e: Exception) {
-                    Log.e("VerOnline", "Error al obtener el contenido del iframe ($iframeSrc): ${e.message} - ${e.stackTraceToString()}")
-                    return false
-                }
-
-                val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
-
-                val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
-                val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
-
-                if (dataLinkJsonString.isNullOrBlank()) {
-                    Log.e("VerOnline", "No se encontró la variable dataLink en el script de embed69.org.")
-                    return false
-                }
-
-                Log.d("VerOnline", "dataLink JSON string encontrado: $dataLinkJsonString")
-
-                val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
-
-                if (dataLinkEntries.isNullOrEmpty()) {
-                    Log.e("VerOnline", "Error al parsear dataLink JSON o está vacío.")
-                    return false
-                }
-
-                val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
-
-                val foundEmbed69Links = mutableListOf<String>()
-                for (entry in dataLinkEntries) {
-                    for (embed in entry.sortedEmbeds) {
-                        if (embed.type == "video") {
-                            val decryptedLink = decryptLink(embed.link, secretKey)
-                            if (decryptedLink != null) {
-                                Log.d("VerOnline", "Link desencriptado para ${embed.servername}: $decryptedLink")
-                                foundEmbed69Links.add(decryptedLink)
-                            }
-                        }
-                    }
-                }
-                if (foundEmbed69Links.isNotEmpty()) {
-                    foundEmbed69Links.apmap { playerUrl ->
-                        loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
-                    }
-                    return true
-                }
-                return false
-            }
-            else -> {
-                Log.w("VerOnline", "Tipo de iframe desconocido o no manejado: $iframeSrc. Intentando cargar extractor directamente.")
-                return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
             }
         }
+        return foundLinks
+
+        // --- FIN DEL CAMBIO CLAVE PARA loadLinks ---
     }
 }
