@@ -21,16 +21,16 @@
     "name": "SoloLatino"
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/VerOnlineProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 1,
-    "name": "AniZone",
-    "internalName": "AnizoneProvider",
+    "name": "VerSeriesOnline",
+    "internalName": "VerOnlineProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para AniZone",
+    "description": "Plugin para VerSeriesOnline",
     "tvTypes": [
       "Movie",
       "TvSeries",
@@ -38,7 +38,6 @@
       "Cartoon"
     ],
     "language": "es",
-    "iconUrl": "https://anizone.to/favicon.ico",
     "fileSize": 17048
   }
 ]
