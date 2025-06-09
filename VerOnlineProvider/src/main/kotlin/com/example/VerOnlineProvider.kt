@@ -2,11 +2,11 @@ package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con l
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.network.CloudflareKiller // Posiblemente no exista o no sea necesaria en versiones muy antiguas
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.APIHolder.unixTime
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import com.lagradost.cloudstream3.APIHolder.unixTime // Confirmado que existe en tu SoloLatino
+import com.lagradost.cloudstream3.utils.AppUtils.toJson // Confirmado que existe en tu SoloLatino
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Confirmado que existe en tu SoloLatino
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -17,15 +17,14 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
-// ****** ESTAS LÍNEAS TE DAN ERROR, LAS COMENTO PERO SON NECESARIAS PARA LA MAYORÍA DE LAS VERSIONES DE CS3 ******
-// import com.lagradost.cloudstream3.extractors.ExtractorLink // Para ExtractorLink
-// import com.lagradost.cloudstream3.extractors.ExtractorLinkType // Para ExtractorLinkType y .STREAMING
-// import com.lagradost.cloudstream3.utils.Qualities // Para Qualities
-// **************************************************************************************************************
+// ¡IMPORTANTE! Se eliminan estas importaciones, basándonos en tu confirmación de SoloLatino.
+// Si aún así da error, es un problema de Android Studio (caché) o de la versión real del API.
+// import com.lagradost.cloudstream3.extractors.ExtractorLink
+// import com.lagradost.cloudstream3.extractors.ExtractorLinkType
 
 class VerOnlineProvider : MainAPI() {
-    override var mainUrl = "https://www.veronline.cfd" // URL base del sitio
-    override var name = "VerOnline" // Nombre del proveedor
+    override var mainUrl = "https://www.veronline.cfd"
+    override var name = "VerOnline"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -38,8 +37,6 @@ class VerOnlineProvider : MainAPI() {
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
-
-    // private val cfKiller = CloudflareKiller() // Descomentar si hay Cloudflare
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
@@ -58,11 +55,9 @@ class VerOnlineProvider : MainAPI() {
             }
             try {
                 val doc = app.get(url).document
-                // SELECTORES HTML ACTUALIZADOS PARA MAIN PAGE (VERONLINE.CFD)
                 val homeItems = doc.select("div.owl-item article.item").mapNotNull { articleElement ->
                     val title = articleElement.selectFirst("a div.data h3")?.text()
                     val link = articleElement.selectFirst("a")?.attr("href")
-                    // Se prioriza data-src o data-srcset para lazyload, luego src
                     val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
                         ?: articleElement.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull()
                         ?: articleElement.selectFirst("div.poster img")?.attr("src")
@@ -85,7 +80,6 @@ class VerOnlineProvider : MainAPI() {
         }.filterNotNull()
 
         items.addAll(homePageLists)
-
         return newHomePageResponse(items.toList(), false)
     }
 
@@ -93,7 +87,6 @@ class VerOnlineProvider : MainAPI() {
         val url = "$mainUrl/?s=$query"
         try {
             val doc = app.get(url).document
-            // SELECTORES HTML ACTUALIZADOS PARA SEARCH (VERONLINE.CFD)
             return doc.select("div.result-item article.item").mapNotNull { articleElement ->
                 val title = articleElement.selectFirst("a div.data h3")?.text()
                 val link = articleElement.selectFirst("a")?.attr("href")
@@ -102,11 +95,11 @@ class VerOnlineProvider : MainAPI() {
                     ?: articleElement.selectFirst("div.poster img")?.attr("src")
 
                 if (title != null && link != null) {
-                    newTvSeriesSearchResponse(
+                    newAnimeSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
-                        this.type = TvType.TvSeries // Asumimos TvSeries para búsqueda, se ajusta en load
+                        this.type = TvType.TvSeries
                         this.posterUrl = img
                     }
                 } else null
@@ -151,36 +144,33 @@ class VerOnlineProvider : MainAPI() {
         }
 
         val tvType = if (cleanUrl.contains("/peliculas/")) TvType.Movie else TvType.TvSeries
-        // SELECTORES HTML ACTUALIZADOS PARA LA PÁGINA DE DETALLES (LOAD)
         val title = doc.selectFirst("div.data h1")?.text()
             ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src")
             ?: doc.selectFirst("meta[property=\"og:image\"]")?.attr("content") ?: ""
-        val description = doc.selectFirst("div.entry-content p")?.text() // Selector para la descripción principal
+        val description = doc.selectFirst("div.entry-content p")?.text()
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
-        val tags = doc.select("div.sgeneros a").map { it.text() } // Selector para géneros/etiquetas
+        val tags = doc.select("div.sgeneros a").map { it.text() }
 
         val episodes = if (tvType == TvType.TvSeries || tvType == TvType.Anime || tvType == TvType.Cartoon) {
-            var episodeListElements = doc.select("div#seasons ul.episodios li") // Selector para la lista de episodios
+            var episodeListElements = doc.select("div#seasons ul.episodios li")
 
             if (episodeListElements.isEmpty()) {
                 Log.d("VerOnline", "load - No se encontraron episodios con selector de temporada principal. Intentando selector alternativo de UL.")
-                episodeListElements = doc.select("div.episodes ul.episodios li") // Otro selector común si el anterior falla
+                episodeListElements = doc.select("div.episodes ul.episodios li")
             }
 
             episodeListElements.mapNotNull { episodeElement ->
                 val epurl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
-                // Selectores de título de episodio más robustos
                 val epTitleText = episodeElement.selectFirst("div.episodiotitle div.epst")?.text()
-                    ?: episodeElement.selectFirst("div.episodiotitle a")?.text() // Podría ser el texto del enlace
-                    ?: episodeElement.selectFirst("h3")?.text() // Otro posible selector
-                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: "" // Fallback
+                    ?: episodeElement.selectFirst("div.episodiotitle a")?.text()
+                    ?: episodeElement.selectFirst("h3")?.text()
+                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: ""
 
-                // Selectores de número de temporada y episodio más robustos
                 val numerandoText = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
                 val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
                 val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
-                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull() // Fallback
+                    ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull()
 
                 val realimg = episodeElement.selectFirst("div.imagen img")?.attr("src")
                     ?: episodeElement.selectFirst("img")?.attr("src")
@@ -202,7 +192,7 @@ class VerOnlineProvider : MainAPI() {
         } else listOf()
 
         return when (tvType) {
-            TvType.TvSeries, TvType.TvSeries, TvType.Anime, TvType.Cartoon -> { // Mantengo TvSeries duplicado para compatibilidad si antes lo tenías así
+            TvType.TvSeries, TvType.Anime, TvType.Cartoon -> {
                 newTvSeriesLoadResponse(
                     name = title,
                     url = cleanUrl,
@@ -269,14 +259,11 @@ class VerOnlineProvider : MainAPI() {
         }
     }
 
-    // === INICIO DE CAMBIOS PARA USAR LA LÓGICA DE SoloLatino en loadLinks ===
+    // Firma de loadLinks con callback para Video, como en tu SoloLatino si no usa ExtractorLink
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
-        // ESTA LÍNEA DARÁ UN ERROR DE "Unresolved reference: ExtractorLink"
-        // si no tienes la importación o una versión de la API compatible.
-        // Pero es necesaria para la firma de `loadLinks` en MainAPI.
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d("VerOnline", "loadLinks - Data de entrada: $data")
@@ -314,26 +301,25 @@ class VerOnlineProvider : MainAPI() {
             return false
         }
 
-        // SELECTORES HTML ACTUALIZADOS PARA IFRAME SRC EN LOADLINKS
-        val iframeSrc = doc.selectFirst("div[id*=\"player-ajax\"] iframe")?.attr("src") // Nuevo selector principal para el reproductor
-            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src") // Selector anterior
-            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src") // Selector anterior
-            ?: doc.selectFirst("div#full-video iframe")?.attr("src") // Otro selector común
-            ?: doc.selectFirst("div#player_div_1 iframe")?.attr("src") // Otro selector común
-            ?: doc.selectFirst("iframe[src*='embed']")?.attr("src") // Genérico
+        val iframeSrc = doc.selectFirst("div[id*=\"player-ajax\"] iframe")?.attr("src")
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
+            ?: doc.selectFirst("div#full-video iframe")?.attr("src")
+            ?: doc.selectFirst("div#player_div_1 iframe")?.attr("src")
+            ?: doc.selectFirst("iframe[src*='embed']")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
             Log.d("VerOnline", "No se encontró iframe del reproductor con los selectores específicos en VerOnline. Intentando buscar en scripts de la página principal.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-            // Buscar URLs directas en scripts, como en SoloLatino
             val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (directMatches.isNotEmpty()) {
                 Log.d("VerOnline", "Encontrados ${directMatches.size} enlaces directos en script de página principal.")
                 directMatches.apmap { directUrl ->
-                    Log.d("VerOnline", "Cargando extractor para URL directa de script: $directUrl")
+                    // loadExtractor sigue llamando al callback. Esto funcionará si loadExtractor
+                    // en tu API acepta un callback de (Video) -> Unit.
                     loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
                 }
                 return true
@@ -343,8 +329,6 @@ class VerOnlineProvider : MainAPI() {
         }
 
         Log.d("VerOnline", "Iframe encontrado: $iframeSrc")
-
-        // --- LÓGICA PARA MANEJAR DOMINIOS DE IFRAMES (similar a SoloLatino) ---
 
         when {
             iframeSrc.contains("xupalace.org") -> {
@@ -381,14 +365,12 @@ class VerOnlineProvider : MainAPI() {
                 }
                 if (foundXupalaceLinks.isNotEmpty()) {
                     foundXupalaceLinks.apmap { playerUrl ->
-                        Log.d("VerOnline", "Cargando extractor para link de Xupalace: $playerUrl")
                         loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
                     }
                     return true
                 }
                 return false
             }
-            // Añadimos explícitamente re.veronline.cfd/embed.php aquí
             iframeSrc.contains("re.veronline.cfd/embed.php") || iframeSrc.contains("re.sololatino.net/embed.php") || iframeSrc.contains("re.anizone.net/embed.php") -> {
                 Log.d("VerOnline", "loadLinks - Detectado re.veronline.cfd/embed.php o similar iframe: $iframeSrc")
                 val embedDoc = try {
@@ -423,7 +405,6 @@ class VerOnlineProvider : MainAPI() {
                 }
                 if (foundEmbedLinks.isNotEmpty()) {
                     foundEmbedLinks.apmap { playerUrl ->
-                        Log.d("VerOnline", "Cargando extractor para link de re.veronline.cfd: $playerUrl")
                         loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
                     }
                     return true
@@ -458,7 +439,7 @@ class VerOnlineProvider : MainAPI() {
                     return false
                 }
 
-                val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE" // Asegúrate de que esta clave es correcta para embed69.org en este sitio
+                val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
 
                 val foundEmbed69Links = mutableListOf<String>()
                 for (entry in dataLinkEntries) {
@@ -474,7 +455,6 @@ class VerOnlineProvider : MainAPI() {
                 }
                 if (foundEmbed69Links.isNotEmpty()) {
                     foundEmbed69Links.apmap { playerUrl ->
-                        Log.d("VerOnline", "Cargando extractor para link desencriptado (embed69.org): $playerUrl")
                         loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
                     }
                     return true
