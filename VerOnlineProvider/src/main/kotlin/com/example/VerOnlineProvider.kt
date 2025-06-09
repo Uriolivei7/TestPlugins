@@ -152,6 +152,7 @@ class VerOnlineProvider : MainAPI() {
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
+        // --- CAMBIO CLAVE AQUÍ PARA LA EXTRACCIÓN DE EPISODIOS ---
         val episodes = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
             val aElement = episodeElement.selectFirst("a")
             val epurl = fixUrl(aElement?.attr("href") ?: "")
@@ -176,6 +177,7 @@ class VerOnlineProvider : MainAPI() {
                 null
             }
         }
+        // --- FIN DEL CAMBIO ---
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -273,19 +275,16 @@ class VerOnlineProvider : MainAPI() {
         if (streamerElements.isEmpty()) {
             Log.w("VerOnline", "loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. No se pudieron extraer enlaces.")
             // Tu lógica anterior para iframes o scripts directos podría seguir siendo útil como fallback
-            // si algunos episodios usan otro método, pero para este caso particular, esto es lo que necesitamos.
             return false // O true si quieres intentar los fallbacks, pero por ahora, indica que no se encontraron links específicos.
         }
 
         var foundLinks = false
         streamerElements.apmap { streamerElement ->
             val encodedUrl = streamerElement.attr("data-url")
-            val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text() // Para obtener Vidoza, Doodstream, etc.
-                ?: streamerElement.selectFirst("span")?.text()?.replace("OPCIÓN ", "Opción ")?.trim() // Para "Opción 2", "Opción 3", etc.
+            val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text()
+                ?: streamerElement.selectFirst("span")?.text()?.replace("OPCIÓN ", "Opción ")?.trim()
 
             if (encodedUrl.isNotBlank()) {
-                // El atributo data-url ya contiene la ruta /streamer/...
-                // Necesitamos decodificar la parte de Base64 que viene después de /streamer/
                 val base64Part = encodedUrl.substringAfter("/streamer/")
 
                 try {
@@ -293,7 +292,6 @@ class VerOnlineProvider : MainAPI() {
                     val decodedUrl = String(decodedBytes, UTF_8)
                     Log.d("VerOnline", "loadLinks - Decodificado URL para $serverName: $decodedUrl")
 
-                    // Ahora pasamos la URL decodificada al loadExtractor
                     val extracted = loadExtractor(fixUrl(decodedUrl), targetUrl, subtitleCallback, callback)
                     if (extracted) foundLinks = true
 
