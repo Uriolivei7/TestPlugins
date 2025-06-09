@@ -105,7 +105,7 @@ class VerOnlineProvider : MainAPI() {
                 } else null
             }
         } catch (e: Exception) {
-            Log.e("VerOnline", "Error en la b??squeda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
+            Log.e("VerOnline", "Error en la búsqueda para '$query' en URL $url: ${e.message} - ${e.stackTraceToString()}", e)
             return emptyList()
         }
     }
@@ -143,6 +143,12 @@ class VerOnlineProvider : MainAPI() {
             return null
         }
 
+        // --- Depuración adicional para el HTML de la página de la serie ---
+        Log.d("VerOnline", "load - HTML recibido para la URL de la serie (primeros 2000 chars): ${doc.html().take(2000)}")
+        Log.d("VerOnline", "load - ¿Contiene 'serie-episodes'? ${doc.html().contains("serie-episodes")}")
+        Log.d("VerOnline", "load - ¿Contiene 'episode-list'? ${doc.html().contains("episode-list")}")
+        // --- FIN de depuración adicional ---
+
         val tvType = TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text()
             ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
@@ -152,7 +158,6 @@ class VerOnlineProvider : MainAPI() {
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
-        // --- CAMBIO CLAVE AQUÍ PARA LA EXTRACCIÓN DE EPISODIOS ---
         val episodes = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
             val aElement = episodeElement.selectFirst("a")
             val epurl = fixUrl(aElement?.attr("href") ?: "")
@@ -164,6 +169,7 @@ class VerOnlineProvider : MainAPI() {
             val realimg = poster
 
             if (epurl.isNotBlank() && epTitleText.isNotBlank()) {
+                Log.d("VerOnline", "load - Episodio encontrado: Título='$epTitleText', URL='$epurl', Temporada=$seasonNumber, Episodio=$episodeNumber")
                 newEpisode(
                     EpisodeLoadData(epTitleText, epurl).toJson()
                 ) {
@@ -173,11 +179,13 @@ class VerOnlineProvider : MainAPI() {
                     this.posterUrl = realimg
                 }
             } else {
-                Log.w("VerOnline", "load - Episodio incompleto encontrado: URL=$epurl, Título=$epTitleText")
+                Log.w("VerOnline", "load - Episodio incompleto encontrado (posiblemente filtro de selector falló): URL=$epurl, Título=$epTitleText")
                 null
             }
         }
-        // --- FIN DEL CAMBIO ---
+
+        Log.d("VerOnline", "load - Total de episodios encontrados: ${episodes.size}")
+
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -268,14 +276,11 @@ class VerOnlineProvider : MainAPI() {
             return false
         }
 
-        // --- INICIO DEL CAMBIO CLAVE PARA loadLinks ---
-
         val streamerElements = doc.select("li.streamer")
 
         if (streamerElements.isEmpty()) {
             Log.w("VerOnline", "loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. No se pudieron extraer enlaces.")
-            // Tu lógica anterior para iframes o scripts directos podría seguir siendo útil como fallback
-            return false // O true si quieres intentar los fallbacks, pero por ahora, indica que no se encontraron links específicos.
+            return false
         }
 
         var foundLinks = false
@@ -303,7 +308,5 @@ class VerOnlineProvider : MainAPI() {
             }
         }
         return foundLinks
-
-        // --- FIN DEL CAMBIO CLAVE PARA loadLinks ---
     }
 }
