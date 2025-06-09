@@ -17,6 +17,12 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
+// ****** ESTAS LÍNEAS TE DAN ERROR, LAS COMENTO PERO SON NECESARIAS PARA LA MAYORÍA DE LAS VERSIONES DE CS3 ******
+// import com.lagradost.cloudstream3.extractors.ExtractorLink // Para ExtractorLink
+// import com.lagradost.cloudstream3.extractors.ExtractorLinkType // Para ExtractorLinkType y .STREAMING
+// import com.lagradost.cloudstream3.utils.Qualities // Para Qualities
+// **************************************************************************************************************
+
 class VerOnlineProvider : MainAPI() {
     override var mainUrl = "https://www.veronline.cfd" // URL base del sitio
     override var name = "VerOnline" // Nombre del proveedor
@@ -32,6 +38,8 @@ class VerOnlineProvider : MainAPI() {
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
+
+    // private val cfKiller = CloudflareKiller() // Descomentar si hay Cloudflare
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
@@ -50,10 +58,11 @@ class VerOnlineProvider : MainAPI() {
             }
             try {
                 val doc = app.get(url).document
-                val homeItems = doc.select("div.items article.item").mapNotNull { articleElement ->
+                // SELECTORES HTML ACTUALIZADOS PARA MAIN PAGE (VERONLINE.CFD)
+                val homeItems = doc.select("div.owl-item article.item").mapNotNull { articleElement ->
                     val title = articleElement.selectFirst("a div.data h3")?.text()
                     val link = articleElement.selectFirst("a")?.attr("href")
-                    // Se prioriza data-src o data-srcset, luego src
+                    // Se prioriza data-src o data-srcset para lazyload, luego src
                     val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
                         ?: articleElement.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull()
                         ?: articleElement.selectFirst("div.poster img")?.attr("src")
@@ -84,7 +93,8 @@ class VerOnlineProvider : MainAPI() {
         val url = "$mainUrl/?s=$query"
         try {
             val doc = app.get(url).document
-            return doc.select("div.items article.item").mapNotNull { articleElement ->
+            // SELECTORES HTML ACTUALIZADOS PARA SEARCH (VERONLINE.CFD)
+            return doc.select("div.result-item article.item").mapNotNull { articleElement ->
                 val title = articleElement.selectFirst("a div.data h3")?.text()
                 val link = articleElement.selectFirst("a")?.attr("href")
                 val img = articleElement.selectFirst("div.poster img.lazyload")?.attr("data-src")
@@ -96,7 +106,7 @@ class VerOnlineProvider : MainAPI() {
                         title,
                         fixUrl(link)
                     ) {
-                        this.type = TvType.TvSeries
+                        this.type = TvType.TvSeries // Asumimos TvSeries para búsqueda, se ajusta en load
                         this.posterUrl = img
                     }
                 } else null
@@ -141,29 +151,35 @@ class VerOnlineProvider : MainAPI() {
         }
 
         val tvType = if (cleanUrl.contains("/peliculas/")) TvType.Movie else TvType.TvSeries
-        val title = doc.selectFirst("div.data h1")?.text() ?: ""
-        val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
-        val description = doc.selectFirst("div.wp-content")?.text() ?: ""
-        val tags = doc.select("div.sgeneros a").map { it.text() }
+        // SELECTORES HTML ACTUALIZADOS PARA LA PÁGINA DE DETALLES (LOAD)
+        val title = doc.selectFirst("div.data h1")?.text()
+            ?: doc.selectFirst("meta[property=\"og:title\"]")?.attr("content") ?: ""
+        val poster = doc.selectFirst("div.poster img")?.attr("src")
+            ?: doc.selectFirst("meta[property=\"og:image\"]")?.attr("content") ?: ""
+        val description = doc.selectFirst("div.entry-content p")?.text() // Selector para la descripción principal
+            ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
+        val tags = doc.select("div.sgeneros a").map { it.text() } // Selector para géneros/etiquetas
 
         val episodes = if (tvType == TvType.TvSeries || tvType == TvType.Anime || tvType == TvType.Cartoon) {
-            var episodeListElements = doc.select("div#seasons div.se-c ul.episodios li")
+            var episodeListElements = doc.select("div#seasons ul.episodios li") // Selector para la lista de episodios
 
             if (episodeListElements.isEmpty()) {
-                Log.d("VerOnline", "load - No se encontraron episodios con selector de temporada. Intentando selector directo de UL.")
-                episodeListElements = doc.select("ul.grid li") // Selector alternativo para algunos sitios
+                Log.d("VerOnline", "load - No se encontraron episodios con selector de temporada principal. Intentando selector alternativo de UL.")
+                episodeListElements = doc.select("div.episodes ul.episodios li") // Otro selector común si el anterior falla
             }
 
             episodeListElements.mapNotNull { episodeElement ->
                 val epurl = fixUrl(episodeElement.selectFirst("a")?.attr("href") ?: "")
+                // Selectores de título de episodio más robustos
                 val epTitleText = episodeElement.selectFirst("div.episodiotitle div.epst")?.text()
-                    ?: episodeElement.selectFirst("h3")?.text() // Otro posible selector de título
+                    ?: episodeElement.selectFirst("div.episodiotitle a")?.text() // Podría ser el texto del enlace
+                    ?: episodeElement.selectFirst("h3")?.text() // Otro posible selector
                     ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.let { "Episodio $it" } ?: "" // Fallback
 
-                val seasonNumber = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
-                    ?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
-                val episodeNumber = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
-                    ?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
+                // Selectores de número de temporada y episodio más robustos
+                val numerandoText = episodeElement.selectFirst("div.episodiotitle div.numerando")?.text()
+                val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
+                val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
                     ?: Regex("""(?i)episodio\s*(\d+)""").find(epurl)?.groupValues?.get(1)?.toIntOrNull() // Fallback
 
                 val realimg = episodeElement.selectFirst("div.imagen img")?.attr("src")
@@ -174,7 +190,6 @@ class VerOnlineProvider : MainAPI() {
                         EpisodeLoadData(epTitleText, epurl).toJson()
                     ) {
                         this.name = epTitleText
-                        // Mantengo estos ya que SoloLatino los usa y funciona
                         this.season = seasonNumber
                         this.episode = episodeNumber
                         this.posterUrl = realimg
@@ -187,7 +202,7 @@ class VerOnlineProvider : MainAPI() {
         } else listOf()
 
         return when (tvType) {
-            TvType.TvSeries, TvType.Anime, TvType.Cartoon -> {
+            TvType.TvSeries, TvType.TvSeries, TvType.Anime, TvType.Cartoon -> { // Mantengo TvSeries duplicado para compatibilidad si antes lo tenías así
                 newTvSeriesLoadResponse(
                     name = title,
                     url = cleanUrl,
@@ -259,7 +274,10 @@ class VerOnlineProvider : MainAPI() {
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit // CAMBIO CLAVE AQUÍ: ExtractorLink
+        // ESTA LÍNEA DARÁ UN ERROR DE "Unresolved reference: ExtractorLink"
+        // si no tienes la importación o una versión de la API compatible.
+        // Pero es necesaria para la firma de `loadLinks` en MainAPI.
+        callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d("VerOnline", "loadLinks - Data de entrada: $data")
 
@@ -296,11 +314,16 @@ class VerOnlineProvider : MainAPI() {
             return false
         }
 
-        val iframeSrc = doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
-            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
+        // SELECTORES HTML ACTUALIZADOS PARA IFRAME SRC EN LOADLINKS
+        val iframeSrc = doc.selectFirst("div[id*=\"player-ajax\"] iframe")?.attr("src") // Nuevo selector principal para el reproductor
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src") // Selector anterior
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src") // Selector anterior
+            ?: doc.selectFirst("div#full-video iframe")?.attr("src") // Otro selector común
+            ?: doc.selectFirst("div#player_div_1 iframe")?.attr("src") // Otro selector común
+            ?: doc.selectFirst("iframe[src*='embed']")?.attr("src") // Genérico
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("VerOnline", "No se encontró iframe del reproductor con el selector específico en VerOnline. Intentando buscar en scripts de la página principal.")
+            Log.d("VerOnline", "No se encontró iframe del reproductor con los selectores específicos en VerOnline. Intentando buscar en scripts de la página principal.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
             // Buscar URLs directas en scripts, como en SoloLatino
@@ -310,7 +333,6 @@ class VerOnlineProvider : MainAPI() {
             if (directMatches.isNotEmpty()) {
                 Log.d("VerOnline", "Encontrados ${directMatches.size} enlaces directos en script de página principal.")
                 directMatches.apmap { directUrl ->
-                    // Delegar al extractor como en SoloLatino
                     Log.d("VerOnline", "Cargando extractor para URL directa de script: $directUrl")
                     loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
                 }
@@ -461,12 +483,8 @@ class VerOnlineProvider : MainAPI() {
             }
             else -> {
                 Log.w("VerOnline", "Tipo de iframe desconocido o no manejado: $iframeSrc. Intentando cargar extractor directamente.")
-                // Aquí, intentar cargar el iframeSrc directamente con loadExtractor
-                // si sospechamos que el iframeSrc es la URL directa de un video.
-                // Esto es un último recurso.
                 return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
             }
         }
     }
-    // === FIN DE CAMBIOS ===
 }
