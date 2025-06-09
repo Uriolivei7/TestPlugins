@@ -5,7 +5,6 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.* // Importa todas las utilidades generales
 import com.lagradost.cloudstream3.utils.AppUtils.toJson // Importa específicamente toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importa específicamente tryParseJson
-// import com.lagradost.cloudstream3.utils.AppUtils.fixUrl // Comentamos esta, ya que AppUtils.* debería cubrirla.
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -50,7 +49,8 @@ class VerOnlineProvider : MainAPI() {
                     val aElement = articleElement.selectFirst("a")
                     val title = aElement?.attr("title")
                     val link = aElement?.attr("href")
-                    val img = aElement?.attr("src")
+                    // La imagen está dentro de <a>, debemos seleccionarla desde allí.
+                    val img = aElement?.selectFirst("img")?.attr("src")
 
                     if (title != null && link != null) {
                         TvSeriesSearchResponse(
@@ -84,7 +84,8 @@ class VerOnlineProvider : MainAPI() {
                 val aElement = articleElement.selectFirst("a")
                 val title = aElement?.attr("title")
                 val link = aElement?.attr("href")
-                val img = aElement?.attr("src")
+                // La imagen está dentro de <a>, debemos seleccionarla desde allí.
+                val img = aElement?.selectFirst("img")?.attr("src")
 
                 if (title != null && link != null) {
                     TvSeriesSearchResponse(
@@ -154,14 +155,17 @@ class VerOnlineProvider : MainAPI() {
         val allEpisodes = ArrayList<Episode>()
 
         // 1. Intentar extraer temporadas si existen
-        val seasonElements = doc.select("div#serie-seasons div.season-list div.shortstory-in a.short-images-link")
+        // CAMBIO: Ajustado el selector de temporadas para que apunte al <a> dentro del div.short-images.radius-3
+        val seasonElements = doc.select("div#serie-seasons div.season-list div.shortstory-in div.short-images.radius-3 a")
         Log.d("VerOnline", "load - Temporadas encontradas en la página principal: ${seasonElements.size}")
 
         if (seasonElements.isNotEmpty()) {
             // Si hay temporadas, cargamos los episodios de cada página de temporada
             seasonElements.apmap { seasonElement ->
                 val seasonUrl = fixUrl(seasonElement.attr("href"))
-                val seasonName = seasonElement.selectFirst("caption")?.text()?.trim() ?: "Temporada Desconocida"
+                // CAMBIO: El nombre de la temporada se obtiene de la figcaption o del atributo alt de la imagen dentro del a
+                val seasonName = seasonElement.selectFirst("figcaption")?.text()?.trim()
+                    ?: seasonElement.selectFirst("img")?.attr("alt")?.trim() ?: "Temporada Desconocida"
                 val seasonNumber = Regex("""Temporada\s*(\d+)""").find(seasonName)?.groupValues?.get(1)?.toIntOrNull()
 
                 Log.d("VerOnline", "load - Intentando cargar temporada: $seasonName ($seasonUrl)")
@@ -174,6 +178,7 @@ class VerOnlineProvider : MainAPI() {
                 }
 
                 // Ahora buscamos los episodios en el documento de la temporada
+                // El selector de episodios es correcto: div#serie-episodes div.episode-list div.saisoin_LI2
                 val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
                     val aElement = episodeElement.selectFirst("a")
                     val epurl = fixUrl(aElement?.attr("href") ?: "")
@@ -203,6 +208,7 @@ class VerOnlineProvider : MainAPI() {
         } else {
             // Si no se encontraron temporadas, intentar extraer episodios directamente de la página de la serie
             Log.w("VerOnline", "load - No se encontraron elementos de temporada. Intentando extraer episodios directamente de la URL de la serie.")
+            // El selector de episodios es correcto: div#serie-episodes div.episode-list div.saisoin_LI2
             val episodesDirectly = doc.select("div#serie-episodes div.episode-list div.saisoin_LI2").mapNotNull { episodeElement ->
                 val aElement = episodeElement.selectFirst("a")
                 val epurl = fixUrl(aElement?.attr("href") ?: "")
@@ -286,6 +292,8 @@ class VerOnlineProvider : MainAPI() {
             return false
         }
 
+        // Inspección del HTML para los links de streamer (image_0f7afb.png)
+        // El selector es correcto: li.streamer
         val streamerElements = doc.select("li.streamer")
 
         if (streamerElements.isEmpty()) {
