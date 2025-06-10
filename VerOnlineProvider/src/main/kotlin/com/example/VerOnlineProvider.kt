@@ -40,8 +40,9 @@ class VerOnlineProvider : MainAPI() {
         val mainPageResponse = app.get(seriesPageUrl) // Ahora obtenemos esta URL
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
-        log("getMainPage - HTML COMPLETO DE LA PÁGINA DE SERIES: ${mainPageDoc.html()}") // Para seguir debuggeando
-        log("getMainPage - HTML de la p??gina de series cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
+        // *** Se eliminaron los logs de HTML completo aquí ***
+        // log("getMainPage - HTML COMPLETO DE LA PÁGINA DE SERIES: ${mainPageDoc.html()}")
+        // log("getMainPage - HTML de la página de series cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
         // El selector para las secciones en /series-online es más simple
         val sectionsContainers = mainPageDoc.select("div#dle-content")
@@ -66,10 +67,13 @@ class VerOnlineProvider : MainAPI() {
             val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
 
             if (title != null && link != null && img != null) {
+                val fixedLink = fixUrl(link)
+                val fixedImg = fixUrl(img)
+                log("getMainPage - Ítem extraído: Título='$title', Link Fijo='$fixedLink', Img Fija='$fixedImg'") // Log importante para verificar URLs
                 TvSeriesSearchResponse(
                     name = title.trim(),
-                    url = fixUrl(link),
-                    posterUrl = fixUrl(img),
+                    url = fixedLink,
+                    posterUrl = fixedImg,
                     type = TvType.TvSeries,
                     apiName = this.name
                 )
@@ -82,20 +86,18 @@ class VerOnlineProvider : MainAPI() {
         if (series.isNotEmpty()) {
             // Asumimos una única lista "Series Online" para esta página
             items.add(HomePageList("Series Online", series))
-            log("getMainPage - Encontrados ${series.size} ??tems para 'Series Online'")
+            log("getMainPage - Encontrados ${series.size} ítems para 'Series Online'")
         } else {
             log("getMainPage - No se encontraron ítems en la página de series.")
         }
 
         if (items.isEmpty()) {
-            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la p??gina principal. Posiblemente no se encontraron series.")
+            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la página principal. Posiblemente no se encontraron series.")
         }
 
         return HomePageResponse(items.toList(), false)
     }
 
-    // ... el resto de tu código para search, load, loadLinks, etc.
-    // (no es necesario cambiarlo a menos que haya problemas con ellos más adelante)
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResults = ArrayList<SearchResponse>()
         val mainPageResponse = app.get(mainUrl)
@@ -103,10 +105,10 @@ class VerOnlineProvider : MainAPI() {
         val csrfToken = mainPageDoc.select("meta[name=csrf-token]").attr("content")
 
         if (csrfToken.isBlank()) {
-            log("search - ERROR: No se pudo obtener el token CSRF para la b??squeda.")
+            log("search - ERROR: No se pudo obtener el token CSRF para la búsqueda.")
             return emptyList()
         }
-        log("search - Token CSRF para b??squeda: $csrfToken")
+        log("search - Token CSRF para búsqueda: $csrfToken")
 
         val searchUrl = "$mainUrl/livesearch"
         val postData = mapOf(
@@ -114,7 +116,7 @@ class VerOnlineProvider : MainAPI() {
             "_token" to csrfToken
         )
 
-        log("search - Intentando POST de b??squeda a URL: $searchUrl con datos: $postData")
+        log("search - Intentando POST de búsqueda a URL: $searchUrl con datos: $postData")
         try {
             val res = app.post(
                 url = searchUrl,
@@ -126,7 +128,7 @@ class VerOnlineProvider : MainAPI() {
             )
             val doc = Jsoup.parse(res.text)
 
-            log("search - HTML de b??squeda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
+            log("search - HTML de búsqueda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
 
             val items = doc.select("a")
             for (item in items) {
@@ -148,7 +150,7 @@ class VerOnlineProvider : MainAPI() {
             log("search - Encontrados ${searchResults.size} resultados para '$query'")
             return searchResults
         } catch (e: Exception) {
-            log("search - Error en la b??squeda para '$query' en URL $searchUrl: ${e.message} - ${e.stackTraceToString()}")
+            log("search - Error en la búsqueda para '$query' en URL $searchUrl: ${e.message} - ${e.stackTraceToString()}")
             return emptyList()
         }
     }
@@ -175,7 +177,7 @@ class VerOnlineProvider : MainAPI() {
         }
 
         if (cleanUrl.isBlank()) {
-            log("load - ERROR: URL limpia est?? en blanco.")
+            log("load - ERROR: URL limpia está en blanco.")
             return null
         }
 
@@ -202,7 +204,7 @@ class VerOnlineProvider : MainAPI() {
         val episodeElements = doc.select("ul.listing.items.full li")
 
         if (episodeElements.isNotEmpty()) {
-            log("load - Parece ser una p??gina de serie con episodios listados directamente.")
+            log("load - Parece ser una página de serie con episodios listados directamente.")
             episodeElements.mapNotNull { episodeElement ->
                 val epLink = episodeElement.selectFirst("a")?.attr("href") ?: ""
                 val epTitleText = episodeElement.selectFirst("div.name")?.text() ?: ""
@@ -212,7 +214,7 @@ class VerOnlineProvider : MainAPI() {
                 val episodeNumber = ssEpiText?.substringAfter("Episodio ")?.toIntOrNull()
 
                 if (epLink.isNotBlank() && epTitleText.isNotBlank()) {
-                    log("load - Episodio: T??tulo='$epTitleText', URL='$epLink', Temporada=$seasonNumber, Episodio=$episodeNumber")
+                    log("load - Episodio: Título='$epTitleText', URL='$epLink', Temporada=$seasonNumber, Episodio=$episodeNumber")
                     Episode(
                         data = EpisodeLoadData(epTitleText, fixUrl(epLink)).toJson(),
                         name = epTitleText,
@@ -221,7 +223,7 @@ class VerOnlineProvider : MainAPI() {
                         posterUrl = poster
                     )
                 } else {
-                    log("load - Episodio incompleto: URL=$epLink, T??tulo=$epTitleText")
+                    log("load - Episodio incompleto: URL=$epLink, Título=$epTitleText")
                     null
                 }
             }.let {
@@ -279,11 +281,11 @@ class VerOnlineProvider : MainAPI() {
             log("loadLinks - URL final del episodio (de JSON): $targetUrl")
         } else {
             targetUrl = fixUrl(data)
-            log("loadLinks - URL final de pel??cula (directa o ya limpia y con fixUrl): $targetUrl")
+            log("loadLinks - URL final de película (directa o ya limpia y con fixUrl): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
-            log("loadLinks - ERROR: La URL objetivo est?? en blanco despu??s de procesar 'data'.")
+            log("loadLinks - ERROR: La URL objetivo está en blanco después de procesar 'data'.")
             return false
         }
 
@@ -302,7 +304,7 @@ class VerOnlineProvider : MainAPI() {
             streamerElements.apmap { streamerElement ->
                 val encodedUrl = streamerElement.attr("data-url") ?: ""
                 val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text()
-                    ?: streamerElement.selectFirst("span")?.text()?.replace("OPCI??N ", "Opci??n ")?.trim()
+                    ?: streamerElement.selectFirst("span")?.text()?.replace("OPCI??N ", "Opción ")?.trim()
                     ?: "Servidor Desconocido"
 
                 if (encodedUrl.isNotBlank()) {
@@ -337,13 +339,13 @@ class VerOnlineProvider : MainAPI() {
                 }
             }
         } else {
-            log("loadLinks - No se encontraron elementos 'li.streamer' en la p??gina del episodio. Buscando alternativas.")
+            log("loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. Buscando alternativas.")
 
             val iframeSrc = doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
                 ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
 
             if (!iframeSrc.isNullOrBlank()) {
-                log("loadLinks - Encontrado iframe directo en la p??gina: $iframeSrc. Intentando ExtractorLink.")
+                log("loadLinks - Encontrado iframe directo en la página: $iframeSrc. Intentando ExtractorLink.")
                 val iframeLinkType = if (iframeSrc.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                 callback(
                     ExtractorLink(
