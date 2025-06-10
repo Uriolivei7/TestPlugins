@@ -8,7 +8,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Element
+import org.jsoup.nodes.Element // Asegúrate de que esta importación sea necesaria o úsala
 import android.util.Base64
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
@@ -37,84 +37,45 @@ class VerOnlineProvider : MainAPI() {
 
         val seriesPageUrl = "$mainUrl/series-online"
 
-        // *** AÑADIDO: HEADERS PARA IMITAR NAVEGADOR ***
         val headers = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
             "Accept-Language" to "es-ES,es;q=0.9",
             "Connection" to "keep-alive"
-            // Puedes añadir "Referer" si es necesario, aunque en la página principal suele ser opcional
-            // "Referer" to mainUrl
         )
 
-        val mainPageResponse = app.get(seriesPageUrl, headers = headers) // PASAMOS LOS HEADERS AQUÍ
+        val mainPageResponse = try {
+            app.get(seriesPageUrl, headers = headers)
+        } catch (e: Exception) {
+            log("getMainPage - ERROR al obtener la página de series: ${e.message} - ${e.stackTraceToString()}")
+            return null
+        }
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
-        // *** AGREGAR ESTA LÍNEA TEMPORALMENTE PARA DEPURAR ***
-        log("getMainPage - HTML completo recibido: ${mainPageDoc.html()}")
-        // *** FIN DE LA LÍNEA TEMPORAL ***
+        log("getMainPage - HTML completo recibido (primeros 2000 chars): ${mainPageDoc.html().take(2000)}")
 
-        // Ahora el selector para el contenedor principal de series debería ser más específico
-        // Usaremos `main.content #dle-content` para asegurar que estamos en la sección correcta
-        val sectionsContainers = mainPageDoc.select("main.content div#dle-content")
+        // --- INICIO DE LA LÓGICA REVISADA PARA EXTRACCIÓN ---
 
-        if (sectionsContainers.isEmpty()) {
-            log("getMainPage - ERROR: No se encontraron los contenedores de series usando 'main.content div#dle-content'.")
-            // Intenta con el selector original si el más específico falla (como fallback)
-            val fallbackContainers = mainPageDoc.select("div#dle-content")
-            if (fallbackContainers.isEmpty()){
-                return null
-            } else {
-                log("getMainPage - Usando selector de fallback 'div#dle-content'.")
-                // Si el fallback funciona, usa ese para continuar
-                val seriesElements = fallbackContainers.select("div.short")
-                val series = seriesElements.mapNotNull { element ->
-                    val aElement = element.selectFirst("a.short_img_box.with_mask")
-                    val link = aElement?.attr("href")
-                    val imgElement = aElement?.selectFirst("img")
-                    val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
+        // Selector para el contenedor principal de series
+        val mainContentContainer = mainPageDoc.selectFirst("div#dle-content")
 
-                    val titleElement = element.selectFirst("div.short_title a")
-                    val title = titleElement?.text()
-
-                    if (title != null && link != null && img != null) {
-                        val fixedLink = fixUrl(link)
-                        val fixedImg = fixUrl(img)
-                        log("getMainPage - Ítem extraído (fallback): Título='$title', Link Fijo='$fixedLink', Img Fija='$fixedImg'")
-                        TvSeriesSearchResponse(
-                            name = title.trim(),
-                            url = fixedLink,
-                            posterUrl = fixedImg,
-                            type = TvType.TvSeries,
-                            apiName = this.name
-                        )
-                    } else {
-                        log("getMainPage - Ítem incompleto (fallback): Título='$title', Link='$link', Img='$img'")
-                        null
-                    }
-                }
-                if (series.isNotEmpty()) {
-                    items.add(HomePageList("Series Online", series))
-                    log("getMainPage - Encontrados ${series.size} ítems para 'Series Online' (fallback)")
-                } else {
-                    log("getMainPage - No se encontraron ítems en la página de series (fallback).")
-                }
-                return HomePageResponse(items.toList(), false)
-            }
+        if (mainContentContainer == null) {
+            log("getMainPage - ERROR: No se encontró el contenedor principal '#dle-content'.")
+            return null
         }
 
-        // Si el selector específico `main.content div#dle-content` funciona, continuamos aquí
-        val seriesElements = sectionsContainers.select("div.short")
+        log("getMainPage - Contenedor '#dle-content' encontrado. Procesando elementos de serie...")
+
+        val seriesElements = mainContentContainer.select("div.short")
+
+        log("getMainPage - Encontrados ${seriesElements.size} elementos 'div.short' dentro de '#dle-content'.")
 
         val series = seriesElements.mapNotNull { element ->
-            val aElement = element.selectFirst("a.short_img_box.with_mask") // Este es el enlace principal con la imagen
+            val aElement = element.selectFirst("a.short_img_box.with_mask")
             val link = aElement?.attr("href")
             val imgElement = aElement?.selectFirst("img")
-            // Usa data-src primero, luego src como fallback si la imagen es lazy-loaded
             val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
 
-            // *** CAMBIO AQUÍ: Selector para el título ***
-            // El título ahora está en un <a> dentro de un <div class="short_title">
             val titleElement = element.selectFirst("div.short_title a")
             val title = titleElement?.text()
 
@@ -130,20 +91,17 @@ class VerOnlineProvider : MainAPI() {
                     apiName = this.name
                 )
             } else {
-                log("getMainPage - Ítem incompleto: Título='$title', Link='$link', Img='$img'")
+                // Log detallado de por qué un ítem es nulo
+                log("getMainPage - Ítem incompleto: Título='${title}', Link='${link}', Img='${img}' para elemento: ${element.html().take(200)}")
                 null
             }
         }
 
         if (series.isNotEmpty()) {
             items.add(HomePageList("Series Online", series))
-            log("getMainPage - Encontrados ${series.size} ítems para 'Series Online'")
+            log("getMainPage - Se agregaron ${series.size} ítems para 'Series Online'.")
         } else {
-            log("getMainPage - No se encontraron ítems en la página de series.")
-        }
-
-        if (items.isEmpty()) {
-            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la página principal. Posiblemente no se encontraron series.")
+            log("getMainPage - ADVERTENCIA: No se encontraron series válidas para agregar a la página principal.")
         }
 
         return HomePageResponse(items.toList(), false)
@@ -151,7 +109,6 @@ class VerOnlineProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResults = ArrayList<SearchResponse>()
-        // También aquí podrías considerar añadir los headers si la búsqueda directa no funciona bien
         val mainPageResponse = app.get(mainUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
         val csrfToken = mainPageDoc.select("meta[name=csrf-token]").attr("content")
@@ -173,12 +130,11 @@ class VerOnlineProvider : MainAPI() {
             val res = app.post(
                 url = searchUrl,
                 data = postData,
-                // Mantén los headers existentes para XHR, pero también podrías añadir el User-Agent etc.
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl,
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01", // Típicamente para XHR
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
                     "Accept-Language" to "es-ES,es;q=0.9",
                     "Connection" to "keep-alive"
                 )
@@ -197,7 +153,7 @@ class VerOnlineProvider : MainAPI() {
                         TvSeriesSearchResponse(
                             name = title,
                             url = fixUrl(link),
-                            posterUrl = null, // La búsqueda directa no da poster
+                            posterUrl = null,
                             type = TvType.TvSeries,
                             apiName = this.name
                         )
@@ -239,13 +195,12 @@ class VerOnlineProvider : MainAPI() {
         }
 
         val doc = try {
-            // *** AÑADIDO: HEADERS TAMBIÉN PARA LOAD ***
             app.get(cleanUrl, headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Language" to "es-ES,es;q=0.9",
                 "Connection" to "keep-alive",
-                "Referer" to mainUrl // Aquí el referer es importante para las páginas internas
+                "Referer" to mainUrl
             )).document
         } catch (e: Exception) {
             log("load - ERROR al obtener el documento para URL: $cleanUrl - ${e.message} - ${e.stackTraceToString()}")
@@ -261,14 +216,14 @@ class VerOnlineProvider : MainAPI() {
         val plot = doc.selectFirst("div.description.full")?.text()
             ?: doc.selectFirst("meta[name=\"description\"]")?.attr("content") ?: ""
         val year = doc.selectFirst("div.info-text:contains(Año) span")?.text()?.toIntOrNull()
-        val tags = emptyList<String>() // No veo tags específicos en el HTML de la serie, si hay, ajusta
+        val tags = emptyList<String>()
 
         val allEpisodes = ArrayList<Episode>()
 
         val episodeElements = doc.select("ul.listing.items.full li")
 
         if (episodeElements.isNotEmpty()) {
-            log("load - Parece ser una página de serie con episodios listados directamente.")
+            log("load - Se encontraron ${episodeElements.size} elementos de episodio en 'ul.listing.items.full li'.")
             episodeElements.mapNotNull { episodeElement ->
                 val epLink = episodeElement.selectFirst("a")?.attr("href") ?: ""
                 val epTitleText = episodeElement.selectFirst("div.name")?.text() ?: ""
@@ -284,10 +239,10 @@ class VerOnlineProvider : MainAPI() {
                         name = epTitleText,
                         season = seasonNumber,
                         episode = episodeNumber,
-                        posterUrl = poster // Usar el póster de la serie para los episodios
+                        posterUrl = poster
                     )
                 } else {
-                    log("load - Episodio incompleto: URL=$epLink, Título=$epTitleText")
+                    log("load - Episodio incompleto: URL=$epLink, Título=$epTitleText para elemento: ${episodeElement.html().take(200)}")
                     null
                 }
             }.let {
@@ -299,11 +254,10 @@ class VerOnlineProvider : MainAPI() {
 
         log("load - Total de episodios encontrados (final): ${allEpisodes.size}")
 
-        // Recomendaciones (si la estructura no ha cambiado)
         val recommendations = doc.select("div.item").mapNotNull { recElement ->
             val recTitle = recElement.selectFirst("h3 a")?.text()
             val recLink = recElement.selectFirst("a")?.attr("href")
-            val recPoster = recElement.selectFirst("img")?.attr("src") // Asumo src aquí, si es data-src, ajústalo
+            val recPoster = recElement.selectFirst("img")?.attr("src")
 
             if (recTitle != null && recLink != null && recPoster != null) {
                 TvSeriesSearchResponse(
@@ -313,7 +267,10 @@ class VerOnlineProvider : MainAPI() {
                     type = TvType.TvSeries,
                     apiName = this.name
                 )
-            } else null
+            } else {
+                log("load - Recomendación incompleta: Título=$recTitle, Link=$recLink, Poster=$recPoster para elemento: ${recElement.html().take(200)}")
+                null
+            }
         }
 
         return TvSeriesLoadResponse(
@@ -355,13 +312,12 @@ class VerOnlineProvider : MainAPI() {
         }
 
         val doc = try {
-            // *** AÑADIDO: HEADERS TAMBIÉN PARA LOADLINKS ***
             app.get(targetUrl, headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Language" to "es-ES,es;q=0.9",
                 "Connection" to "keep-alive",
-                "Referer" to targetUrl // El referer para los links suele ser la propia URL del episodio
+                "Referer" to targetUrl
             )).document
         } catch (e: Exception) {
             log("loadLinks - ERROR al obtener el documento para URL: $targetUrl - ${e.message} - ${e.stackTraceToString()}")
@@ -375,9 +331,7 @@ class VerOnlineProvider : MainAPI() {
             log("loadLinks - Se encontraron ${streamerElements.size} elementos 'li.streamer'. Procesando...")
             streamerElements.apmap { streamerElement ->
                 val encodedUrl = streamerElement.attr("data-url") ?: ""
-                // Asegúrate de que el ID del span sea correcto si hay variaciones
-                val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text()
-                    ?: streamerElement.selectFirst("span")?.text()?.replace("OPCI??N ", "Opción ")?.trim()
+                val serverName = streamerElement.selectFirst("span")?.text()?.replace("OPCI??N ", "Opción ")?.trim()
                     ?: "Servidor Desconocido"
 
                 if (encodedUrl.isNotBlank()) {
@@ -395,9 +349,9 @@ class VerOnlineProvider : MainAPI() {
                                 source = this.name,
                                 name = serverName,
                                 url = fixUrl(decodedUrl),
-                                referer = targetUrl, // Mantener el referer del episodio
-                                quality = 0,
-                                headers = emptyMap(), // Opcional: si el extractor necesita headers específicos
+                                referer = targetUrl,
+                                quality = 0, // Quality es Int. 0 para desconocido.
+                                headers = emptyMap(),
                                 extractorData = null,
                                 type = linkType
                             )
@@ -409,10 +363,12 @@ class VerOnlineProvider : MainAPI() {
                     } catch (e: Exception) {
                         log("loadLinks - Error general al procesar link de $serverName ($encodedUrl): ${e.message} - ${e.stackTraceToString()}")
                     }
+                } else {
+                    log("loadLinks - URL codificada vacía para el elemento streamer: ${streamerElement.html().take(100)}")
                 }
             }
         } else {
-            log("loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. Buscando alternativas.")
+            log("loadLinks - No se encontraron elementos 'li.streamer'. Buscando alternativas.")
 
             val iframeSrc = doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
                 ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
@@ -440,7 +396,7 @@ class VerOnlineProvider : MainAPI() {
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (directMatches.isNotEmpty()) {
-                log("loadLinks - Encontrados enlaces directos en scripts. Intentando ExtractorLink.")
+                log("loadLinks - Encontrados ${directMatches.size} enlaces directos en scripts. Intentando ExtractorLink.")
                 directMatches.apmap { directUrl ->
                     val directLinkType = if (directUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     callback(
