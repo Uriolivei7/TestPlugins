@@ -39,6 +39,10 @@ class VerOnlineProvider : MainAPI() {
         val mainPageResponse = app.get(seriesPageUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
+        // *** AGREGAR ESTA LÍNEA TEMPORALMENTE PARA DEPURAR ***
+        log("getMainPage - HTML completo recibido: ${mainPageDoc.html()}")
+        // *** FIN DE LA LÍNEA TEMPORAL ***
+
         val sectionsContainers = mainPageDoc.select("div#dle-content")
 
         if (sectionsContainers.isEmpty()) {
