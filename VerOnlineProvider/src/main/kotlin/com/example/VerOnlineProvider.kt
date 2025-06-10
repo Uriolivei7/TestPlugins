@@ -14,7 +14,7 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
 class VerOnlineProvider : MainAPI() {
-    override var mainUrl = "https://www.verseriesonline.net" // La dejamos así para que la búsqueda y otros funcionen bien.
+    override var mainUrl = "https://www.verseriesonline.net"
     override var name = "VerOnline"
     override val supportedTypes = setOf(
         TvType.TvSeries,
@@ -35,16 +35,10 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
-        // Cambiamos la URL de la página principal a /series-online para obtener las listas de series
         val seriesPageUrl = "$mainUrl/series-online"
-        val mainPageResponse = app.get(seriesPageUrl) // Ahora obtenemos esta URL
+        val mainPageResponse = app.get(seriesPageUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
-        // *** Se eliminaron los logs de HTML completo aquí ***
-        // log("getMainPage - HTML COMPLETO DE LA PÁGINA DE SERIES: ${mainPageDoc.html()}")
-        // log("getMainPage - HTML de la página de series cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
-
-        // El selector para las secciones en /series-online es más simple
         val sectionsContainers = mainPageDoc.select("div#dle-content")
 
         if (sectionsContainers.isEmpty()) {
@@ -52,24 +46,23 @@ class VerOnlineProvider : MainAPI() {
             return null
         }
 
-        // En /series-online, parece que solo hay una gran lista, o si hay secciones, no están claramente delimitadas por títulos <h1> o <h2> como en otros sitios.
-        // Vamos a tratar todo el contenido de div#dle-content como una única sección.
-        // Si hay subtítulos dentro de #dle-content para diferentes "géneros" o "novedades", tendremos que ajustar esto.
-        // Por ahora, asumiremos que toda la página es una lista principal.
-
-        val seriesElements = sectionsContainers.select("div.short") // Cada serie es un div con clase 'short'
+        val seriesElements = sectionsContainers.select("div.short")
 
         val series = seriesElements.mapNotNull { element ->
-            val aElement = element.selectFirst("a.short_img_box.with_mask")
+            val aElement = element.selectFirst("a.short_img_box.with_mask") // Este es el enlace principal con la imagen
             val link = aElement?.attr("href")
             val imgElement = aElement?.selectFirst("img")
             val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
-            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
+
+            // *** CAMBIO AQUÍ: Selector para el título ***
+            // El título ahora está en un <a> dentro de un <div class="short_title">
+            val titleElement = element.selectFirst("div.short_title a")
+            val title = titleElement?.text()
 
             if (title != null && link != null && img != null) {
                 val fixedLink = fixUrl(link)
                 val fixedImg = fixUrl(img)
-                log("getMainPage - Ítem extraído: Título='$title', Link Fijo='$fixedLink', Img Fija='$fixedImg'") // Log importante para verificar URLs
+                log("getMainPage - Ítem extraído: Título='$title', Link Fijo='$fixedLink', Img Fija='$fixedImg'")
                 TvSeriesSearchResponse(
                     name = title.trim(),
                     url = fixedLink,
@@ -84,7 +77,6 @@ class VerOnlineProvider : MainAPI() {
         }
 
         if (series.isNotEmpty()) {
-            // Asumimos una única lista "Series Online" para esta página
             items.add(HomePageList("Series Online", series))
             log("getMainPage - Encontrados ${series.size} ítems para 'Series Online'")
         } else {
