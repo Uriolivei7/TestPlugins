@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -24,7 +24,6 @@ class VerOnlineProvider : MainAPI() {
 
     override var lang = "es"
 
-    // CORREGIDO: 'hasLatest' ha sido eliminado ya que no existe en tu MainAPI.
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
@@ -36,86 +35,80 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
+        // Simplemente obtenemos el HTML de la página principal directamente,
+        // ya que no hay una API AJAX para cargar la página principal de forma asíncrona según el logcat.
         val mainPageResponse = app.get(mainUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
-        val csrfToken = mainPageDoc.select("meta[name=csrf-token]").attr("content")
 
-        if (csrfToken.isBlank()) {
-            log("getMainPage - ERROR: No se pudo obtener el token CSRF de la página principal.")
-            return null
-        }
-        log("getMainPage - Token CSRF encontrado: $csrfToken")
+        log("getMainPage - HTML de la página principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
-        val api_url = "$mainUrl/api/ajax_request"
-        val post_data_latest = mapOf(
-            "action" to "get_data",
-            "page" to page.toString(),
-            "type" to "series",
-            "cat" to ""
-        )
-        val post_data_animation = mapOf(
-            "action" to "get_data",
-            "page" to page.toString(),
-            "type" to "series",
-            "cat" to "animacion"
-        )
+        // Selectores basados en las imágenes del HTML que proporcionaste
+        // Las series están dentro de 'div.short_in' que a su vez están dentro de 'div.short griddler-list'
+        val latestSeriesSection = mainPageDoc.selectFirst("div.main-content h1:contains(Explora Nuestra Colección de Series Online en Latino, Castellano)")
+        val animationSeriesSection = mainPageDoc.selectFirst("div.main-content h1:contains(Las Mejores Series de Animación en Español y Latino Gratis en Alta Definición)")
 
-        val listsToFetch = listOf(
-            Pair("Últimas Series", post_data_latest),
-            Pair("Series de Animación", post_data_animation)
-        )
+        // La estructura HTML parece ser la misma para ambos listados.
+        // Vamos a extraer los elementos de las series de cada sección.
 
-        val homePageLists = listsToFetch.apmap { (listName, basePostData) ->
-            val tvType = when {
-                listName.contains("Series") || listName.contains("Animación") -> TvType.TvSeries
-                else -> TvType.Others
-            }
-            try {
-                val postDataWithToken = basePostData.toMutableMap().apply {
-                    put("_token", csrfToken)
-                }
+        // ----- Últimas Series / Colección de Series Online -----
+        val latestSeriesElements = latestSeriesSection?.parents()?.select("div.short_in") ?: emptyList()
+        val latestSeries = latestSeriesElements.mapNotNull { element ->
+            val aElement = element.selectFirst("a")
+            val link = aElement?.attr("href")
+            val imgElement = aElement?.selectFirst("img")
+            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
+            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
 
-                log("getMainPage - Intentando POST a: $api_url con datos: $postDataWithToken")
-                val res = app.post(
-                    url = api_url,
-                    data = postDataWithToken,
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to mainUrl
-                    )
+            if (title != null && link != null && img != null) {
+                TvSeriesSearchResponse(
+                    name = title.trim(),
+                    url = fixUrl(link),
+                    posterUrl = fixUrl(img),
+                    type = TvType.TvSeries, // Asumimos TvSeries para esta sección
+                    apiName = this.name
                 )
-                val doc = Jsoup.parse(res.text)
-
-                log("getMainPage - HTML recibido para $listName (primeros 1000 chars): ${doc.html().take(1000)}")
-
-                val homeItems = doc.select("div.col-md-3.col-6.col-sm-4.my-2 a.movie_box_link").mapNotNull { aElement ->
-                    val title = aElement.selectFirst("div.name")?.text() ?: ""
-                    val link = aElement.attr("href") ?: ""
-                    val img = aElement.selectFirst("img")?.attr("data-src")
-                        ?: aElement.selectFirst("img")?.attr("src") ?: ""
-
-                    if (title.isNotBlank() && link.isNotBlank()) {
-                        TvSeriesSearchResponse(
-                            name = title,
-                            url = fixUrl(link),
-                            posterUrl = img,
-                            type = tvType,
-                            apiName = this.name
-                        )
-                    } else {
-                        log("getMainPage - Ítem incompleto encontrado para $listName: Título='$title', Link='$link', Img='$img'")
-                        null
-                    }
-                }
-                log("getMainPage - Encontrados ${homeItems.size} ítems para $listName")
-                HomePageList(listName, homeItems)
-            } catch (e: Exception) {
-                log("getMainPage - Error al obtener la página principal para $listName (API POST): ${e.message} - ${e.stackTraceToString()}")
+            } else {
+                log("getMainPage - Ítem incompleto para Últimas Series: Título='$title', Link='$link', Img='$img'")
                 null
             }
-        }.filterNotNull()
+        }
+        if (latestSeries.isNotEmpty()) {
+            items.add(HomePageList("Últimas Series", latestSeries))
+            log("getMainPage - Encontrados ${latestSeries.size} ítems para Últimas Series")
+        } else {
+            log("getMainPage - No se encontraron ítems para Últimas Series en la página principal.")
+        }
 
-        items.addAll(homePageLists)
+
+        // ----- Series de Animación -----
+        val animationSeriesElements = animationSeriesSection?.parents()?.select("div.short_in") ?: emptyList()
+        val animationSeries = animationSeriesElements.mapNotNull { element ->
+            val aElement = element.selectFirst("a")
+            val link = aElement?.attr("href")
+            val imgElement = aElement?.selectFirst("img")
+            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
+            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
+
+            if (title != null && link != null && img != null) {
+                TvSeriesSearchResponse(
+                    name = title.trim(),
+                    url = fixUrl(link),
+                    posterUrl = fixUrl(img),
+                    type = TvType.TvSeries, // Asumimos TvSeries para esta sección
+                    apiName = this.name
+                )
+            } else {
+                log("getMainPage - Ítem incompleto para Series de Animación: Título='$title', Link='$link', Img='$img'")
+                null
+            }
+        }
+        if (animationSeries.isNotEmpty()) {
+            items.add(HomePageList("Series de Animación", animationSeries))
+            log("getMainPage - Encontrados ${animationSeries.size} ítems para Series de Animación")
+        } else {
+            log("getMainPage - No se encontraron ítems para Series de Animación en la página principal.")
+        }
+
         return HomePageResponse(items.toList(), false)
     }
 
@@ -151,18 +144,25 @@ class VerOnlineProvider : MainAPI() {
 
             log("search - HTML de búsqueda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            val items = doc.select("a")
+            // Los resultados de búsqueda directa (livesearch) parecen ser simples <a> tags.
+            // Ejemplo de la imagen 'image_f44813.jpg' cuando escribes "sym-bid",
+            // los resultados aparecen en un div (#searchsuggestions) que contiene <a> tags.
+            val items = doc.select("a") // Asume que la respuesta AJAX contiene solo los <a> tags.
             for (item in items) {
                 val link = item.attr("href") ?: ""
-                val title = item.text() ?: ""
+                val title = item.text() ?: "" // El texto del <a> es el título.
+
+                // Opcional: si hay una imagen o descripción asociada en la respuesta AJAX,
+                // tendrías que ajustar los selectores aquí. Pero por ahora, basándonos en la imagen,
+                // solo se ve un enlace con texto.
 
                 if (title.isNotBlank() && link.isNotBlank()) {
                     searchResults.add(
                         TvSeriesSearchResponse(
                             name = title,
                             url = fixUrl(link),
-                            posterUrl = null,
-                            type = TvType.TvSeries,
+                            posterUrl = null, // No hay póster en la respuesta directa de livesearch.
+                            type = TvType.TvSeries, // Asumimos TvSeries por defecto.
                             apiName = this.name
                         )
                     )
@@ -222,6 +222,8 @@ class VerOnlineProvider : MainAPI() {
 
         val allEpisodes = ArrayList<Episode>()
 
+        // Selectores basados en la estructura de episodios que he visto en sitios similares
+        // y el logcat anterior que mostraba "ul.listing.items.full li"
         val episodeElements = doc.select("ul.listing.items.full li")
 
         if (episodeElements.isNotEmpty()) {
@@ -338,17 +340,15 @@ class VerOnlineProvider : MainAPI() {
 
                         val linkType = if (decodedUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
 
-                        // Usamos el constructor principal de ExtractorLink con todos los parámetros obligatorios.
-                        // Referencia: public constructor(source: kotlin.String, name: kotlin.String, url: kotlin.String, referer: kotlin.String, quality: kotlin.Int, headers: kotlin.collections.Map<kotlin.String, kotlin.String> = COMPILED_CODE, extractorData: kotlin.String? = COMPILED_CODE, type: com.lagradost.cloudstream3.utils.ExtractorLinkType)
                         callback(
                             ExtractorLink(
                                 source = this.name,
                                 name = serverName,
                                 url = fixUrl(decodedUrl),
-                                referer = targetUrl, // Referer es la URL de la página donde se encontró el link
-                                quality = 0, // No tenemos una calidad específica de la página, así que 0.
-                                headers = emptyMap(), // Map vacío para headers, ya que no se especifica
-                                extractorData = null, // null para extractorData
+                                referer = targetUrl,
+                                quality = 0,
+                                headers = emptyMap(),
+                                extractorData = null,
                                 type = linkType
                             )
                         )
