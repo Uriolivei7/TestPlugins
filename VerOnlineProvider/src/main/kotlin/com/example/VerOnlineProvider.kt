@@ -38,37 +38,57 @@ class VerOnlineProvider : MainAPI() {
         val mainPageResponse = app.get(mainUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
-        log("getMainPage - HTML de la página principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
+        log("getMainPage - HTML de la p??gina principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
-        // Buscar directamente por los contenedores de las listas de series
-        // que están dentro de "dle-content" y tienen la clase "short griddler-list".
-        val sectionsContainers = mainPageDoc.select("div#dle-content div.short.griddler-list")
+        // Selector ajustado: Buscar div.short.griddler-list dentro de div#dle-content,
+        // que a su vez est?? dentro de div.sect_c.items.
+        // Esto se basa directamente en la estructura mostrada en image_f3c456.png y image_f430fa.png
+        val sectionsContainers = mainPageDoc.select("div.sect_c.items div#dle-content div.short.griddler-list")
 
         if (sectionsContainers.isEmpty()) {
-            log("getMainPage - ERROR: No se encontraron los contenedores de series (div#dle-content div.short.griddler-list).")
-            return null
+            log("getMainPage - ERROR: No se encontraron los contenedores de series usando el selector ajustado 'div.sect_c.items div#dle-content div.short.griddler-list'.")
+            // Fallback menos espec??fico por si la estructura cambia levemente
+            val fallbackSections = mainPageDoc.select("div#dle-content div.short.griddler-list")
+            if (fallbackSections.isNotEmpty()) {
+                log("getMainPage - Usando fallback: 'div#dle-content div.short.griddler-list'.")
+                sectionsContainers.addAll(fallbackSections)
+            } else {
+                log("getMainPage - Fallback tambi??n fall??. Intentando una ??ltima opci??n: buscar cualquier 'div.short.griddler-list' en la p??gina.")
+                val genericSections = mainPageDoc.select("div.short.griddler-list")
+                if (genericSections.isNotEmpty()) {
+                    log("getMainPage - Usando selector gen??rico 'div.short.griddler-list'.")
+                    sectionsContainers.addAll(genericSections)
+                } else {
+                    log("getMainPage - NING??N selector encontr?? contenedores de series.")
+                    return null
+                }
+            }
         }
-        log("getMainPage - Se encontraron ${sectionsContainers.size} contenedores de secciones de series.")
+        log("getMainPage - Se encontraron ${sectionsContainers.size} contenedores de secciones de series para procesar.")
 
-        // Iterar sobre cada contenedor de sección para extraer las series
         sectionsContainers.forEachIndexed { index, sectionContainer ->
-            // Intentar obtener el título de la sección.
-            // A veces el h1 está un nivel más arriba de 'dle-content',
-            // o puede que haya un h2 dentro de la sección.
-            // Para ser más robustos, podemos intentar subir y buscar un h1 o h2.
-            // Basado en image_f430fa.png, el h1 está fuera de dle-content, pero en la misma section.
+            // Para el t??tulo de la secci??n, subimos por la jerarqu??a
+            // Buscamos h1.maintitle o h2 en los ancestros de 'sectionContainer'
+            // hasta encontrar un 'section' o 'main-content'.
+            var sectionName = "Sección ${index + 1}"
+            var parentElement: Element? = sectionContainer
+            // Subimos hasta 5 niveles para buscar un t??tulo
+            for (i in 0..5) {
+                parentElement = parentElement?.parent()
+                if (parentElement == null) break
 
-            // Navegar hacia el padre de 'dle-content' para encontrar el h1 asociado
-            val sectionParent = sectionContainer.parents().firstOrNull { it.id() == "dle-content" }?.parent()
-            val sectionTitleElement = sectionParent?.selectFirst("h1.maintitle")
-                ?: sectionParent?.selectFirst("h2") // Si no es h1, buscar h2
+                val titleCandidate = parentElement.selectFirst("h1.maintitle, h2")
+                if (titleCandidate != null) {
+                    sectionName = titleCandidate.text().trim()
+                    log("getMainPage - T??tulo encontrado para la secci??n: '$sectionName'")
+                    break
+                }
+            }
 
-            val sectionName = sectionTitleElement?.text()?.trim() ?: "Sección ${index + 1}"
-
-            val seriesElements = sectionContainer.select("div.short_in") // Los ítems individuales dentro del contenedor de la lista.
+            val seriesElements = sectionContainer.select("div.short_in")
 
             val series = seriesElements.mapNotNull { element ->
-                val aElement = element.selectFirst("a.short_img_box.with_mask") // Selector más específico para el enlace principal.
+                val aElement = element.selectFirst("a.short_img_box.with_mask") // Selector m??s espec??fico para el enlace principal.
                 val link = aElement?.attr("href")
                 val imgElement = aElement?.selectFirst("img")
                 val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
@@ -89,14 +109,14 @@ class VerOnlineProvider : MainAPI() {
             }
             if (series.isNotEmpty()) {
                 items.add(HomePageList(sectionName, series))
-                log("getMainPage - Encontrados ${series.size} ítems para '$sectionName'")
+                log("getMainPage - Encontrados ${series.size} ??tems para '$sectionName'")
             } else {
-                log("getMainPage - No se encontraron ítems para '$sectionName' (index $index).")
+                log("getMainPage - No se encontraron ??tems para '$sectionName' (index $index).")
             }
         }
 
         if (items.isEmpty()) {
-            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la página principal. Posiblemente no se encontraron series.")
+            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la p??gina principal. Posiblemente no se encontraron series.")
         }
 
         return HomePageResponse(items.toList(), false)
@@ -109,10 +129,10 @@ class VerOnlineProvider : MainAPI() {
         val csrfToken = mainPageDoc.select("meta[name=csrf-token]").attr("content")
 
         if (csrfToken.isBlank()) {
-            log("search - ERROR: No se pudo obtener el token CSRF para la búsqueda.")
+            log("search - ERROR: No se pudo obtener el token CSRF para la b??squeda.")
             return emptyList()
         }
-        log("search - Token CSRF para búsqueda: $csrfToken")
+        log("search - Token CSRF para b??squeda: $csrfToken")
 
         val searchUrl = "$mainUrl/livesearch"
         val postData = mapOf(
@@ -120,7 +140,7 @@ class VerOnlineProvider : MainAPI() {
             "_token" to csrfToken
         )
 
-        log("search - Intentando POST de búsqueda a URL: $searchUrl con datos: $postData")
+        log("search - Intentando POST de b??squeda a URL: $searchUrl con datos: $postData")
         try {
             val res = app.post(
                 url = searchUrl,
@@ -132,23 +152,20 @@ class VerOnlineProvider : MainAPI() {
             )
             val doc = Jsoup.parse(res.text)
 
-            log("search - HTML de búsqueda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
+            log("search - HTML de b??squeda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            // Los resultados de búsqueda directa (livesearch) parecen ser simples <a> tags.
-            // Ejemplo de la imagen 'image_f44813.jpg' cuando escribes "sym-bid",
-            // los resultados aparecen en un div (#searchsuggestions) que contiene <a> tags.
-            val items = doc.select("a") // Asume que la respuesta AJAX contiene solo los <a> tags.
+            val items = doc.select("a") // Se asume que la respuesta AJAX contiene solo los <a> tags.
             for (item in items) {
                 val link = item.attr("href") ?: ""
-                val title = item.text() ?: "" // El texto del <a> es el título.
+                val title = item.text() ?: ""
 
                 if (title.isNotBlank() && link.isNotBlank()) {
                     searchResults.add(
                         TvSeriesSearchResponse(
                             name = title,
                             url = fixUrl(link),
-                            posterUrl = null, // No hay póster en la respuesta directa de livesearch.
-                            type = TvType.TvSeries, // Asumimos TvSeries por defecto.
+                            posterUrl = null,
+                            type = TvType.TvSeries,
                             apiName = this.name
                         )
                     )
@@ -157,7 +174,7 @@ class VerOnlineProvider : MainAPI() {
             log("search - Encontrados ${searchResults.size} resultados para '$query'")
             return searchResults
         } catch (e: Exception) {
-            log("search - Error en la búsqueda para '$query' en URL $searchUrl: ${e.message} - ${e.stackTraceToString()}")
+            log("search - Error en la b??squeda para '$query' en URL $searchUrl: ${e.message} - ${e.stackTraceToString()}")
             return emptyList()
         }
     }
@@ -184,7 +201,7 @@ class VerOnlineProvider : MainAPI() {
         }
 
         if (cleanUrl.isBlank()) {
-            log("load - ERROR: URL limpia está en blanco.")
+            log("load - ERROR: URL limpia est?? en blanco.")
             return null
         }
 
@@ -213,7 +230,7 @@ class VerOnlineProvider : MainAPI() {
         val episodeElements = doc.select("ul.listing.items.full li")
 
         if (episodeElements.isNotEmpty()) {
-            log("load - Parece ser una página de serie con episodios listados directamente.")
+            log("load - Parece ser una p??gina de serie con episodios listados directamente.")
             episodeElements.mapNotNull { episodeElement ->
                 val epLink = episodeElement.selectFirst("a")?.attr("href") ?: ""
                 val epTitleText = episodeElement.selectFirst("div.name")?.text() ?: ""
@@ -223,7 +240,7 @@ class VerOnlineProvider : MainAPI() {
                 val episodeNumber = ssEpiText?.substringAfter("Episodio ")?.toIntOrNull()
 
                 if (epLink.isNotBlank() && epTitleText.isNotBlank()) {
-                    log("load - Episodio: Título='$epTitleText', URL='$epLink', Temporada=$seasonNumber, Episodio=$episodeNumber")
+                    log("load - Episodio: T??tulo='$epTitleText', URL='$epLink', Temporada=$seasonNumber, Episodio=$episodeNumber")
                     Episode(
                         data = EpisodeLoadData(epTitleText, fixUrl(epLink)).toJson(),
                         name = epTitleText,
@@ -232,7 +249,7 @@ class VerOnlineProvider : MainAPI() {
                         posterUrl = poster
                     )
                 } else {
-                    log("load - Episodio incompleto: URL=$epLink, Título=$epTitleText")
+                    log("load - Episodio incompleto: URL=$epLink, T??tulo=$epTitleText")
                     null
                 }
             }.let {
@@ -290,11 +307,11 @@ class VerOnlineProvider : MainAPI() {
             log("loadLinks - URL final del episodio (de JSON): $targetUrl")
         } else {
             targetUrl = fixUrl(data)
-            log("loadLinks - URL final de película (directa o ya limpia y con fixUrl): $targetUrl")
+            log("loadLinks - URL final de pel??cula (directa o ya limpia y con fixUrl): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
-            log("loadLinks - ERROR: La URL objetivo está en blanco después de procesar 'data'.")
+            log("loadLinks - ERROR: La URL objetivo est?? en blanco despu??s de procesar 'data'.")
             return false
         }
 
@@ -313,7 +330,7 @@ class VerOnlineProvider : MainAPI() {
             streamerElements.apmap { streamerElement ->
                 val encodedUrl = streamerElement.attr("data-url") ?: ""
                 val serverName = streamerElement.selectFirst("span[id*='player_V_DIV_5']")?.text()
-                    ?: streamerElement.selectFirst("span")?.text()?.replace("OPCIÓN ", "Opción ")?.trim()
+                    ?: streamerElement.selectFirst("span")?.text()?.replace("OPCI??N ", "Opci??n ")?.trim()
                     ?: "Servidor Desconocido"
 
                 if (encodedUrl.isNotBlank()) {
@@ -348,13 +365,13 @@ class VerOnlineProvider : MainAPI() {
                 }
             }
         } else {
-            log("loadLinks - No se encontraron elementos 'li.streamer' en la página del episodio. Buscando alternativas.")
+            log("loadLinks - No se encontraron elementos 'li.streamer' en la p??gina del episodio. Buscando alternativas.")
 
             val iframeSrc = doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
                 ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
 
             if (!iframeSrc.isNullOrBlank()) {
-                log("loadLinks - Encontrado iframe directo en la página: $iframeSrc. Intentando ExtractorLink.")
+                log("loadLinks - Encontrado iframe directo en la p??gina: $iframeSrc. Intentando ExtractorLink.")
                 val iframeLinkType = if (iframeSrc.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                 callback(
                     ExtractorLink(
