@@ -33,11 +33,8 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
-            // CAMBIO AQUÍ: Usamos mainUrl directamente para la página principal
-            Pair("Últimas Series", mainUrl), // Probamos la URL principal directamente
-            // Si la página principal no muestra las series directamente,
-            // podríamos necesitar otra URL como "$mainUrl/series-online/genero/todos-los-generos"
-            // o buscar si hay una página principal de "series" que no sea un género.
+            // La URL principal ahora es solo el dominio, esperando que muestre las series
+            Pair("Últimas Series", mainUrl),
         )
 
         val homePageLists = urls.apmap { (name, url) ->
@@ -50,8 +47,9 @@ class VerOnlineProvider : MainAPI() {
                 val doc = app.get(url).document
                 Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
 
-                val homeItems = doc.select("a.th-hover").mapNotNull { aElement ->
-                    val title = aElement.selectFirst("div.th-title")?.text()
+                // SELECTORES ACTUALIZADOS PARA LA PÁGINA PRINCIPAL Y BÚSQUEDA
+                val homeItems = doc.select("a.movie_box_link").mapNotNull { aElement -> // Cambio de a.th-hover a a.movie_box_link
+                    val title = aElement.selectFirst("div.short_title")?.text() // Cambio de div.th-title a div.short_title
                     val link = aElement.attr("href")
                     val img = aElement.selectFirst("img")?.attr("src")
                         ?: aElement.selectFirst("img")?.attr("data-src")
@@ -79,18 +77,18 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // CAMBIO AQUÍ: La URL de búsqueda `/buscar?q=` parece no funcionar.
-        // Si el sitio no tiene una URL de búsqueda simple, a veces se puede hacer una "búsqueda"
-        // simplemente buscando en la página principal o una categoría si es posible.
-        // Por ahora, dejamos la URL de búsqueda, pero necesitamos la URL *correcta* de búsqueda.
+        // La URL de búsqueda '/buscar?q=' sigue siendo una incógnita si funciona.
+        // Por ahora, mantenemos el selector actualizado, pero si no trae resultados,
+        // tendremos que investigar la URL de búsqueda real en la web.
         val url = "$mainUrl/buscar?q=$query" // Esta URL ha estado dando 404. Necesitamos la real.
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            val searchResults = doc.select("a.th-hover").mapNotNull { aElement ->
-                val title = aElement.selectFirst("div.th-title")?.text()
+            // SELECTORES ACTUALIZADOS PARA BÚSQUEDA (igual que la página principal)
+            val searchResults = doc.select("a.movie_box_link").mapNotNull { aElement -> // Cambio de a.th-hover a a.movie_box_link
+                val title = aElement.selectFirst("div.short_title")?.text() // Cambio de div.th-title a div.short_title
                 val link = aElement.attr("href")
                 val img = aElement.selectFirst("img")?.attr("src")
                     ?: aElement.selectFirst("img")?.attr("data-src")
@@ -162,7 +160,7 @@ class VerOnlineProvider : MainAPI() {
 
         val allEpisodes = ArrayList<Episode>()
 
-        val seasonElements = doc.select("div.season-list a.th-hover")
+        val seasonElements = doc.select("div.season-list a.th-hover") // Este selector parece seguir siendo correcto para temporadas individuales
         Log.d("VerOnline", "load - Temporadas encontradas en la página principal: ${seasonElements.size}")
 
         if (seasonElements.isNotEmpty()) {
