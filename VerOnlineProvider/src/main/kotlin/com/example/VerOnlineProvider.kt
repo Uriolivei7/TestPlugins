@@ -338,7 +338,7 @@ class VerOnlineProvider : MainAPI() {
                 val episodeLinks = currentSeasonDoc.select("a[href*='ver-episodio'], div.episode-item a, li.episode a")
                 log("Encontrados ${episodeLinks.size} enlaces de episodios para $seasonName: ${episodeLinks.joinToString { it.attr("href") }}")
 
-                val seriesPrefix = cleanUrl.substringBeforeLast("/ver-").substringAfterLast("/series-online/")
+                val seriesPrefix = cleanUrl.substringAfter("$mainUrl/series-online/").substringBefore("/temporada-")
                 log("Prefijo de serie para filtrado: $seriesPrefix")
 
                 episodeLinks.forEach { episodeLink ->
@@ -411,7 +411,7 @@ class VerOnlineProvider : MainAPI() {
             val episodeLinks = doc.select("a[href*='ver-episodio'], div.episode-item a, li.episode a")
             log("Encontrados ${episodeLinks.size} enlaces de episodios en la página principal: ${episodeLinks.joinToString { it.attr("href") }}")
 
-            val seriesPrefix = cleanUrl.substringBeforeLast("/ver-").substringAfterLast("/series-online/")
+            val seriesPrefix = cleanUrl.substringAfter("$mainUrl/series-online/").substringBefore("/temporada-")
             log("Prefijo de serie para filtrado: $seriesPrefix")
 
             if (episodeLinks.isNotEmpty()) {
@@ -619,12 +619,12 @@ class VerOnlineProvider : MainAPI() {
             }
         }
 
-        // Solución temporal: Buscar enlaces directos en el HTML si no se encontraron con el hash
+        // Solución temporal mejorada
         if (!foundLinks) {
             log("Intentando encontrar enlaces directos en el HTML como solución temporal.")
-            val videoLinks = doc.select("video source, iframe[src], a[href][data-video]").mapNotNull { element ->
+            val videoLinks = doc.select("video source, iframe[src], a[href], script[src]").mapNotNull { element ->
                 val link = element.attr("src") ?: element.attr("href")
-                if (link.isNotBlank() && (link.contains(".mp4") || link.contains("video") || link.contains("stream"))) fixUrl(link) else null
+                if (link.isNotBlank() && (link.contains(".mp4") || link.contains(".m3u8") || link.contains("video") || link.contains("stream"))) fixUrl(link) else null
             }
 
             videoLinks.forEach { link ->
