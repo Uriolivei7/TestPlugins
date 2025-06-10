@@ -8,7 +8,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Element // Asegúrate de que esta importación sea necesaria o úsala
+import org.jsoup.nodes.Element
 import android.util.Base64
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
@@ -37,6 +37,7 @@ class VerOnlineProvider : MainAPI() {
 
         val seriesPageUrl = "$mainUrl/series-online"
 
+        // Headers para imitar un navegador real
         val headers = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -54,8 +55,6 @@ class VerOnlineProvider : MainAPI() {
 
         log("getMainPage - HTML completo recibido (primeros 2000 chars): ${mainPageDoc.html().take(2000)}")
 
-        // --- INICIO DE LA LÓGICA REVISADA PARA EXTRACCIÓN ---
-
         // Selector para el contenedor principal de series
         val mainContentContainer = mainPageDoc.selectFirst("div#dle-content")
 
@@ -71,28 +70,51 @@ class VerOnlineProvider : MainAPI() {
         log("getMainPage - Encontrados ${seriesElements.size} elementos 'div.short' dentro de '#dle-content'.")
 
         val series = seriesElements.mapNotNull { element ->
+            // Log para depurar el elemento "short" completo
+            log("getMainPage - Procesando elemento 'div.short': ${element.html().take(300)}")
+
             val aElement = element.selectFirst("a.short_img_box.with_mask")
-            val link = aElement?.attr("href")
-            val imgElement = aElement?.selectFirst("img")
-            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
 
-            val titleElement = element.selectFirst("div.short_title a")
-            val title = titleElement?.text()
+            var currentLink: String? = null
+            var currentImg: String? = null
+            var currentTitle: String? = null
 
-            if (title != null && link != null && img != null) {
-                val fixedLink = fixUrl(link)
-                val fixedImg = fixUrl(img)
-                log("getMainPage - Ítem extraído: Título='$title', Link Fijo='$fixedLink', Img Fija='$fixedImg'")
+            if (aElement == null) {
+                log("getMainPage - ADVERTENCIA: 'a.short_img_box.with_mask' no encontrado dentro de 'div.short'. Intentando selector alternativo.")
+                val fallbackAElement = element.selectFirst("a[id=\"short_img\"]") // Probar con el ID si la clase no funciona
+                if (fallbackAElement != null) {
+                    log("getMainPage - Usando 'a[id=\"short_img\"]' como fallback para 'aElement'.")
+                    currentLink = fallbackAElement.attr("href")
+                    val imgElement = fallbackAElement.selectFirst("img")
+                    currentImg = imgElement?.attr("data-src") ?: imgElement?.attr("src")
+                    val titleElement = element.selectFirst("div.short_title a")
+                    currentTitle = titleElement?.text()
+                } else {
+                    log("getMainPage - ERROR: Ni 'a.short_img_box.with_mask' ni 'a[id=\"short_img\"]' encontrados en el elemento 'div.short'.")
+                    return@mapNotNull null // Si no se encuentra el 'aElement' principal ni el fallback, no podemos extraer nada
+                }
+            } else {
+                // Si aElement no es nulo, continuamos con la lógica original
+                currentLink = aElement.attr("href")
+                val imgElement = aElement.selectFirst("img")
+                currentImg = imgElement?.attr("data-src") ?: imgElement?.attr("src")
+                val titleElement = element.selectFirst("div.short_title a")
+                currentTitle = titleElement?.text()
+            }
+
+            if (currentTitle != null && currentLink != null && currentImg != null) {
+                val fixedLink = fixUrl(currentLink)
+                val fixedImg = fixUrl(currentImg)
+                log("getMainPage - Ítem extraído: Título='$currentTitle', Link Fijo='$fixedLink', Img Fija='$fixedImg'")
                 TvSeriesSearchResponse(
-                    name = title.trim(),
+                    name = currentTitle.trim(),
                     url = fixedLink,
                     posterUrl = fixedImg,
                     type = TvType.TvSeries,
                     apiName = this.name
                 )
             } else {
-                // Log detallado de por qué un ítem es nulo
-                log("getMainPage - Ítem incompleto: Título='${title}', Link='${link}', Img='${img}' para elemento: ${element.html().take(200)}")
+                log("getMainPage - Ítem incompleto: Título='${currentTitle}', Link='${currentLink}', Img='${currentImg}' para elemento: ${element.html().take(300)}")
                 null
             }
         }
@@ -130,11 +152,12 @@ class VerOnlineProvider : MainAPI() {
             val res = app.post(
                 url = searchUrl,
                 data = postData,
+                // Mantén los headers existentes para XHR, pero también podrías añadir el User-Agent etc.
                 headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to mainUrl,
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01", // Típicamente para XHR
                     "Accept-Language" to "es-ES,es;q=0.9",
                     "Connection" to "keep-alive"
                 )
@@ -153,7 +176,7 @@ class VerOnlineProvider : MainAPI() {
                         TvSeriesSearchResponse(
                             name = title,
                             url = fixUrl(link),
-                            posterUrl = null,
+                            posterUrl = null, // La búsqueda directa no da poster
                             type = TvType.TvSeries,
                             apiName = this.name
                         )
