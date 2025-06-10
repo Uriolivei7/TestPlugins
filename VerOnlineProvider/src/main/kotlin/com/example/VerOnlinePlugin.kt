@@ -4,6 +4,9 @@ import android.content.Context
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.MainAPI
+// ELIMINA ESTA LÍNEA INCORRECTA: import com.lagradost.cloudstream3.extractors.VerOnlineProvider
+// O CÁMBIALA A: import com.example.VerOnlineProvider (si estuviera en un subpaquete, pero como está en el mismo, no es estrictamente necesaria)
+
 
 /**
  * Esta es la clase principal de tu plugin para CloudStream.
@@ -20,6 +23,6 @@ class VerOnlinePlugin : Plugin() {
     override fun load(context: Context) {
         // Registra tu GnulaProvider.
         // GnulaProvider NO DEBE tener la anotación @CloudstreamPlugin.
-        registerMainAPI(VerOnlineProvider())
+        registerMainAPI(VerOnlineProvider()) // VerOnlineProvider ahora se resuelve correctamente porque está en el mismo paquete.
     }
 }
