@@ -14,7 +14,7 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
 class VerOnlineProvider : MainAPI() {
-    override var mainUrl = "https://www.verseriesonline.net"
+    override var mainUrl = "https://www.verseriesonline.net" // La dejamos así para que la búsqueda y otros funcionen bien.
     override var name = "VerOnline"
     override val supportedTypes = setOf(
         TvType.TvSeries,
@@ -35,80 +35,56 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
-        val mainPageResponse = app.get(mainUrl)
+        // Cambiamos la URL de la página principal a /series-online para obtener las listas de series
+        val seriesPageUrl = "$mainUrl/series-online"
+        val mainPageResponse = app.get(seriesPageUrl) // Ahora obtenemos esta URL
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
-        // *** AÑADIR ESTA LÍNEA TEMPORALMENTE PARA DEBUGGING ***
-        log("getMainPage - HTML COMPLETO DE LA PÁGINA PRINCIPAL: ${mainPageDoc.html()}")
-        // ******************************************************
+        log("getMainPage - HTML COMPLETO DE LA PÁGINA DE SERIES: ${mainPageDoc.html()}") // Para seguir debuggeando
+        log("getMainPage - HTML de la p??gina de series cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
-        log("getMainPage - HTML de la p??gina principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
-
-        val sectionsContainers = mainPageDoc.select("div.sect_c.items div#dle-content div.short.griddler-list")
+        // El selector para las secciones en /series-online es más simple
+        val sectionsContainers = mainPageDoc.select("div#dle-content")
 
         if (sectionsContainers.isEmpty()) {
-            log("getMainPage - ERROR: No se encontraron los contenedores de series usando el selector ajustado 'div.sect_c.items div#dle-content div.short.griddler-list'.")
-            val fallbackSections = mainPageDoc.select("div#dle-content div.short.griddler-list")
-            if (fallbackSections.isNotEmpty()) {
-                log("getMainPage - Usando fallback: 'div#dle-content div.short.griddler-list'.")
-                sectionsContainers.addAll(fallbackSections)
+            log("getMainPage - ERROR: No se encontraron los contenedores de series usando 'div#dle-content'.")
+            return null
+        }
+
+        // En /series-online, parece que solo hay una gran lista, o si hay secciones, no están claramente delimitadas por títulos <h1> o <h2> como en otros sitios.
+        // Vamos a tratar todo el contenido de div#dle-content como una única sección.
+        // Si hay subtítulos dentro de #dle-content para diferentes "géneros" o "novedades", tendremos que ajustar esto.
+        // Por ahora, asumiremos que toda la página es una lista principal.
+
+        val seriesElements = sectionsContainers.select("div.short") // Cada serie es un div con clase 'short'
+
+        val series = seriesElements.mapNotNull { element ->
+            val aElement = element.selectFirst("a.short_img_box.with_mask")
+            val link = aElement?.attr("href")
+            val imgElement = aElement?.selectFirst("img")
+            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
+            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
+
+            if (title != null && link != null && img != null) {
+                TvSeriesSearchResponse(
+                    name = title.trim(),
+                    url = fixUrl(link),
+                    posterUrl = fixUrl(img),
+                    type = TvType.TvSeries,
+                    apiName = this.name
+                )
             } else {
-                log("getMainPage - Fallback tambi??n fall??. Intentando una ??ltima opci??n: buscar cualquier 'div.short.griddler-list' en la p??gina.")
-                val genericSections = mainPageDoc.select("div.short.griddler-list")
-                if (genericSections.isNotEmpty()) {
-                    log("getMainPage - Usando selector gen??rico 'div.short.griddler-list'.")
-                    sectionsContainers.addAll(genericSections)
-                } else {
-                    log("getMainPage - NING??N selector encontr?? contenedores de series.")
-                    return null
-                }
+                log("getMainPage - Ítem incompleto: Título='$title', Link='$link', Img='$img'")
+                null
             }
         }
-        log("getMainPage - Se encontraron ${sectionsContainers.size} contenedores de secciones de series para procesar.")
 
-        sectionsContainers.forEachIndexed { index, sectionContainer ->
-            var sectionName = "Sección ${index + 1}"
-            var parentElement: Element? = sectionContainer
-            for (i in 0..5) {
-                parentElement = parentElement?.parent()
-                if (parentElement == null) break
-
-                val titleCandidate = parentElement.selectFirst("h1.maintitle, h2")
-                if (titleCandidate != null) {
-                    sectionName = titleCandidate.text().trim()
-                    log("getMainPage - T??tulo encontrado para la secci??n: '$sectionName'")
-                    break
-                }
-            }
-
-            val seriesElements = sectionContainer.select("div.short_in")
-
-            val series = seriesElements.mapNotNull { element ->
-                val aElement = element.selectFirst("a.short_img_box.with_mask")
-                val link = aElement?.attr("href")
-                val imgElement = aElement?.selectFirst("img")
-                val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
-                val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
-
-                if (title != null && link != null && img != null) {
-                    TvSeriesSearchResponse(
-                        name = title.trim(),
-                        url = fixUrl(link),
-                        posterUrl = fixUrl(img),
-                        type = TvType.TvSeries,
-                        apiName = this.name
-                    )
-                } else {
-                    log("getMainPage - Ítem incompleto para '$sectionName' (index $index): Título='$title', Link='$link', Img='$img'")
-                    null
-                }
-            }
-            if (series.isNotEmpty()) {
-                items.add(HomePageList(sectionName, series))
-                log("getMainPage - Encontrados ${series.size} ??tems para '$sectionName'")
-            } else {
-                log("getMainPage - No se encontraron ??tems para '$sectionName' (index $index).")
-            }
+        if (series.isNotEmpty()) {
+            // Asumimos una única lista "Series Online" para esta página
+            items.add(HomePageList("Series Online", series))
+            log("getMainPage - Encontrados ${series.size} ??tems para 'Series Online'")
+        } else {
+            log("getMainPage - No se encontraron ítems en la página de series.")
         }
 
         if (items.isEmpty()) {
@@ -118,6 +94,8 @@ class VerOnlineProvider : MainAPI() {
         return HomePageResponse(items.toList(), false)
     }
 
+    // ... el resto de tu código para search, load, loadLinks, etc.
+    // (no es necesario cambiarlo a menos que haya problemas con ellos más adelante)
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResults = ArrayList<SearchResponse>()
         val mainPageResponse = app.get(mainUrl)
