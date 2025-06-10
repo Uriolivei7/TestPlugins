@@ -32,43 +32,62 @@ class VerOnlineProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        val urls = listOf(
-            // CAMBIO AQUÍ: Probamos con /series-online y con un género específico como animación
-            Pair("Últimas Series", "$mainUrl/series-online"), // Intentamos una URL más genérica de series
-            Pair("Series de Animación", "$mainUrl/series-online/genero/animacion"), // Usamos la URL de animación que mencionaste
+
+        // CAMBIO CRUCIAL AQUÍ: Usamos la API POST /api/ajax_request para la página principal
+        val api_url = "$mainUrl/api/ajax_request"
+        val post_data_latest = mapOf(
+            "action" to "get_data",
+            "page" to page.toString(), // CloudStream manejará el número de página aquí
+            "type" to "series",
+            "cat" to "latest"
+        )
+        val post_data_animation = mapOf(
+            "action" to "get_data",
+            "page" to page.toString(),
+            "type" to "series",
+            "cat" to "animacion" // Asumiendo que "animacion" es una categoría válida para el "cat"
         )
 
-        val homePageLists = urls.apmap { (name, url) ->
+        val listsToFetch = listOf(
+            Pair("Últimas Series", post_data_latest),
+            Pair("Series de Animación", post_data_animation) // Puedes añadir más categorías si encuentras sus 'cat' en la API
+        )
+
+        val homePageLists = listsToFetch.apmap { (name, postData) ->
             val tvType = when {
-                name.contains("Series") || name.contains("Animación") -> TvType.TvSeries // Clasificamos "Animación" también como TvSeries
+                name.contains("Series") || name.contains("Animación") -> TvType.TvSeries
                 else -> TvType.Others
             }
             try {
-                Log.d("VerOnline", "getMainPage - Intentando obtener URL: $url")
-                val doc = app.get(url).document
-                Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
+                Log.d("VerOnline", "getMainPage - Intentando obtener URL con POST: $api_url con datos: $postData")
+                // Realizamos la solicitud POST
+                val res = app.post(api_url, data = postData)
+                val doc = Jsoup.parse(res.text) // Parseamos la respuesta HTML como un documento Jsoup
 
-                // SELECTORES PARA LA PÁGINA PRINCIPAL Y BÚSQUEDA (se mantienen los de movie_box_link)
-                val homeItems = doc.select("a.movie_box_link").mapNotNull { aElement ->
+                Log.d("VerOnline", "getMainPage - HTML recibido para $name (primeros 1000 chars): ${doc.html().take(1000)}")
+
+                // Los selectores de items individuales siguen siendo los mismos, porque el HTML que devuelve la API es el mismo que en la página.
+                val homeItems = doc.select("div.col-md-3.col-6.col-sm-4.my-2 a.movie_box_link").mapNotNull { aElement ->
                     val title = aElement.selectFirst("div.short_title")?.text()
                     val link = aElement.attr("href")
-                    val img = aElement.selectFirst("img")?.attr("src")
-                        ?: aElement.selectFirst("img")?.attr("data-src")
+
+                    val img = aElement.selectFirst("img")?.attr("data-src")
+                        ?: aElement.selectFirst("img")?.attr("src")
 
                     if (title != null && link.isNotBlank()) {
                         TvSeriesSearchResponse(
                             name = title,
                             url = fixUrl(link),
                             posterUrl = img,
-                            type = tvType, // Asignamos el tipo de TV adecuado
+                            type = tvType,
                             apiName = this.name
                         )
                     } else null
                 }
-                Log.d("VerOnline", "getMainPage - Encontrados ${homeItems.size} ítems para $url")
+                Log.d("VerOnline", "getMainPage - Encontrados ${homeItems.size} ítems para $name")
                 HomePageList(name, homeItems)
             } catch (e: Exception) {
-                Log.e("VerOnline", "Error al obtener la página principal para $url: ${e.message} - ${e.stackTraceToString()}", e)
+                Log.e("VerOnline", "Error al obtener la página principal para $name (API POST): ${e.message} - ${e.stackTraceToString()}", e)
                 null
             }
         }.filterNotNull()
@@ -78,26 +97,24 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // CAMBIO AQUÍ: LA URL DE BÚSQUEDA HA SIDO CORREGIDA A /recherche?q=
-        val url = "$mainUrl/recherche?q=$query" // Usamos la URL de búsqueda correcta
+        val url = "$mainUrl/recherche?q=$query"
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            // SELECTORES PARA BÚSQUEDA (igual que la página principal, que ya están actualizados)
-            val searchResults = doc.select("a.movie_box_link").mapNotNull { aElement ->
+            val searchResults = doc.select("div.col-md-3.col-6.col-sm-4.my-2 a.movie_box_link").mapNotNull { aElement ->
                 val title = aElement.selectFirst("div.short_title")?.text()
                 val link = aElement.attr("href")
-                val img = aElement.selectFirst("img")?.attr("src")
-                    ?: aElement.selectFirst("img")?.attr("data-src")
+                val img = aElement.selectFirst("img")?.attr("data-src")
+                    ?: aElement.selectFirst("img")?.attr("src")
 
                 if (title != null && link.isNotBlank()) {
                     TvSeriesSearchResponse(
                         name = title,
                         url = fixUrl(link),
                         posterUrl = img,
-                        type = TvType.TvSeries, // Por defecto, se asume TvSeries para resultados de búsqueda
+                        type = TvType.TvSeries,
                         apiName = this.name
                     )
                 } else null
@@ -159,7 +176,7 @@ class VerOnlineProvider : MainAPI() {
 
         val allEpisodes = ArrayList<Episode>()
 
-        val seasonElements = doc.select("div.season-list a.th-hover") // Este selector parece seguir siendo correcto para temporadas individuales
+        val seasonElements = doc.select("div.season-list a.th-hover")
         Log.d("VerOnline", "load - Temporadas encontradas en la página principal: ${seasonElements.size}")
 
         if (seasonElements.isNotEmpty()) {
