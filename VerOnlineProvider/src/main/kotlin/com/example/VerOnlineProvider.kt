@@ -304,39 +304,92 @@ class VerOnlineProvider : MainAPI() {
         val allEpisodes = ArrayList<Episode>()
         val seasonDataList = ArrayList<SeasonData>()
 
-        // Dado que no se encuentran pestañas de temporada, asumimos que los episodios están en la página principal
-        log("Buscando episodios directamente en la página principal.")
-        val episodeLinks = doc.select("a[href*='ver-episodio'], div.episode-item a, li.episode a")
-        log("Encontrados ${episodeLinks.size} enlaces de episodios en la página principal: ${episodeLinks.joinToString { it.attr("href") }}")
+        // Buscar enlaces de temporadas en la página
+        log("Buscando enlaces de temporadas en la página principal.")
+        val seasonLinks = doc.select("a[href*='/temporada-']")
+        log("Encontrados ${seasonLinks.size} enlaces de temporadas: ${seasonLinks.joinToString { it.attr("href") }}")
 
-        val seriesPrefix = cleanUrl.substringAfter("$mainUrl/series-online/").substringBefore(".html")
-        log("Prefijo de serie para filtrado: $seriesPrefix")
+        if (seasonLinks.isNotEmpty()) {
+            seasonLinks.apmap { seasonLink ->
+                val seasonUrl = fixUrl(seasonLink.attr("href")) ?: ""
+                val seasonName = seasonLink.text().trim() ?: "Temporada Desconocida"
+                val seasonNumber = Regex("""temporada-(\d+)""").find(seasonUrl)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 1
 
-        if (episodeLinks.isNotEmpty()) {
-            val episodesForSingleSeason = ArrayList<Episode>()
-            episodeLinks.forEach { episodeLink ->
-                val epUrl = fixUrl(episodeLink.attr("href")) ?: ""
-                if (epUrl.isNotBlank() && epUrl.contains(seriesPrefix)) {
-                    val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: episodeLink.text().trim() ?: "Episodio Desconocido"
-                    val episodeNumber = Regex("""ver-episodio-(\d+)\.html""").find(epUrl)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        ?: Regex("""Capítulo\s*(\d+)""").find(epTitle)?.groupValues?.getOrNull(1)?.toIntOrNull()
-                        ?: 1
+                if (seasonUrl.isNotBlank()) {
+                    log("Procesando temporada: $seasonName (Número: $seasonNumber), URL: $seasonUrl")
 
-                    val safePoster = fixUrl(poster) ?: ""
+                    val seasonDoc = try {
+                        app.get(seasonUrl, headers = mapOf(
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                            "Accept-Language" to "es-ES,es;q=0.9",
+                            "Connection" to "keep-alive",
+                            "Referer" to cleanUrl
+                        )).document
+                    } catch (e: Exception) {
+                        log("Error al obtener el documento para la URL de temporada ($seasonUrl): ${e.message}")
+                        return@apmap
+                    }
 
-                    val newEpisode = Episode(
-                        data = EpisodeLoadData(epTitle, epUrl).toJson(),
-                        name = epTitle,
-                        season = 1,
-                        episode = episodeNumber,
-                        posterUrl = safePoster
-                    )
-                    episodesForSingleSeason.add(newEpisode)
-                    allEpisodes.add(newEpisode)
+                    val episodeLinks = seasonDoc.select("a[href*='ver-episodio']")
+                    log("Encontrados ${episodeLinks.size} enlaces de episodios para $seasonName: ${episodeLinks.joinToString { it.attr("href") }}")
+
+                    episodeLinks.forEach { episodeLink ->
+                        val epUrl = fixUrl(episodeLink.attr("href")) ?: ""
+                        if (epUrl.isNotBlank()) {
+                            val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: episodeLink.text().trim() ?: "Episodio Desconocido"
+                            val episodeNumber = Regex("""ver-episodio-(\d+)\.html""").find(epUrl)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                                ?: Regex("""Capítulo\s*(\d+)""").find(epTitle)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                                ?: 1
+
+                            val safePoster = fixUrl(poster) ?: ""
+
+                            val newEpisode = Episode(
+                                data = EpisodeLoadData(epTitle, epUrl).toJson(),
+                                name = epTitle,
+                                season = seasonNumber,
+                                episode = episodeNumber,
+                                posterUrl = safePoster
+                            )
+                            allEpisodes.add(newEpisode)
+                        }
+                    }
+                    seasonDataList.add(SeasonData(season = seasonNumber, name = seasonName))
                 }
             }
-            seasonDataList.add(SeasonData(season = 1, name = "Temporada 1"))
+        } else {
+            log("No se encontraron enlaces de temporadas. Buscando episodios directamente en la página principal.")
+            val episodeLinks = doc.select("a[href*='ver-episodio']")
+            log("Encontrados ${episodeLinks.size} enlaces de episodios en la página principal: ${episodeLinks.joinToString { it.attr("href") }}")
 
+            if (episodeLinks.isNotEmpty()) {
+                val episodesForSingleSeason = ArrayList<Episode>()
+                episodeLinks.forEach { episodeLink ->
+                    val epUrl = fixUrl(episodeLink.attr("href")) ?: ""
+                    if (epUrl.isNotBlank()) {
+                        val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: episodeLink.text().trim() ?: "Episodio Desconocido"
+                        val episodeNumber = Regex("""ver-episodio-(\d+)\.html""").find(epUrl)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: Regex("""Capítulo\s*(\d+)""").find(epTitle)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: 1
+
+                        val safePoster = fixUrl(poster) ?: ""
+
+                        val newEpisode = Episode(
+                            data = EpisodeLoadData(epTitle, epUrl).toJson(),
+                            name = epTitle,
+                            season = 1,
+                            episode = episodeNumber,
+                            posterUrl = safePoster
+                        )
+                        episodesForSingleSeason.add(newEpisode)
+                        allEpisodes.add(newEpisode)
+                    }
+                }
+                seasonDataList.add(SeasonData(season = 1, name = "Temporada 1"))
+            }
+        }
+
+        if (allEpisodes.isNotEmpty()) {
             val recommendations = doc.select("div.item").mapNotNull { recElement ->
                 val recTitle = recElement.selectFirst("h3 a")?.text()
                 val recLink = recElement.selectFirst("a")?.attr("href")
@@ -379,7 +432,7 @@ class VerOnlineProvider : MainAPI() {
                 seasonNames = seasonDataList
             )
         } else {
-            log("Error: No se encontraron episodios en la página.")
+            log("Error: No se encontraron episodios en la página ni en las temporadas.")
             return null
         }
     }
