@@ -192,7 +192,7 @@ class VerOnlineProvider : MainAPI() {
             } else {
                 log("No se pudo parsear la respuesta JSON de búsqueda. Intentando parseo HTML.")
                 val doc = Jsoup.parse(res.text)
-                val items = doc.select("div.short")
+                val items = doc.select("div.short") // Ajustar selector según el HTML de la respuesta
 
                 for (item in items) {
                     val aElement = item.selectFirst("a.short_img_box.with_mask, a.short_img, a[href].main-link") ?: continue
@@ -304,12 +304,12 @@ class VerOnlineProvider : MainAPI() {
         val allEpisodes = ArrayList<Episode>()
         val seasonDataList = ArrayList<SeasonData>()
 
-        val seasonTabs = doc.select("div.saisontab a.th-hover")
+        val seasonTabs = doc.select("div.saisontab a.th-hover, div.season-tabs a, ul.episodes a") // Selector más flexible
 
         if (seasonTabs.isNotEmpty()) {
             log("Procesando ${seasonTabs.size} pestañas de temporada.")
             seasonTabs.apmap { seasonLinkElement ->
-                val seasonTitleElement = seasonLinkElement.selectFirst("div.th-title1")
+                val seasonTitleElement = seasonLinkElement.selectFirst("div.th-title1") ?: seasonLinkElement.selectFirst("span.title")
                 val seasonName = seasonTitleElement?.text()?.trim() ?: "Temporada Desconocida"
                 val seasonNumber = Regex("""\d+""").find(seasonName)?.value?.toIntOrNull() ?: 1
                 val seasonUrl = fixUrl(seasonLinkElement.attr("href")) ?: ""
@@ -335,11 +335,11 @@ class VerOnlineProvider : MainAPI() {
                     return@apmap
                 }
 
-                val episodeLinks = currentSeasonDoc.select("div.saisontab a[href*='ver-episodio']")
+                val episodeLinks = currentSeasonDoc.select("a[href*='ver-episodio'], div.episode-item a, li.episode a") // Selector más amplio
                 log("Encontrados ${episodeLinks.size} enlaces de episodios para $seasonName: ${episodeLinks.joinToString { it.attr("href") }}")
 
                 episodeLinks.forEach { episodeLink ->
-                    val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: "Episodio Desconocido"
+                    val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: episodeLink.text().trim() ?: "Episodio Desconocido"
                     val epUrl = fixUrl(episodeLink.attr("href")) ?: ""
 
                     if (epUrl.isBlank()) {
@@ -409,13 +409,13 @@ class VerOnlineProvider : MainAPI() {
             )
         } else {
             log("No se encontraron pestañas de temporada. Buscando episodios en la página principal.")
-            val episodeLinks = doc.select("div.saisontab a[href*='ver-episodio']")
+            val episodeLinks = doc.select("a[href*='ver-episodio'], div.episode-item a, li.episode a") // Selector más amplio
             log("Encontrados ${episodeLinks.size} enlaces de episodios en la página principal: ${episodeLinks.joinToString { it.attr("href") }}")
 
             if (episodeLinks.isNotEmpty()) {
                 val episodesForSingleSeason = ArrayList<Episode>()
                 episodeLinks.forEach { episodeLink ->
-                    val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: "Episodio Desconocido"
+                    val epTitle = episodeLink.selectFirst("span.name")?.text()?.trim() ?: episodeLink.text().trim() ?: "Episodio Desconocido"
                     val epUrl = fixUrl(episodeLink.attr("href")) ?: ""
 
                     if (epUrl.isBlank()) {
@@ -592,12 +592,11 @@ class VerOnlineProvider : MainAPI() {
                             referer = targetUrl,
                             subtitleCallback = subtitleCallback,
                             callback = { link ->
-                                // Usar un valor predeterminado para la calidad si no se puede mapear
                                 val resolvedQuality = when (quality.uppercase()) {
-                                    "HDTV" -> Qualities.P720.value // Asumir 720p para HDTV
-                                    "HD" -> Qualities.P1080.value // Asumir 1080p para HD
-                                    "SD" -> Qualities.P480.value // Asumir 480p para SD
-                                    else -> Qualities.Unknown.value // Valor predeterminado si no coincide
+                                    "HDTV" -> Qualities.P720.value
+                                    "HD" -> Qualities.P1080.value
+                                    "SD" -> Qualities.P480.value
+                                    else -> Qualities.Unknown.value
                                 }
                                 callback(
                                     ExtractorLink(
