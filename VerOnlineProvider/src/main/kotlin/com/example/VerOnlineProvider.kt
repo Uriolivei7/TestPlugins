@@ -33,13 +33,14 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
-            // La URL principal ahora es solo el dominio, esperando que muestre las series
-            Pair("Últimas Series", mainUrl),
+            // CAMBIO AQUÍ: Probamos con /series-online y con un género específico como animación
+            Pair("Últimas Series", "$mainUrl/series-online"), // Intentamos una URL más genérica de series
+            Pair("Series de Animación", "$mainUrl/series-online/genero/animacion"), // Usamos la URL de animación que mencionaste
         )
 
         val homePageLists = urls.apmap { (name, url) ->
             val tvType = when {
-                name.contains("Series") -> TvType.TvSeries
+                name.contains("Series") || name.contains("Animación") -> TvType.TvSeries // Clasificamos "Animación" también como TvSeries
                 else -> TvType.Others
             }
             try {
@@ -47,9 +48,9 @@ class VerOnlineProvider : MainAPI() {
                 val doc = app.get(url).document
                 Log.d("VerOnline", "getMainPage - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
 
-                // SELECTORES ACTUALIZADOS PARA LA PÁGINA PRINCIPAL Y BÚSQUEDA
-                val homeItems = doc.select("a.movie_box_link").mapNotNull { aElement -> // Cambio de a.th-hover a a.movie_box_link
-                    val title = aElement.selectFirst("div.short_title")?.text() // Cambio de div.th-title a div.short_title
+                // SELECTORES PARA LA PÁGINA PRINCIPAL Y BÚSQUEDA (se mantienen los de movie_box_link)
+                val homeItems = doc.select("a.movie_box_link").mapNotNull { aElement ->
+                    val title = aElement.selectFirst("div.short_title")?.text()
                     val link = aElement.attr("href")
                     val img = aElement.selectFirst("img")?.attr("src")
                         ?: aElement.selectFirst("img")?.attr("data-src")
@@ -59,7 +60,7 @@ class VerOnlineProvider : MainAPI() {
                             name = title,
                             url = fixUrl(link),
                             posterUrl = img,
-                            type = tvType,
+                            type = tvType, // Asignamos el tipo de TV adecuado
                             apiName = this.name
                         )
                     } else null
@@ -77,18 +78,16 @@ class VerOnlineProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // La URL de búsqueda '/buscar?q=' sigue siendo una incógnita si funciona.
-        // Por ahora, mantenemos el selector actualizado, pero si no trae resultados,
-        // tendremos que investigar la URL de búsqueda real en la web.
-        val url = "$mainUrl/buscar?q=$query" // Esta URL ha estado dando 404. Necesitamos la real.
+        // CAMBIO AQUÍ: LA URL DE BÚSQUEDA HA SIDO CORREGIDA A /recherche?q=
+        val url = "$mainUrl/recherche?q=$query" // Usamos la URL de búsqueda correcta
         Log.d("VerOnline", "search - Intentando buscar en URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("VerOnline", "search - HTML recibido para $url (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            // SELECTORES ACTUALIZADOS PARA BÚSQUEDA (igual que la página principal)
-            val searchResults = doc.select("a.movie_box_link").mapNotNull { aElement -> // Cambio de a.th-hover a a.movie_box_link
-                val title = aElement.selectFirst("div.short_title")?.text() // Cambio de div.th-title a div.short_title
+            // SELECTORES PARA BÚSQUEDA (igual que la página principal, que ya están actualizados)
+            val searchResults = doc.select("a.movie_box_link").mapNotNull { aElement ->
+                val title = aElement.selectFirst("div.short_title")?.text()
                 val link = aElement.attr("href")
                 val img = aElement.selectFirst("img")?.attr("src")
                     ?: aElement.selectFirst("img")?.attr("data-src")
@@ -98,7 +97,7 @@ class VerOnlineProvider : MainAPI() {
                         name = title,
                         url = fixUrl(link),
                         posterUrl = img,
-                        type = TvType.TvSeries,
+                        type = TvType.TvSeries, // Por defecto, se asume TvSeries para resultados de búsqueda
                         apiName = this.name
                     )
                 } else null
