@@ -38,16 +38,16 @@ class VerOnlineProvider : MainAPI() {
         val mainPageResponse = app.get(mainUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
+        // *** AÑADIR ESTA LÍNEA TEMPORALMENTE PARA DEBUGGING ***
+        log("getMainPage - HTML COMPLETO DE LA PÁGINA PRINCIPAL: ${mainPageDoc.html()}")
+        // ******************************************************
+
         log("getMainPage - HTML de la p??gina principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
-        // Selector ajustado: Buscar div.short.griddler-list dentro de div#dle-content,
-        // que a su vez est?? dentro de div.sect_c.items.
-        // Esto se basa directamente en la estructura mostrada en image_f3c456.png y image_f430fa.png
         val sectionsContainers = mainPageDoc.select("div.sect_c.items div#dle-content div.short.griddler-list")
 
         if (sectionsContainers.isEmpty()) {
             log("getMainPage - ERROR: No se encontraron los contenedores de series usando el selector ajustado 'div.sect_c.items div#dle-content div.short.griddler-list'.")
-            // Fallback menos espec??fico por si la estructura cambia levemente
             val fallbackSections = mainPageDoc.select("div#dle-content div.short.griddler-list")
             if (fallbackSections.isNotEmpty()) {
                 log("getMainPage - Usando fallback: 'div#dle-content div.short.griddler-list'.")
@@ -67,12 +67,8 @@ class VerOnlineProvider : MainAPI() {
         log("getMainPage - Se encontraron ${sectionsContainers.size} contenedores de secciones de series para procesar.")
 
         sectionsContainers.forEachIndexed { index, sectionContainer ->
-            // Para el t??tulo de la secci??n, subimos por la jerarqu??a
-            // Buscamos h1.maintitle o h2 en los ancestros de 'sectionContainer'
-            // hasta encontrar un 'section' o 'main-content'.
             var sectionName = "Sección ${index + 1}"
             var parentElement: Element? = sectionContainer
-            // Subimos hasta 5 niveles para buscar un t??tulo
             for (i in 0..5) {
                 parentElement = parentElement?.parent()
                 if (parentElement == null) break
@@ -88,10 +84,10 @@ class VerOnlineProvider : MainAPI() {
             val seriesElements = sectionContainer.select("div.short_in")
 
             val series = seriesElements.mapNotNull { element ->
-                val aElement = element.selectFirst("a.short_img_box.with_mask") // Selector m??s espec??fico para el enlace principal.
+                val aElement = element.selectFirst("a.short_img_box.with_mask")
                 val link = aElement?.attr("href")
                 val imgElement = aElement?.selectFirst("img")
-                val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
+                val img = imgElement?.attr("data-src") ?: imgElement?.attr("src")
                 val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
 
                 if (title != null && link != null && img != null) {
@@ -154,7 +150,7 @@ class VerOnlineProvider : MainAPI() {
 
             log("search - HTML de b??squeda recibido (primeros 1000 chars): ${doc.html().take(1000)}")
 
-            val items = doc.select("a") // Se asume que la respuesta AJAX contiene solo los <a> tags.
+            val items = doc.select("a")
             for (item in items) {
                 val link = item.attr("href") ?: ""
                 val title = item.text() ?: ""
@@ -225,8 +221,6 @@ class VerOnlineProvider : MainAPI() {
 
         val allEpisodes = ArrayList<Episode>()
 
-        // Selectores basados en la estructura de episodios que he visto en sitios similares
-        // y el logcat anterior que mostraba "ul.listing.items.full li"
         val episodeElements = doc.select("ul.listing.items.full li")
 
         if (episodeElements.isNotEmpty()) {
