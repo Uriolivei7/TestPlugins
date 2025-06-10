@@ -35,78 +35,68 @@ class VerOnlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
-        // Simplemente obtenemos el HTML de la página principal directamente,
-        // ya que no hay una API AJAX para cargar la página principal de forma asíncrona según el logcat.
         val mainPageResponse = app.get(mainUrl)
         val mainPageDoc = Jsoup.parse(mainPageResponse.text)
 
         log("getMainPage - HTML de la página principal cargado (primeros 1000 chars): ${mainPageDoc.html().take(1000)}")
 
-        // Selectores basados en las imágenes del HTML que proporcionaste
-        // Las series están dentro de 'div.short_in' que a su vez están dentro de 'div.short griddler-list'
-        val latestSeriesSection = mainPageDoc.selectFirst("div.main-content h1:contains(Explora Nuestra Colección de Series Online en Latino, Castellano)")
-        val animationSeriesSection = mainPageDoc.selectFirst("div.main-content h1:contains(Las Mejores Series de Animación en Español y Latino Gratis en Alta Definición)")
+        // Buscar directamente por los contenedores de las listas de series
+        // que están dentro de "dle-content" y tienen la clase "short griddler-list".
+        val sectionsContainers = mainPageDoc.select("div#dle-content div.short.griddler-list")
 
-        // La estructura HTML parece ser la misma para ambos listados.
-        // Vamos a extraer los elementos de las series de cada sección.
+        if (sectionsContainers.isEmpty()) {
+            log("getMainPage - ERROR: No se encontraron los contenedores de series (div#dle-content div.short.griddler-list).")
+            return null
+        }
+        log("getMainPage - Se encontraron ${sectionsContainers.size} contenedores de secciones de series.")
 
-        // ----- Últimas Series / Colección de Series Online -----
-        val latestSeriesElements = latestSeriesSection?.parents()?.select("div.short_in") ?: emptyList()
-        val latestSeries = latestSeriesElements.mapNotNull { element ->
-            val aElement = element.selectFirst("a")
-            val link = aElement?.attr("href")
-            val imgElement = aElement?.selectFirst("img")
-            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
-            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
+        // Iterar sobre cada contenedor de sección para extraer las series
+        sectionsContainers.forEachIndexed { index, sectionContainer ->
+            // Intentar obtener el título de la sección.
+            // A veces el h1 está un nivel más arriba de 'dle-content',
+            // o puede que haya un h2 dentro de la sección.
+            // Para ser más robustos, podemos intentar subir y buscar un h1 o h2.
+            // Basado en image_f430fa.png, el h1 está fuera de dle-content, pero en la misma section.
 
-            if (title != null && link != null && img != null) {
-                TvSeriesSearchResponse(
-                    name = title.trim(),
-                    url = fixUrl(link),
-                    posterUrl = fixUrl(img),
-                    type = TvType.TvSeries, // Asumimos TvSeries para esta sección
-                    apiName = this.name
-                )
+            // Navegar hacia el padre de 'dle-content' para encontrar el h1 asociado
+            val sectionParent = sectionContainer.parents().firstOrNull { it.id() == "dle-content" }?.parent()
+            val sectionTitleElement = sectionParent?.selectFirst("h1.maintitle")
+                ?: sectionParent?.selectFirst("h2") // Si no es h1, buscar h2
+
+            val sectionName = sectionTitleElement?.text()?.trim() ?: "Sección ${index + 1}"
+
+            val seriesElements = sectionContainer.select("div.short_in") // Los ítems individuales dentro del contenedor de la lista.
+
+            val series = seriesElements.mapNotNull { element ->
+                val aElement = element.selectFirst("a.short_img_box.with_mask") // Selector más específico para el enlace principal.
+                val link = aElement?.attr("href")
+                val imgElement = aElement?.selectFirst("img")
+                val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
+                val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
+
+                if (title != null && link != null && img != null) {
+                    TvSeriesSearchResponse(
+                        name = title.trim(),
+                        url = fixUrl(link),
+                        posterUrl = fixUrl(img),
+                        type = TvType.TvSeries,
+                        apiName = this.name
+                    )
+                } else {
+                    log("getMainPage - Ítem incompleto para '$sectionName' (index $index): Título='$title', Link='$link', Img='$img'")
+                    null
+                }
+            }
+            if (series.isNotEmpty()) {
+                items.add(HomePageList(sectionName, series))
+                log("getMainPage - Encontrados ${series.size} ítems para '$sectionName'")
             } else {
-                log("getMainPage - Ítem incompleto para Últimas Series: Título='$title', Link='$link', Img='$img'")
-                null
+                log("getMainPage - No se encontraron ítems para '$sectionName' (index $index).")
             }
         }
-        if (latestSeries.isNotEmpty()) {
-            items.add(HomePageList("Últimas Series", latestSeries))
-            log("getMainPage - Encontrados ${latestSeries.size} ítems para Últimas Series")
-        } else {
-            log("getMainPage - No se encontraron ítems para Últimas Series en la página principal.")
-        }
 
-
-        // ----- Series de Animación -----
-        val animationSeriesElements = animationSeriesSection?.parents()?.select("div.short_in") ?: emptyList()
-        val animationSeries = animationSeriesElements.mapNotNull { element ->
-            val aElement = element.selectFirst("a")
-            val link = aElement?.attr("href")
-            val imgElement = aElement?.selectFirst("img")
-            val img = imgElement?.attr("data-src") ?: imgElement?.attr("src") // Prefer data-src
-            val title = aElement?.selectFirst("div.short_title")?.text() ?: aElement?.attr("title")
-
-            if (title != null && link != null && img != null) {
-                TvSeriesSearchResponse(
-                    name = title.trim(),
-                    url = fixUrl(link),
-                    posterUrl = fixUrl(img),
-                    type = TvType.TvSeries, // Asumimos TvSeries para esta sección
-                    apiName = this.name
-                )
-            } else {
-                log("getMainPage - Ítem incompleto para Series de Animación: Título='$title', Link='$link', Img='$img'")
-                null
-            }
-        }
-        if (animationSeries.isNotEmpty()) {
-            items.add(HomePageList("Series de Animación", animationSeries))
-            log("getMainPage - Encontrados ${animationSeries.size} ítems para Series de Animación")
-        } else {
-            log("getMainPage - No se encontraron ítems para Series de Animación en la página principal.")
+        if (items.isEmpty()) {
+            log("getMainPage - ADVERTENCIA: No se agregaron listas de series a la página principal. Posiblemente no se encontraron series.")
         }
 
         return HomePageResponse(items.toList(), false)
@@ -151,10 +141,6 @@ class VerOnlineProvider : MainAPI() {
             for (item in items) {
                 val link = item.attr("href") ?: ""
                 val title = item.text() ?: "" // El texto del <a> es el título.
-
-                // Opcional: si hay una imagen o descripción asociada en la respuesta AJAX,
-                // tendrías que ajustar los selectores aquí. Pero por ahora, basándonos en la imagen,
-                // solo se ve un enlace con texto.
 
                 if (title.isNotBlank() && link.isNotBlank()) {
                     searchResults.add(
