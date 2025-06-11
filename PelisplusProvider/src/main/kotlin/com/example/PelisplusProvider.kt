@@ -2,7 +2,7 @@ package com.example // ¡IMPORTANTE! Asegúrate de que este paquete coincida EXA
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller // CloudflareKiller si lo necesitas para la URL principal, aunque PelisplusHD no suele usarlo
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -117,8 +117,6 @@ class PelisplusProvider : MainAPI() {
                     this.posterUrl = img
                 }
             }
-            // Para asegurar que la búsqueda pueda mostrar tanto series como películas
-            // Podrías añadir lógica adicional aquí si los resultados de búsqueda distinguen claramente.
         }
     }
 
@@ -131,13 +129,11 @@ class PelisplusProvider : MainAPI() {
         Log.d("Pelisplus", "load - URL de entrada: $url")
 
         var cleanUrl = url
-        // Intenta limpiar URL si viene en formato JSON
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("Pelisplus", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
-            // Asegura que la URL comience con https:// si no lo hace
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                 cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("Pelisplus", "load - URL limpiada con HTTPS: $cleanUrl")
@@ -166,7 +162,6 @@ class PelisplusProvider : MainAPI() {
                 var episodeNumber: Int? = null
                 var epTitle: String = fullEpTitle
 
-                // Regex para "T#-E#: Titulo"
                 val regex = Regex("""T(\d+)\s*-\s*E(\d+):\s*(.*)""")
                 val match = regex.find(fullEpTitle)
 
@@ -175,19 +170,17 @@ class PelisplusProvider : MainAPI() {
                     episodeNumber = match.groupValues[2].toIntOrNull()
                     epTitle = match.groupValues[3].trim()
                 } else {
-                    // Regex para "Episodio #"
                     val simpleEpRegex = Regex("""Episodio\s*(\d+)""")
                     val simpleMatch = simpleEpRegex.find(fullEpTitle)
                     if (simpleMatch != null) {
                         episodeNumber = simpleMatch.groupValues[1].toIntOrNull()
                     }
-                    // Intentar obtener la temporada del tab activo si no se encontró en el título del episodio
                     if (seasonNumber == null) {
                         val activeSeasonTab = doc.selectFirst("ul.tbVideoNv.nav-tabs li a.nav-link.active")
                         val seasonText = activeSeasonTab?.text()
                         val seasonRegex = Regex("""TEMPORADA\s*(\d+)""")
                         val seasonMatch = seasonRegex.find(seasonText ?: "")
-                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1 // Asume T1 si no se encuentra
+                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
                     }
                 }
 
@@ -196,7 +189,6 @@ class PelisplusProvider : MainAPI() {
                 if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                     Log.d("Pelisplus", "load (Series) - Encontrado episodio: Título=$epTitle, URL=$epurl, Temporada=$seasonNumber, Episodio=$episodeNumber")
                     newEpisode(
-                        // Envía la URL completa del episodio dentro del JSON para loadLinks
                         EpisodeLoadData(epTitle, epurl).toJson()
                     ) {
                         this.name = epTitle
@@ -231,7 +223,7 @@ class PelisplusProvider : MainAPI() {
                     name = title,
                     url = cleanUrl,
                     type = tvType,
-                    dataUrl = cleanUrl // dataUrl para películas será la propia URL de la película
+                    dataUrl = cleanUrl
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -244,7 +236,6 @@ class PelisplusProvider : MainAPI() {
         }
     }
 
-    // --- Data Classes y Función de Desencriptación para Embed69 ---
     data class SortedEmbed(
         val servername: String,
         val link: String,
@@ -279,8 +270,6 @@ class PelisplusProvider : MainAPI() {
             return null
         }
     }
-    // --- Fin de Data Classes y Función de Desencriptación ---
-
 
     override suspend fun loadLinks(
         data: String,
@@ -318,19 +307,19 @@ class PelisplusProvider : MainAPI() {
 
         val doc = app.get(targetUrl).document
 
-        // --- LÓGICA REVISADA PARA ENCONTRAR TODAS LAS URLs DE REPRODUCTORES INICIALES ---
         val playerUrls = mutableListOf<String>()
 
-        // 1. Intenta encontrar CUALQUIER iframe directamente en el HTML
-        doc.selectFirst("iframe")?.attr("src")?.let {
-            playerUrls.add(it)
-            Log.d("Pelisplus", "Iframe encontrado directamente en el HTML: $it")
+        // 1. Intenta encontrar CUALQUIER iframe directamente en el HTML (con filtro de isNotBlank)
+        doc.selectFirst("iframe")?.attr("src")?.let { src ->
+            if (src.isNotBlank()) {
+                playerUrls.add(src)
+                Log.d("Pelisplus", "Iframe encontrado directamente en el HTML: $src")
+            }
         }
 
         // 2. Busca en scripts por src="..."
         val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-        // Buscar patrón de src="...embed69.org..."
         val embed69SrcRegex = Regex("""src=["']([^"']+)embed69\.org([^"']*)["']""")
         embed69SrcRegex.findAll(scriptContent).forEach { matchResult ->
             val src = matchResult.groupValues[1] + "embed69.org" + matchResult.groupValues[2]
@@ -338,7 +327,6 @@ class PelisplusProvider : MainAPI() {
             Log.d("Pelisplus", "Found embed69.org URL in script (src='...'): ${src.replace("\\/", "/")}")
         }
 
-        // Buscar patrón de src="...xupalace.org..."
         val xupalaceSrcRegex = Regex("""src=["']([^"']+)xupalace\.org([^"']*)["']""")
         xupalaceSrcRegex.findAll(scriptContent).forEach { matchResult ->
             val src = matchResult.groupValues[1] + "xupalace.org" + matchResult.groupValues[2]
@@ -346,11 +334,10 @@ class PelisplusProvider : MainAPI() {
             Log.d("Pelisplus", "Found xupalace.org URL in script (src='...'): ${src.replace("\\/", "/")}")
         }
 
-
         // 3. Busca en scripts por variables `video[N] = '...'`
         val videoVarRegex = Regex("""video\[(\d+)\]\s*=\s*['"](https?:\/\/[^"']+)['"]""")
         videoVarRegex.findAll(scriptContent).forEach { matchResult ->
-            val index = matchResult.groupValues[1] // No necesitamos el índice, solo la URL
+            val index = matchResult.groupValues[1]
             val url = matchResult.groupValues[2]
             playerUrls.add(url)
             Log.d("Pelisplus", "Found video[$index] URL in script: $url")
@@ -364,7 +351,6 @@ class PelisplusProvider : MainAPI() {
         Log.d("Pelisplus", "URLs de reproductores iniciales encontradas: $playerUrls")
 
         var linksFound = false
-        // Itera sobre todas las URLs de reproductores encontradas y las procesa
         for (playerUrl in playerUrls) {
             Log.d("Pelisplus", "Procesando URL de reproductor: $playerUrl")
 
@@ -374,11 +360,10 @@ class PelisplusProvider : MainAPI() {
                     app.get(fixUrl(playerUrl), referer = targetUrl).document
                 } catch (e: Exception) {
                     Log.e("Pelisplus", "Error al obtener el contenido del reproductor de embed69.org ($playerUrl): ${e.message}")
-                    continue // Continúa con la siguiente URL si hay un error
+                    continue
                 }
 
                 val scriptContentEmbed69 = frameDoc.select("script").map { it.html() }.joinToString("\n")
-
                 val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
                 val dataLinkJsonString = dataLinkRegex.find(scriptContentEmbed69)?.groupValues?.get(1)
 
@@ -388,7 +373,6 @@ class PelisplusProvider : MainAPI() {
                 }
 
                 Log.d("Pelisplus", "dataLink JSON string encontrado: $dataLinkJsonString")
-
                 val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
 
                 if (dataLinkEntries.isNullOrEmpty()) {
@@ -404,7 +388,6 @@ class PelisplusProvider : MainAPI() {
                             val decryptedLink = decryptLink(embed.link, secretKey)
                             if (decryptedLink != null) {
                                 Log.d("Pelisplus", "Embed69: Link desencriptado para ${embed.servername}: $decryptedLink")
-                                // Intentar cargar con extractores de Cloudstream
                                 if (loadExtractor(fixUrl(decryptedLink), playerUrl, subtitleCallback, callback)) {
                                     linksFound = true
                                 }
@@ -413,7 +396,7 @@ class PelisplusProvider : MainAPI() {
                     }
                 }
 
-            } else if (playerUrl.contains("xupalace.org/video/")) { // SOLO PARA /video/
+            } else if (playerUrl.contains("xupalace.org/video/")) {
                 Log.d("Pelisplus", "loadLinks - Detectado xupalace.org/video/ URL: $playerUrl")
                 val xupalaceDoc = try {
                     app.get(fixUrl(playerUrl), referer = targetUrl).document
@@ -438,14 +421,12 @@ class PelisplusProvider : MainAPI() {
                         val videoUrlFromXupalace = matchPlayerUrl.groupValues[1]
                         Log.d("Pelisplus", "Xupalace/video: Encontrado URL: $videoUrlFromXupalace")
                         if (videoUrlFromXupalace.isNotBlank()) {
-                            // Prioridad para Uqload aquí, si lo encontramos dentro de /video/
                             if (videoUrlFromXupalace.contains("uqload.com", ignoreCase = true)) {
                                 Log.d("Pelisplus", "Xupalace/video: PRIORIDAD - Encontrado Uqload URL: $videoUrlFromXupalace")
                                 if (loadExtractor(fixUrl(videoUrlFromXupalace), playerUrl, subtitleCallback, callback)) {
                                     linksFound = true
                                 }
                             } else {
-                                // Carga otros extractores
                                 if (loadExtractor(fixUrl(videoUrlFromXupalace), playerUrl, subtitleCallback, callback)) {
                                     linksFound = true
                                 }
@@ -453,44 +434,29 @@ class PelisplusProvider : MainAPI() {
                         }
                     }
                 }
-            } else if (playerUrl.contains("xupalace.org/uqlink.php?id=")) { // LÓGICA PARA UQLOAD DIRECTO
+            } else if (playerUrl.contains("xupalace.org/uqlink.php?id=")) {
                 Log.d("Pelisplus", "loadLinks - Detectado xupalace.org/uqlink.php URL (posible Uqload): $playerUrl")
-                val uqloadDoc = try {
-                    app.get(fixUrl(playerUrl), referer = targetUrl).document
+
+                val response = try {
+                    app.get(fixUrl(playerUrl), referer = targetUrl)
                 } catch (e: Exception) {
-                    Log.e("Pelisplus", "Error al obtener el contenido de uqlink.php ($playerUrl): ${e.message}")
+                    Log.e("Pelisplus", "Error al obtener la respuesta de uqlink.php ($playerUrl): ${e.message}")
                     continue
                 }
 
-                // La página de uqlink.php podría contener el iframe de Uqload o una redirección JS.
-                // Podríamos buscar un iframe de uqload.com o un script que contenga la URL final.
-                val uqloadIframeSrc = uqloadDoc.selectFirst("iframe")?.attr("src")
-                if (!uqloadIframeSrc.isNullOrBlank() && uqloadIframeSrc.contains("uqload.com")) {
-                    Log.d("Pelisplus", "Uqlink.php: Encontrado iframe directo de Uqload: $uqloadIframeSrc")
-                    if (loadExtractor(fixUrl(uqloadIframeSrc), playerUrl, subtitleCallback, callback)) {
+                val finalUqloadUrl = response.url // Esta es la URL después de todas las redirecciones
+                Log.d("Pelisplus", "Uqlink.php: URL FINAL después de redirecciones: $finalUqloadUrl")
+
+                if (!finalUqloadUrl.isNullOrBlank() && finalUqloadUrl.contains("uqload.com", ignoreCase = true)) {
+                    Log.d("Pelisplus", "Uqlink.php: Procesando URL final de Uqload: $finalUqloadUrl")
+                    if (loadExtractor(fixUrl(finalUqloadUrl), playerUrl, subtitleCallback, callback)) {
                         linksFound = true
                     }
                 } else {
-                    Log.w("Pelisplus", "Uqlink.php: No se encontró iframe directo de Uqload en $playerUrl. Revisar contenido.")
-                    // Aquí podrías añadir lógica para buscar la URL de Uqload en scripts si no es un iframe directo
-                    // Ejemplo: buscar "player.src = 'https://uqload.com/embed...'"
-                    val scriptContentUqload = uqloadDoc.select("script").map { it.html() }.joinToString("\n")
-                    val uqloadEmbedRegex = Regex("""(https?:\/\/[a-zA-Z0-9-]+\.uqload\.com\/embed-[a-zA-Z0-9]+\.html)""")
-                    val uqloadEmbedMatch = uqloadEmbedRegex.find(scriptContentUqload)
-                    if (uqloadEmbedMatch != null) {
-                        val finalUqloadUrl = uqloadEmbedMatch.groupValues[1]
-                        Log.d("Pelisplus", "Uqlink.php: Encontrado URL de Uqload en script: $finalUqloadUrl")
-                        if (loadExtractor(fixUrl(finalUqloadUrl), playerUrl, subtitleCallback, callback)) {
-                            linksFound = true
-                        }
-                    } else {
-                        Log.w("Pelisplus", "Uqlink.php: No se encontró URL de Uqload en scripts de $playerUrl.")
-                    }
+                    Log.w("Pelisplus", "Uqlink.php: La URL final ($finalUqloadUrl) no es una URL de Uqload o está vacía para $playerUrl.")
                 }
             }
             else {
-                // Este caso es para cualquier otro reproductor no manejado explícitamente.
-                // Cloudstream intentará encontrar un extractor genérico para esta URL.
                 Log.w("Pelisplus", "Tipo de reproductor desconocido o no manejado directamente en Pelisplus: $playerUrl. Intentando loadExtractor genérico.")
                 if (loadExtractor(fixUrl(playerUrl), targetUrl, subtitleCallback, callback)) {
                     linksFound = true
