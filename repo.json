@@ -8,7 +8,7 @@
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para SoloLatino",
+    "description": "Plugin para soloLatino.net",
     "tvTypes": [
       "Movie",
       "TvSeries",
@@ -21,23 +21,23 @@
     "name": "SoloLatino"
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/VerOnlineProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PelisplusProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 1,
-    "name": "VerSeriesOnline",
-    "internalName": "VerOnlineProvider",
+    "name": "Pelisplus",
+    "internalName": "PelisplusProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para VerSeriesOnline",
+    "description": "Plugin para pelisplushd.bz",
     "tvTypes": [
       "Movie",
       "TvSeries",
       "Anime",
       "Cartoon"
     ],
-    "iconUrl": "https://www.verseriesonline.net/images/faveicon.png",
+    "iconUrl": "https://pelisplushd.bz/images/logo/favicon.png",
     "language": "es",
     "fileSize": 17048
   }
