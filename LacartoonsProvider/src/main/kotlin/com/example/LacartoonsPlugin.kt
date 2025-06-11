@@ -23,7 +23,7 @@ class LacartoonsPlugin : Plugin() {
 
         // Registra tu SoloLatinoProvider.
         // Asegúrate de que SoloLatinoProvider no tenga la anotación @CloudstreamPlugin.
-        registerMainAPI(LaCartoonsProvider())
+        registerMainAPI(LacartoonsProvider())
 
         // Si tuvieras otros proveedores, los registrarías aquí también:
         // registerMainAPI(OtroProveedor())

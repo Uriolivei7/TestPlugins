@@ -1,4 +1,4 @@
-package com.example // ¡IMPORTANTE! Asegúrate de que este paquete coincida con la ubicación real de tu archivo y con LacartoonsPlugin.kt
+package com.example
 
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.LoadResponse
@@ -13,40 +13,57 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.Episode
-// import com.lagradost.cloudstream3.fixUrlNull // Comenta o elimina si sigue dando error de "Too many arguments"
 import com.lagradost.cloudstream3.HomePageList
-import com.lagradost.cloudstream3.HomePageResponse // ¡NUEVA IMPORTACIÓN NECESARIA!
+import com.lagradost.cloudstream3.HomePageResponse
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
-// Importa extensiones de URL si necesitas una solución más robusta para fixUrl
-// import com.lagradost.cloudstream3.utils.toAbsoluteUrl // Si está disponible en tu versión de CS3
 
 /**
  * Clase principal del proveedor LaCartoons para Cloudstream.
  * Implementa MainAPI para manejar búsquedas, carga de contenido y enlaces.
  */
-class LaCartoonsProvider : MainAPI() {
+class LacartoonsProvider : MainAPI() {
     override var name = "LaCartoons"
     override var mainUrl = "https://www.lacartoons.com"
     override var supportedTypes = setOf(TvType.TvSeries, TvType.Anime, TvType.Cartoon)
     override var lang = "es"
 
-    // Función para corregir URLs relativas a absolutas
     private fun fixUrl(url: String): String {
-        // La solución más genérica si fixUrlNull sigue dando errores.
-        // Asume que si no empieza con "http", es una URL relativa a mainUrl.
-        return if (url.startsWith("http")) url else mainUrl + url
-        // Alternativa si tu CS3 la soporta y 'fixUrlNull' falla:
-        // return url.toAbsoluteUrl(mainUrl) ?: url // Necesitarías importar 'toAbsoluteUrl'
+        return if (url.startsWith("http://") || url.startsWith("https://")) url else mainUrl + url
     }
 
-    // Implementación de getMainPage corregida para devolver HomePageResponse?
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        // Por ahora, solo devuelve null para que compile, resolviendo el error de tipo de retorno.
+        try {
+            val document = app.get(mainUrl).document
+
+            // Usamos el mismo selector que en la búsqueda para el ejemplo de la página principal.
+            // Asegúrate que 'div.conjuntos-series a' y sus elementos internos existan en la PÁGINA PRINCIPAL
+            // de LaCartoons.com para que esto funcione correctamente en Home.
+            val latestAdded = document.select("div.conjuntos-series a") // Ajustado basado en image_03cc52.png
+
+            val parsedList = latestAdded.mapNotNull { item ->
+                val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
+                val title = item.selectFirst("div.informacion-serie p.nombre-serie")?.text()?.trim() ?: ""
+                val poster = item.selectFirst("img")?.attr("src")?.let { fixUrl(it) }
+
+                if (title.isNotEmpty() && href.isNotEmpty()) {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                        this.posterUrl = poster
+                    }
+                } else null
+            }
+
+            if (parsedList.isNotEmpty()) {
+                val homePageList = HomePageList("Últimos Agregados", parsedList, true)
+                return HomePageResponse(arrayListOf(homePageList))
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return null
     }
 
-    // Función de búsqueda: Busca series/películas en el sitio web
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl?Titulo=$query").document
 
@@ -54,9 +71,7 @@ class LaCartoonsProvider : MainAPI() {
 
         return searchResults.mapNotNull { item ->
             val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
-
             val title = item.selectFirst("div.informacion-serie p.nombre-serie")?.text()?.trim() ?: ""
-
             val poster = item.selectFirst("img")?.attr("src")?.let { fixUrl(it) }
 
             if (title.isNotEmpty() && href.isNotEmpty()) {
@@ -67,44 +82,62 @@ class LaCartoonsProvider : MainAPI() {
         }
     }
 
-    // Función para cargar la información detallada de una serie/película
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
 
-        val title = document.selectFirst("h1.titulo-principal-serie")?.text()?.trim() ?: ""
-        val plot = document.selectFirst("div.descripcion-serie p")?.text()?.trim() ?: ""
-        val poster = document.selectFirst("div.portada-serie img")?.attr("src")?.let { fixUrl(it) }
+        // Selectores actualizados basados en image_f95011.png
+        val title = document.selectFirst("h2.subtitulo-serie-seccion")?.text()?.trim() ?: ""
+        // La sinopsis no es obvia en la imagen f95011.png. Si hay una sección de "Reseña:",
+        // podrías buscar el párrafo dentro de ella, pero no hay un selector claro.
+        // Asumiendo que el texto del plot está en algún <p> dentro de "informacion-serie-seccion".
+        // NECESITARÁS VERIFICAR ESTO MANUALMENTE EN LA PÁGINA WEB.
+        val plot = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")?.nextElementSibling()?.text()?.trim()
+            ?: document.selectFirst("div.informacion-serie-seccion p:last-of-type")?.text()?.trim() // Último p en esa sección
+            ?: "" // Si no se encuentra, dejar vacío
+
+        val poster = document.selectFirst("div.imagen-serie img")?.attr("src")?.let { fixUrl(it) }
 
         val episodes = ArrayList<Episode>()
 
-        val seasonElements = document.select("div.temporadas-nav a")
-        if (seasonElements.isNotEmpty()) {
-            seasonElements.amap { seasonLink ->
-                val seasonUrl = seasonLink.attr("href")?.let { fixUrl(it) } ?: return@amap
-                val seasonName = seasonLink.text()?.trim()
-                val seasonNumber = seasonName?.substringAfter("Temporada ")?.toIntOrNull()
+        // Basado en image_f8fd99.png y el JavaScript, las temporadas usan un acordeón
+        // y están cargadas en la misma página.
+        val seasonHeaders = document.select("h4.accordion") // Selectores para las cabeceras de temporada
 
-                val seasonDoc = app.get(seasonUrl).document
+        seasonHeaders.forEach { seasonHeader ->
+            val seasonName = seasonHeader.text()?.trim()?.replace("Temporada ", "") ?: ""
+            val seasonNumber = seasonName.toIntOrNull()
 
-                val episodeElements = seasonDoc.select("div.episodios-lista a")
-                episodeElements.forEachIndexed { index, episodeElement ->
-                    val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
-                    val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
+            // Encuentra la lista de episodios asociada a esta cabecera de temporada.
+            // El JavaScript indica que 'nextElementSibling' es 'panel' que contiene el 'ul'.
+            val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first() // ¡Verifica 'listas-de-episodion' por la 'n' extra!
 
-                    if (episodeUrl != null && episodeTitle != null) {
-                        episodes.add(
-                            Episode(
-                                data = episodeUrl,
-                                name = episodeTitle,
-                                season = seasonNumber,
-                                episode = index + 1
-                            )
+            episodeList?.select("a")?.forEach { episodeElement ->
+                // Asumiendo que el título del episodio está dentro del <a> o un <span> hijo.
+                // Usamos el selector anterior, si no funciona, necesitarás inspeccionar un enlace de episodio.
+                val episodeTitle = episodeElement.text()?.trim() // A veces el texto del <a> es el título
+                    ?: episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim() // Si hay un span específico
+                    ?: ""
+
+                val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
+
+                if (episodeUrl != null && episodeTitle.isNotEmpty()) {
+                    episodes.add(
+                        Episode(
+                            data = episodeUrl,
+                            name = episodeTitle,
+                            season = seasonNumber,
+                            // El número de episodio se puede extraer del texto si está presente (ej. "Episodio 12")
+                            // o simplemente usar el índice, que es lo más fiable si no está claro.
+                            episode = episodeElement.selectFirst("span.numero-episodio")?.text()?.toIntOrNull() ?: (episodes.size + 1)
                         )
-                    }
+                    )
                 }
             }
-        } else {
-            val episodeElements = document.select("div.episodios-lista a")
+        }
+
+        // Si no hay cabeceras de temporada (o es una película que se carga como serie de un episodio)
+        if (episodes.isEmpty()) {
+            val episodeElements = document.select("div.episodios-lista a") // Selector antiguo, verifica si aplica a series sin acordeón
             episodeElements.forEachIndexed { index, episodeElement ->
                 val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
                 val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
@@ -121,13 +154,13 @@ class LaCartoonsProvider : MainAPI() {
             }
         }
 
+
         return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
             this.plot = plot
             this.posterUrl = poster
         }
     }
 
-    // Función para obtener enlaces de streaming de un episodio
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -142,7 +175,6 @@ class LaCartoonsProvider : MainAPI() {
                 loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
             }
         }
-
         return true
     }
 }
