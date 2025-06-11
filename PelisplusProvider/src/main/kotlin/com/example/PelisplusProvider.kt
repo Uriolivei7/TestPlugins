@@ -60,14 +60,15 @@ class PelisplusProvider : MainAPI() {
                 return@apmap null // Retorna nulo para esta categoría si falla la petición
             }
 
-            Log.d("Pelisplus", "getMainPage - Documento obtenido para $name. Intentando seleccionar posters.") // LOG 2
-            val homeItems = doc.select("div.Posters article.listing-content").mapNotNull { element ->
-                val title = element.selectFirst("p")?.text()
-                val link = element.selectFirst("a.Posters-link")?.attr("href")
-                val img = element.selectFirst("img.Posters-img")?.attr("src")
+            Log.d("Pelisplus", "getMainPage - Documento obtenido para $name. Intentando seleccionar posters con nuevo selector.") // LOG 2
+            // CAMBIO CLAVE AQUÍ: selector de "div.Posters article.listing-content" a "div.Posters a.Posters-link"
+            val homeItems = doc.select("div.Posters a.Posters-link").mapNotNull { element ->
+                val title = element.attr("data-title") // Título desde el atributo data-title
+                val link = element.attr("href") // Enlace desde el href del propio <a>
+                val img = element.selectFirst("img.Posters-img")?.attr("src") // Imagen dentro del <a>
 
-                if (title == null || link == null) {
-                    Log.d("Pelisplus", "getMainPage - Elemento de poster sin título o link: ${element.html()}") // LOG 3
+                if (title.isNullOrBlank() || link.isNullOrBlank()) { // Comprobar si son nulos o vacíos
+                    Log.d("Pelisplus", "getMainPage - Elemento de poster sin título o link. HTML: ${element.html()}") // LOG 3
                     null
                 } else {
                     val fixedLink = fixUrl(link)
@@ -84,7 +85,7 @@ class PelisplusProvider : MainAPI() {
                 }
             }
             if (homeItems.isEmpty()) {
-                Log.w("Pelisplus", "getMainPage - No se encontraron items para la categoría $name en la URL $url") // LOG 5
+                Log.w("Pelisplus", "getMainPage - No se encontraron items para la categoría $name en la URL $url con el nuevo selector.") // LOG 5
             } else {
                 Log.d("Pelisplus", "getMainPage - Encontrados ${homeItems.size} items para la categoría $name.") // LOG 6
             }
@@ -99,20 +100,24 @@ class PelisplusProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/search?s=$query"
         val doc = app.get(url).document
-        return doc.select("div.Posters article.listing-content").mapNotNull {
-            val title = it.selectFirst("p")?.text()
-            val link = it.selectFirst("a.Posters-link")?.attr("href")
-            val img = it.selectFirst("img.Posters-img")?.attr("src")
 
-            if (title != null && link != null) {
+        // CAMBIO CLAVE AQUÍ TAMBIÉN: selector de "div.Posters article.listing-content" a "div.Posters a.Posters-link"
+        return doc.select("div.Posters a.Posters-link").mapNotNull {
+            val title = it.attr("data-title") // Título desde el atributo data-title
+            val link = it.attr("href") // Enlace desde el href del propio <a>
+            val img = it.selectFirst("img.Posters-img")?.attr("src") // Imagen dentro del <a>
+
+            if (title.isNullOrBlank() || link.isNullOrBlank()) { // Comprobar si son nulos o vacíos
+                null
+            } else {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries
+                    this.type = TvType.TvSeries // Esto asume que todos los resultados de búsqueda son series, deberías ajustar si es posible diferenciar.
                     this.posterUrl = img
                 }
-            } else null
+            }
         }
     }
 
