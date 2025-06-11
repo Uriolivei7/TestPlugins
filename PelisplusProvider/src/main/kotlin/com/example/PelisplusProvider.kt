@@ -308,32 +308,50 @@ class PelisplusProvider : MainAPI() {
         val doc = app.get(targetUrl).document
 
         // NUEVA LÓGICA PARA ENCONTRAR EL IFRAME SRC
-        var iframeSrc = doc.selectFirst("iframe")?.attr("src") // Intenta encontrar CUALQUIER iframe primero
+        var iframeSrc: String? = null
 
+        // 1. Intenta encontrar CUALQUIER iframe directamente en el HTML
+        iframeSrc = doc.selectFirst("iframe")?.attr("src")
+        if (!iframeSrc.isNullOrBlank()) {
+            Log.d("Pelisplus", "Iframe encontrado directamente en el HTML: $iframeSrc")
+        }
+
+        // 2. Si no se encontró iframe, busca en scripts por src="..."
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "No se encontró iframe directamente en el HTML. Buscando en scripts.")
+            Log.d("Pelisplus", "No se encontró iframe directamente en el HTML. Buscando en scripts por 'src='.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-            // Buscar patrón de embed69.org
+            // Buscar patrón de src="...embed69.org..."
             val embed69Regex = Regex("""src=["']([^"']+)embed69\.org([^"']*)["']""")
             val embed69Match = embed69Regex.find(scriptContent)
             if (embed69Match != null) {
-                // Eliminar cualquier barra invertida de escape y obtener la URL completa
                 iframeSrc = embed69Match.groupValues[1] + "embed69.org" + embed69Match.groupValues[2]
                 iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
-                Log.d("Pelisplus", "Found embed69.org URL in script: $iframeSrc")
+                Log.d("Pelisplus", "Found embed69.org URL in script (src='...'): $iframeSrc")
             }
 
-            // Si no es embed69, buscar patrón de xupalace.org
+            // Si no embed69, buscar patrón de src="...xupalace.org..."
             if (iframeSrc.isNullOrBlank()) {
                 val xupalaceRegex = Regex("""src=["']([^"']+)xupalace\.org([^"']*)["']""")
                 val xupalaceMatch = xupalaceRegex.find(scriptContent)
                 if (xupalaceMatch != null) {
-                    // Eliminar cualquier barra invertida de escape y obtener la URL completa
                     iframeSrc = xupalaceMatch.groupValues[1] + "xupalace.org" + xupalaceMatch.groupValues[2]
                     iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
-                    Log.d("Pelisplus", "Found xupalace.org URL in script: $iframeSrc")
+                    Log.d("Pelisplus", "Found xupalace.org URL in script (src='...'): $iframeSrc")
                 }
+            }
+        }
+
+        // 3. Si aún no se encontró, busca en scripts por variable `video[1] = '...'` (como el caso de Xupalace)
+        if (iframeSrc.isNullOrBlank()) {
+            Log.d("Pelisplus", "No se encontró iframe por src. Buscando en scripts por 'video[1] = ...'.")
+            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+
+            val videoVarRegex = Regex("""video\[1\]\s*=\s*['"](https?:\/\/[^"']+)['"]""")
+            val videoVarMatch = videoVarRegex.find(scriptContent)
+            if (videoVarMatch != null) {
+                iframeSrc = videoVarMatch.groupValues[1]
+                Log.d("Pelisplus", "Found video[1] URL in script: $iframeSrc")
             }
         }
 
@@ -343,16 +361,16 @@ class PelisplusProvider : MainAPI() {
             return false
         }
 
-        Log.d("Pelisplus", "Iframe encontrado: $iframeSrc")
+        Log.d("Pelisplus", "Iframe o URL de reproductor final encontrado: $iframeSrc")
 
         // --- LÓGICA PRINCIPAL: Manejar diferentes dominios de iframes ---
 
         if (iframeSrc.contains("embed69.org")) {
-            Log.d("Pelisplus", "loadLinks - Detectado embed69.org iframe: $iframeSrc")
+            Log.d("Pelisplus", "loadLinks - Detectado embed69.org URL: $iframeSrc")
             val frameDoc = try {
                 app.get(fixUrl(iframeSrc)).document
             } catch (e: Exception) {
-                Log.e("Pelisplus", "Error al obtener el contenido del iframe ($iframeSrc): ${e.message}")
+                Log.e("Pelisplus", "Error al obtener el contenido del reproductor de embed69.org ($iframeSrc): ${e.message}")
                 return false
             }
 
@@ -401,11 +419,11 @@ class PelisplusProvider : MainAPI() {
                 return false
             }
         } else if (iframeSrc.contains("xupalace.org")) {
-            Log.d("Pelisplus", "loadLinks - Detectado xupalace.org iframe: $iframeSrc")
+            Log.d("Pelisplus", "loadLinks - Detectado xupalace.org URL: $iframeSrc")
             val xupalaceDoc = try {
                 app.get(fixUrl(iframeSrc)).document
             } catch (e: Exception) {
-                Log.e("Pelisplus", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message}")
+                Log.e("Pelisplus", "Error al obtener el contenido del reproductor de Xupalace ($iframeSrc): ${e.message}")
                 return false
             }
 
@@ -442,7 +460,7 @@ class PelisplusProvider : MainAPI() {
                 return false
             }
         } else {
-            Log.w("Pelisplus", "Tipo de iframe desconocido o no manejado: $iframeSrc")
+            Log.w("Pelisplus", "Tipo de reproductor desconocido o no manejado: $iframeSrc")
             return false
         }
     }
