@@ -46,7 +46,7 @@
     "status": 1,
     "version": 1,
     "apiVersion": 1,
-    "name": "PlusHD",
+    "name": "Plushd",
     "internalName": "PlushdProvider",
     "authors": [
       "Ranita"
