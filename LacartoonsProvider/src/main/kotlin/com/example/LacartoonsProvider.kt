@@ -11,18 +11,21 @@ import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.net.URI
 
 /**
  * Clase principal del proveedor LaCartoons para Cloudstream.
  * Implementa MainAPI para manejar búsquedas, carga de contenido y enlaces.
  */
-class LacartoonsProvider : MainAPI() {
+class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
+
     override var name = "LaCartoons"
     override var mainUrl = "https://www.lacartoons.com"
     override var supportedTypes = setOf(TvType.TvSeries, TvType.Anime, TvType.Cartoon)
@@ -32,7 +35,7 @@ class LacartoonsProvider : MainAPI() {
         return if (url.startsWith("http://") || url.startsWith("https://")) url else mainUrl + url
     }
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? { // <-- Esta función DEBE estar dentro
         try {
             val document = app.get(mainUrl).document
 
@@ -61,7 +64,7 @@ class LacartoonsProvider : MainAPI() {
         return null
     }
 
-    override suspend fun search(query: String): List<SearchResponse> {
+    override suspend fun search(query: String): List<SearchResponse> { // <-- Esta función DEBE estar dentro
         val document = app.get("$mainUrl?Titulo=$query").document
 
         val searchResults = document.select("div.conjuntos-series a")
@@ -79,7 +82,7 @@ class LacartoonsProvider : MainAPI() {
         }
     }
 
-    override suspend fun load(url: String): LoadResponse {
+    override suspend fun load(url: String): LoadResponse { // <-- Esta función DEBE estar dentro
         val document = app.get(url).document
 
         // Selectores actualizados basados en image_f95011.png
@@ -151,7 +154,7 @@ class LacartoonsProvider : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(
+    override suspend fun loadLinks( // <-- Esta función DEBE estar dentro
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
@@ -159,22 +162,38 @@ class LacartoonsProvider : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        // Intenta encontrar el iframe principal.
-        // NO uses fixUrl para el src del iframe si ya es una URL absoluta (https://...).
         document.select("iframe[src]").forEach { iframe ->
             val iframeSrc = iframe.attr("src")
             if (iframeSrc != null && (iframeSrc.startsWith("http://") || iframeSrc.startsWith("https://"))) {
-                // Aquí, loadExtractor intentará resolver la URL del iframe.
-                // Si rpmvid.com no es soportado, no funcionará.
-                loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
+                // Verifica si la URL del iframe pertenece al dominio del reproductor que hemos identificado
+                if (iframeSrc.contains("cubeembed.rpmvid.com")) {
+                    // Extrae el dominio base del iframe
+                    val parsedUri = URI(iframeSrc)
+                    val domain = parsedUri.scheme + "://" + parsedUri.host
+
+                    // Construye la URL del master.m3u8 basándonos en las solicitudes de red
+                    val masterM3u8Url = "$domain/master.m3u8"
+
+                    // Añade el ExtractorLink para el stream HLS
+                    callback.invoke(
+                        ExtractorLink(
+                            source = name, // Nombre de tu proveedor (LaCartoons)
+                            name = "Stream Principal", // Un nombre descriptivo para el enlace
+                            url = masterM3u8Url,
+                            referer = iframeSrc, // El referer es crucial para que el servidor permita la reproducción
+                            quality = 1080, // Puedes ajustar la calidad o dejarla genérica si master.m3u8 es una lista de variantes
+                            type = ExtractorLinkType.M3U8 // Usamos el tipo correcto
+                        )
+                    )
+
+                } else {
+                    // Para otros iframes que no sean de cubeembed.rpmvid.com,
+                    // intenta usar loadExtractor si Cloudstream tiene un extractor para ellos.
+                    loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
+                }
             }
         }
 
-        // Si el iframe principal no funciona, la única otra opción viable (sin ejecutar JS)
-        // sería buscar una URL de video directa en los scripts o tags <video>.
-        // Los scripts que proporcionaste son principalmente para pop-ups, no para el video directo.
-        // Si hay un script oculto con el video real, necesitarías encontrar su patrón.
-
         return true
     }
-}
+} // <-- Cierra la llave de la clase aquí. ¡Asegúrate de que esta llave esté al final!
