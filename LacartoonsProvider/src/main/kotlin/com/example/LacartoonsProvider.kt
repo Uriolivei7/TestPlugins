@@ -24,7 +24,7 @@ import java.net.URI
  * Clase principal del proveedor LaCartoons para Cloudstream.
  * Implementa MainAPI para manejar búsquedas, carga de contenido y enlaces.
  */
-class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
+class LacartoonsProvider : MainAPI() {
 
     override var name = "LaCartoons"
     override var mainUrl = "https://www.lacartoons.com"
@@ -35,7 +35,7 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
         return if (url.startsWith("http://") || url.startsWith("https://")) url else mainUrl + url
     }
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? { // <-- Esta función DEBE estar dentro
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         try {
             val document = app.get(mainUrl).document
 
@@ -64,7 +64,7 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
         return null
     }
 
-    override suspend fun search(query: String): List<SearchResponse> { // <-- Esta función DEBE estar dentro
+    override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl?Titulo=$query").document
 
         val searchResults = document.select("div.conjuntos-series a")
@@ -82,37 +82,28 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
         }
     }
 
-    override suspend fun load(url: String): LoadResponse { // <-- Esta función DEBE estar dentro
+    override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
 
-        // Selectores actualizados basados en image_f95011.png
         val title = document.selectFirst("h2.subtitulo-serie-seccion")?.text()?.trim() ?: ""
 
-        // Para el plot (sinopsis), busca la etiqueta "Reseña:" y luego toma el texto del siguiente elemento
         val plotElement = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")
-        val plot = plotElement?.nextElementSibling()?.text()?.trim() ?: "" // Asume que la sinopsis es el siguiente hermano
+        val plot = plotElement?.nextElementSibling()?.text()?.trim() ?: ""
 
         val poster = document.selectFirst("div.imagen-serie img")?.attr("src")?.let { fixUrl(it) }
 
         val episodes = ArrayList<Episode>()
 
-        // Basado en image_f8fd99.png y el JavaScript, las temporadas usan un acordeón
-        // y están cargadas en la misma página.
-        val seasonHeaders = document.select("h4.accordion") // Selector para las cabeceras de temporada
+        val seasonHeaders = document.select("h4.accordion")
 
         seasonHeaders.forEach { seasonHeader ->
-            // Extrae el número de temporada del texto del encabezado (ej. "Temporada 1")
             val seasonName = seasonHeader.text()?.trim()
             val seasonNumber = seasonName?.substringAfter("Temporada ")?.toIntOrNull()
 
-            // Encuentra la lista de episodios asociada a esta cabecera de temporada.
-            // El JavaScript indica que 'nextElementSibling' es 'panel' que contiene el 'ul'.
-            val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first() // ¡CUIDADO con 'listas-de-episodion' por la 'n' extra!
+            val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first()
 
             episodeList?.select("a")?.forEach { episodeElement ->
-                // El título del episodio podría ser el texto directo del <a> o dentro de un <span>.
                 val episodeTitle = episodeElement.text()?.trim() ?: ""
-
                 val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
 
                 if (episodeUrl != null && episodeTitle.isNotEmpty()) {
@@ -121,17 +112,15 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
                             data = episodeUrl,
                             name = episodeTitle,
                             season = seasonNumber,
-                            episode = episodes.size + 1 // Utiliza el índice si no se puede extraer un número específico
+                            episode = episodes.size + 1
                         )
                     )
                 }
             }
         }
 
-        // Caso para series de una sola temporada o películas cargadas como series,
-        // donde no hay un acordeón de temporadas y los episodios están directamente listados.
         if (episodes.isEmpty()) {
-            val singleSeasonEpisodeElements = document.select("div.episodios-lista a") // Vuelve al selector que tenías
+            val singleSeasonEpisodeElements = document.select("div.episodios-lista a")
             singleSeasonEpisodeElements.forEachIndexed { index, episodeElement ->
                 val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
                 val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
@@ -154,7 +143,7 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
         }
     }
 
-    override suspend fun loadLinks( // <-- Esta función DEBE estar dentro
+    override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
@@ -165,30 +154,30 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
         document.select("iframe[src]").forEach { iframe ->
             val iframeSrc = iframe.attr("src")
             if (iframeSrc != null && (iframeSrc.startsWith("http://") || iframeSrc.startsWith("https://"))) {
-                // Verifica si la URL del iframe pertenece al dominio del reproductor que hemos identificado
                 if (iframeSrc.contains("cubeembed.rpmvid.com")) {
-                    // Extrae el dominio base del iframe
                     val parsedUri = URI(iframeSrc)
                     val domain = parsedUri.scheme + "://" + parsedUri.host
-
-                    // Construye la URL del master.m3u8 basándonos en las solicitudes de red
                     val masterM3u8Url = "$domain/master.m3u8"
 
-                    // Añade el ExtractorLink para el stream HLS
+                    // Define los encabezados HTTP, incluyendo el User-Agent
+                    val headers = mapOf(
+                        "Referer" to iframeSrc,
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                    )
+
                     callback.invoke(
                         ExtractorLink(
-                            source = name, // Nombre de tu proveedor (LaCartoons)
-                            name = "Stream Principal", // Un nombre descriptivo para el enlace
+                            source = name,
+                            name = "Stream Principal",
                             url = masterM3u8Url,
-                            referer = iframeSrc, // El referer es crucial para que el servidor permita la reproducción
-                            quality = 1080, // Puedes ajustar la calidad o dejarla genérica si master.m3u8 es una lista de variantes
-                            type = ExtractorLinkType.M3U8 // Usamos el tipo correcto
+                            referer = iframeSrc, // Este referer es el que se pasa al constructor, pero el `headers` map es el que realmente se usa para la petición
+                            quality = 1080,
+                            headers = headers, // <-- ¡Pasa el mapa de encabezados aquí!
+                            type = ExtractorLinkType.M3U8
                         )
                     )
 
                 } else {
-                    // Para otros iframes que no sean de cubeembed.rpmvid.com,
-                    // intenta usar loadExtractor si Cloudstream tiene un extractor para ellos.
                     loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
                 }
             }
@@ -196,4 +185,4 @@ class LacartoonsProvider : MainAPI() { // <-- Abre la llave de la clase aquí
 
         return true
     }
-} // <-- Cierra la llave de la clase aquí. ¡Asegúrate de que esta llave esté al final!
+}
