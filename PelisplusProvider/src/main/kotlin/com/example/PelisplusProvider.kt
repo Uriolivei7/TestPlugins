@@ -308,7 +308,7 @@ class PelisplusProvider : MainAPI() {
         val doc = app.get(targetUrl).document
 
         // CAMBIO CLAVE AQUÍ: Nuevo selector para el iframe
-        val iframeSrc = doc.selectFirst("div#video-content iframe")?.attr("src") //
+        val iframeSrc = doc.selectFirst("div.video iframe")?.attr("src") //
 
         if (iframeSrc.isNullOrBlank()) {
             Log.d("Pelisplus", "No se encontró iframe del reproductor con el selector específico en Pelisplus.")
