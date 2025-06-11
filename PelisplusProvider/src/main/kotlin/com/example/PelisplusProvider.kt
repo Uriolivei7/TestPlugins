@@ -100,25 +100,19 @@ class PelisplusProvider : MainAPI() {
         val url = "$mainUrl/search?s=$query"
         val doc = app.get(url).document
 
-        // Mantenemos el mismo selector que en getMainPage, ya que los logs previos mostraban que funcionaba.
-        // Si hay casos donde el póster no sale, el problema podría ser que no todos los resultados tienen data-title
-        // o Posters-img, o que la página de búsqueda es ligeramente diferente.
-        // Aquí puedes añadir más logs si el problema persiste.
         return doc.select("div.Posters a.Posters-link").mapNotNull {
             val title = it.attr("data-title")
             val link = it.attr("href")
             val img = it.selectFirst("img.Posters-img")?.attr("src")
 
             if (title.isNullOrBlank() || link.isNullOrBlank()) {
-                Log.d("Pelisplus", "Search - Elemento de poster sin título o link en búsqueda. HTML: ${it.html()}") // Añadir log aquí
+                Log.d("Pelisplus", "Search - Elemento de poster sin título o link en búsqueda. HTML: ${it.html()}")
                 null
             } else {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
-                    // Para búsqueda, asumimos TvSeries por defecto si no se puede determinar.
-                    // Si la web de búsqueda ofrece un tipo (película/serie) podrías extraerlo aquí.
                     this.type = TvType.TvSeries
                     this.posterUrl = img
                 }
@@ -160,19 +154,14 @@ class PelisplusProvider : MainAPI() {
         val tags = doc.select("a[title^=Películas del Genero]").map { it.text() }
 
         val episodes = if (tvType == TvType.TvSeries) {
-            // CAMBIOS CLAVE AQUÍ PARA LAS SERIES
-            // Basado en image_5aae95.png, los episodios están directamente dentro de div.tab-pane.
-            // Primero, buscamos todos los 'tab-pane' que contengan episodios.
-            // Luego, dentro de cada 'tab-pane', seleccionamos los <a> que representan cada episodio.
             doc.select("div.tab-content div.tab-pane a.btn.btn-primary.btn-block").mapNotNull { element ->
                 val epurl = fixUrl(element.attr("href") ?: "")
-                val fullEpTitle = element.text() ?: "" // El texto completo del <a>, e.g., "T1 - E1: Episodio 1"
+                val fullEpTitle = element.text() ?: ""
 
                 var seasonNumber: Int? = null
                 var episodeNumber: Int? = null
                 var epTitle: String = fullEpTitle
 
-                // Intentamos parsear "T(S) - E(E): Titulo del Episodio"
                 val regex = Regex("""T(\d+)\s*-\s*E(\d+):\s*(.*)""")
                 val match = regex.find(fullEpTitle)
 
@@ -181,30 +170,21 @@ class PelisplusProvider : MainAPI() {
                     episodeNumber = match.groupValues[2].toIntOrNull()
                     epTitle = match.groupValues[3].trim()
                 } else {
-                    // Si no coincide con el formato T-E, intentamos buscar solo el número de episodio
                     val simpleEpRegex = Regex("""Episodio\s*(\d+)""")
                     val simpleMatch = simpleEpRegex.find(fullEpTitle)
                     if (simpleMatch != null) {
                         episodeNumber = simpleMatch.groupValues[1].toIntOrNull()
                     }
-                    // Para la temporada, si no se encuentra en el título, por defecto la primera temporada.
-                    // Podríamos intentar extraer la temporada de los nav-tabs si fuera necesario.
-                    // Por ahora, asumimos que si no hay 'T' en el título, es temporada 1.
                     if (seasonNumber == null) {
-                        // Una forma de intentar obtener la temporada si no está en el link directo del episodio
-                        // Buscar el 'nav-link active' dentro de 'tbVideoNv nav-tabs' y su texto 'TEMPORADA X'
                         val activeSeasonTab = doc.selectFirst("ul.tbVideoNv.nav-tabs li a.nav-link.active")
                         val seasonText = activeSeasonTab?.text()
                         val seasonRegex = Regex("""TEMPORADA\s*(\d+)""")
                         val seasonMatch = seasonRegex.find(seasonText ?: "")
-                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1 // Por defecto, temporada 1
+                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
                     }
                 }
 
-
-                // No se ve la imagen del episodio en image_5aae95.png, así que la dejaré nula o usaré la del póster principal.
-                // Si encuentras un selector para la imagen del episodio, añádelo aquí.
-                val realimg = poster // Usamos el póster principal como fallback
+                val realimg = poster
 
                 if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                     Log.d("Pelisplus", "load (Series) - Encontrado episodio: Título=$epTitle, URL=$epurl, Temporada=$seasonNumber, Episodio=$episodeNumber")
@@ -326,7 +306,9 @@ class PelisplusProvider : MainAPI() {
         }
 
         val doc = app.get(targetUrl).document
-        val iframeSrc = doc.selectFirst("div.player iframe")?.attr("src")
+
+        // CAMBIO CLAVE AQUÍ: Nuevo selector para el iframe
+        val iframeSrc = doc.selectFirst("div#video-content iframe")?.attr("src") //
 
         if (iframeSrc.isNullOrBlank()) {
             Log.d("Pelisplus", "No se encontró iframe del reproductor con el selector específico en Pelisplus.")
