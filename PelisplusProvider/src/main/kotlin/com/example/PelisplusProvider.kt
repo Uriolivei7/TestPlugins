@@ -44,7 +44,7 @@ class PelisplusProvider : MainAPI() {
         )
 
         val homePageLists = urls.apmap { (name, url) ->
-            Log.d("Pelisplus", "getMainPage - Procesando categoría: $name desde URL: $url") // LOG 1
+            Log.d("Pelisplus", "getMainPage - Procesando categoría: $name desde URL: $url")
 
             val tvType = when (name) {
                 "Películas" -> TvType.Movie
@@ -56,25 +56,24 @@ class PelisplusProvider : MainAPI() {
             val doc = try {
                 app.get(url).document
             } catch (e: Exception) {
-                Log.e("Pelisplus", "getMainPage - ERROR al obtener documento de $url: ${e.message}", e) // LOG ERROR FETCH
-                return@apmap null // Retorna nulo para esta categoría si falla la petición
+                Log.e("Pelisplus", "getMainPage - ERROR al obtener documento de $url: ${e.message}", e)
+                return@apmap null
             }
 
-            Log.d("Pelisplus", "getMainPage - Documento obtenido para $name. Intentando seleccionar posters con nuevo selector.") // LOG 2
-            // CAMBIO CLAVE AQUÍ: selector de "div.Posters article.listing-content" a "div.Posters a.Posters-link"
+            Log.d("Pelisplus", "getMainPage - Documento obtenido para $name. Intentando seleccionar posters con nuevo selector.")
             val homeItems = doc.select("div.Posters a.Posters-link").mapNotNull { element ->
-                val title = element.attr("data-title") // Título desde el atributo data-title
-                val link = element.attr("href") // Enlace desde el href del propio <a>
-                val img = element.selectFirst("img.Posters-img")?.attr("src") // Imagen dentro del <a>
+                val title = element.attr("data-title")
+                val link = element.attr("href")
+                val img = element.selectFirst("img.Posters-img")?.attr("src")
 
-                if (title.isNullOrBlank() || link.isNullOrBlank()) { // Comprobar si son nulos o vacíos
-                    Log.d("Pelisplus", "getMainPage - Elemento de poster sin título o link. HTML: ${element.html()}") // LOG 3
+                if (title.isNullOrBlank() || link.isNullOrBlank()) {
+                    Log.d("Pelisplus", "getMainPage - Elemento de poster sin título o link. HTML: ${element.html()}")
                     null
                 } else {
                     val fixedLink = fixUrl(link)
-                    val fixedImg = fixUrl(img ?: "") // Asegurarse de que img no sea nulo antes de fixUrl
+                    val fixedImg = fixUrl(img ?: "")
 
-                    Log.d("Pelisplus", "getMainPage - Encontrado: Título=$title, Link=$fixedLink, Img=$fixedImg") // LOG 4
+                    Log.d("Pelisplus", "getMainPage - Encontrado: Título=$title, Link=$fixedLink, Img=$fixedImg")
                     newAnimeSearchResponse(
                         title,
                         fixedLink
@@ -85,14 +84,14 @@ class PelisplusProvider : MainAPI() {
                 }
             }
             if (homeItems.isEmpty()) {
-                Log.w("Pelisplus", "getMainPage - No se encontraron items para la categoría $name en la URL $url con el nuevo selector.") // LOG 5
+                Log.w("Pelisplus", "getMainPage - No se encontraron items para la categoría $name en la URL $url con el nuevo selector.")
             } else {
-                Log.d("Pelisplus", "getMainPage - Encontrados ${homeItems.size} items para la categoría $name.") // LOG 6
+                Log.d("Pelisplus", "getMainPage - Encontrados ${homeItems.size} items para la categoría $name.")
             }
             HomePageList(name, homeItems)
         }
 
-        items.addAll(homePageLists.filterNotNull()) // Añadir solo los que no sean nulos
+        items.addAll(homePageLists.filterNotNull())
 
         return newHomePageResponse(items, false)
     }
@@ -101,20 +100,26 @@ class PelisplusProvider : MainAPI() {
         val url = "$mainUrl/search?s=$query"
         val doc = app.get(url).document
 
-        // CAMBIO CLAVE AQUÍ TAMBIÉN: selector de "div.Posters article.listing-content" a "div.Posters a.Posters-link"
+        // Mantenemos el mismo selector que en getMainPage, ya que los logs previos mostraban que funcionaba.
+        // Si hay casos donde el póster no sale, el problema podría ser que no todos los resultados tienen data-title
+        // o Posters-img, o que la página de búsqueda es ligeramente diferente.
+        // Aquí puedes añadir más logs si el problema persiste.
         return doc.select("div.Posters a.Posters-link").mapNotNull {
-            val title = it.attr("data-title") // Título desde el atributo data-title
-            val link = it.attr("href") // Enlace desde el href del propio <a>
-            val img = it.selectFirst("img.Posters-img")?.attr("src") // Imagen dentro del <a>
+            val title = it.attr("data-title")
+            val link = it.attr("href")
+            val img = it.selectFirst("img.Posters-img")?.attr("src")
 
-            if (title.isNullOrBlank() || link.isNullOrBlank()) { // Comprobar si son nulos o vacíos
+            if (title.isNullOrBlank() || link.isNullOrBlank()) {
+                Log.d("Pelisplus", "Search - Elemento de poster sin título o link en búsqueda. HTML: ${it.html()}") // Añadir log aquí
                 null
             } else {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries // Esto asume que todos los resultados de búsqueda son series, deberías ajustar si es posible diferenciar.
+                    // Para búsqueda, asumimos TvSeries por defecto si no se puede determinar.
+                    // Si la web de búsqueda ofrece un tipo (película/serie) podrías extraerlo aquí.
+                    this.type = TvType.TvSeries
                     this.posterUrl = img
                 }
             }
@@ -153,29 +158,67 @@ class PelisplusProvider : MainAPI() {
         val poster = doc.selectFirst("img.img-fluid")?.attr("src") ?: ""
         val description = doc.selectFirst("div.text-large")?.text() ?: ""
         val tags = doc.select("a[title^=Películas del Genero]").map { it.text() }
+
         val episodes = if (tvType == TvType.TvSeries) {
-            doc.select("div#seasons div.se-c").flatMap { seasonElement ->
-                seasonElement.select("ul.episodios li").mapNotNull { element ->
-                    val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-                    val epTitle = element.selectFirst("div.episodiotitle div.epst")?.text() ?: ""
+            // CAMBIOS CLAVE AQUÍ PARA LAS SERIES
+            // Basado en image_5aae95.png, los episodios están directamente dentro de div.tab-pane.
+            // Primero, buscamos todos los 'tab-pane' que contengan episodios.
+            // Luego, dentro de cada 'tab-pane', seleccionamos los <a> que representan cada episodio.
+            doc.select("div.tab-content div.tab-pane a.btn.btn-primary.btn-block").mapNotNull { element ->
+                val epurl = fixUrl(element.attr("href") ?: "")
+                val fullEpTitle = element.text() ?: "" // El texto completo del <a>, e.g., "T1 - E1: Episodio 1"
 
-                    val seasonNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
-                    val episodeNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
+                var seasonNumber: Int? = null
+                var episodeNumber: Int? = null
+                var epTitle: String = fullEpTitle
 
-                    val realimg = element.selectFirst("div.imagen img")?.attr("src")
+                // Intentamos parsear "T(S) - E(E): Titulo del Episodio"
+                val regex = Regex("""T(\d+)\s*-\s*E(\d+):\s*(.*)""")
+                val match = regex.find(fullEpTitle)
 
-                    if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                        newEpisode(
-                            EpisodeLoadData(epTitle, epurl).toJson()
-                        ) {
-                            this.name = epTitle
-                            this.season = seasonNumber
-                            this.episode = episodeNumber
-                            this.posterUrl = realimg
-                        }
-                    } else null
+                if (match != null) {
+                    seasonNumber = match.groupValues[1].toIntOrNull()
+                    episodeNumber = match.groupValues[2].toIntOrNull()
+                    epTitle = match.groupValues[3].trim()
+                } else {
+                    // Si no coincide con el formato T-E, intentamos buscar solo el número de episodio
+                    val simpleEpRegex = Regex("""Episodio\s*(\d+)""")
+                    val simpleMatch = simpleEpRegex.find(fullEpTitle)
+                    if (simpleMatch != null) {
+                        episodeNumber = simpleMatch.groupValues[1].toIntOrNull()
+                    }
+                    // Para la temporada, si no se encuentra en el título, por defecto la primera temporada.
+                    // Podríamos intentar extraer la temporada de los nav-tabs si fuera necesario.
+                    // Por ahora, asumimos que si no hay 'T' en el título, es temporada 1.
+                    if (seasonNumber == null) {
+                        // Una forma de intentar obtener la temporada si no está en el link directo del episodio
+                        // Buscar el 'nav-link active' dentro de 'tbVideoNv nav-tabs' y su texto 'TEMPORADA X'
+                        val activeSeasonTab = doc.selectFirst("ul.tbVideoNv.nav-tabs li a.nav-link.active")
+                        val seasonText = activeSeasonTab?.text()
+                        val seasonRegex = Regex("""TEMPORADA\s*(\d+)""")
+                        val seasonMatch = seasonRegex.find(seasonText ?: "")
+                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1 // Por defecto, temporada 1
+                    }
+                }
+
+
+                // No se ve la imagen del episodio en image_5aae95.png, así que la dejaré nula o usaré la del póster principal.
+                // Si encuentras un selector para la imagen del episodio, añádelo aquí.
+                val realimg = poster // Usamos el póster principal como fallback
+
+                if (epurl.isNotBlank() && epTitle.isNotBlank()) {
+                    Log.d("Pelisplus", "load (Series) - Encontrado episodio: Título=$epTitle, URL=$epurl, Temporada=$seasonNumber, Episodio=$episodeNumber")
+                    newEpisode(
+                        EpisodeLoadData(epTitle, epurl).toJson()
+                    ) {
+                        this.name = epTitle
+                        this.season = seasonNumber
+                        this.episode = episodeNumber
+                        this.posterUrl = realimg
+                    }
+                } else {
+                    Log.d("Pelisplus", "load (Series) - Elemento de episodio sin URL o título. HTML: ${element.html()}")
+                    null
                 }
             }
         } else listOf()
