@@ -1,64 +1,8 @@
-[
-  {
-    "iconUrl": "https://sololatino.net/wp-content/uploads/2022/11/logo-final.png",
-    "apiVersion": 1,
-    "fileSize": 23000,
-    "status": 1,
-    "language": "es",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para sololatino.net",
-    "tvTypes": [
-      "Movie",
-      "TvSeries",
-      "Anime",
-      "Cartoon"
-    ],
-    "version": 1,
-    "internalName": "SoloLatinoProvider",
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
-    "name": "SoloLatino"
-  },
-  {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PelisplusProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 1,
-    "name": "Pelisplus",
-    "internalName": "PelisplusProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para pelisplushd.bz",
-    "tvTypes": [
-      "Movie",
-      "TvSeries",
-      "Anime",
-      "Cartoon"
-    ],
-    "iconUrl": "https://pelisplushd.bz/images/logo/favicon.png",
-    "language": "es",
-    "fileSize": 23000
-  },
-  {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 1,
-    "name": "LaCartoons",
-    "internalName": "LacartoonsProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para www.lacartoons.com",
-    "tvTypes": [
-      "TvSeries",
-      "Anime",
-      "Cartoon"
-    ],
-    "iconUrl": "https://www.lacartoons.com/favicon.ico",
-    "language": "es",
-    "fileSize": 13000
-  }
-]
+{
+  "name": "Ranita Repositorio",
+  "description": "Lista de plugins de Ranita para CloudStream",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://uriolivei.github.io/TestPlugins/plugins.json"
+  ]
+}

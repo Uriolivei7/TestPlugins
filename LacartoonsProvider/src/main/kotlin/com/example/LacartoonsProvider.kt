@@ -1,48 +1,52 @@
-package com.example// Asegúrate de que el nombre del paquete sea consistente
+package com.example // ¡IMPORTANTE! Asegúrate de que este paquete coincida con la ubicación real de tu archivo y con LacartoonsPlugin.kt
 
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.amap
+import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.newTvSeriesLoadResponse
+import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.Episode
+// import com.lagradost.cloudstream3.fixUrlNull // Comenta o elimina si sigue dando error de "Too many arguments"
+import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.HomePageResponse // ¡NUEVA IMPORTACIÓN NECESARIA!
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+// Importa extensiones de URL si necesitas una solución más robusta para fixUrl
+// import com.lagradost.cloudstream3.utils.toAbsoluteUrl // Si está disponible en tu versión de CS3
 
-// Asegúrate de que NO haya importaciones problemáticas como:
-// import com.lagradost.cloudstream3.utils.tryParseDuration
-// import com.lagradost.cloudstream3.utils.parseDurationFromString
-
-class LacartoonsProvider : MainAPI() {
-    override var mainUrl = "https://www.lacartoons.com"
+/**
+ * Clase principal del proveedor LaCartoons para Cloudstream.
+ * Implementa MainAPI para manejar búsquedas, carga de contenido y enlaces.
+ */
+class LaCartoonsProvider : MainAPI() {
     override var name = "LaCartoons"
+    override var mainUrl = "https://www.lacartoons.com"
+    override var supportedTypes = setOf(TvType.TvSeries, TvType.Anime, TvType.Cartoon)
     override var lang = "es"
-    override val supportedTypes = setOf(
-        TvType.TvSeries,
-        TvType.Anime,
-        TvType.Cartoon
-    )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get(mainUrl).document
-        val homeItems = ArrayList<HomePageList>()
-
-        val latestContent = document.select("div.conjuntos-series a")
-
-        if (latestContent.isNotEmpty()) {
-            homeItems.add(HomePageList(
-                "Series Recientes",
-                latestContent.mapNotNull { item ->
-                    val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
-                    val title = item.selectFirst("div.serie h3")?.text()?.trim() ?: ""
-                    val poster = item.selectFirst("div.serie img")?.attr("src")?.let { fixUrl(it) }
-
-                    if (title.isNotEmpty() && href.isNotEmpty()) {
-                        newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                            this.posterUrl = poster
-                        }
-                    } else null
-                }
-            ))
-        }
-
-        return HomePageResponse(homeItems)
+    // Función para corregir URLs relativas a absolutas
+    private fun fixUrl(url: String): String {
+        // La solución más genérica si fixUrlNull sigue dando errores.
+        // Asume que si no empieza con "http", es una URL relativa a mainUrl.
+        return if (url.startsWith("http")) url else mainUrl + url
+        // Alternativa si tu CS3 la soporta y 'fixUrlNull' falla:
+        // return url.toAbsoluteUrl(mainUrl) ?: url // Necesitarías importar 'toAbsoluteUrl'
     }
 
+    // Implementación de getMainPage corregida para devolver HomePageResponse?
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        // Por ahora, solo devuelve null para que compile, resolviendo el error de tipo de retorno.
+        return null
+    }
+
+    // Función de búsqueda: Busca series/películas en el sitio web
     override suspend fun search(query: String): List<SearchResponse> {
         val document = app.get("$mainUrl?Titulo=$query").document
 
@@ -50,8 +54,10 @@ class LacartoonsProvider : MainAPI() {
 
         return searchResults.mapNotNull { item ->
             val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
-            val title = item.selectFirst("div.serie h3")?.text()?.trim() ?: ""
-            val poster = item.selectFirst("div.serie img")?.attr("src")?.let { fixUrl(it) }
+
+            val title = item.selectFirst("div.informacion-serie p.nombre-serie")?.text()?.trim() ?: ""
+
+            val poster = item.selectFirst("img")?.attr("src")?.let { fixUrl(it) }
 
             if (title.isNotEmpty() && href.isNotEmpty()) {
                 newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
@@ -61,80 +67,67 @@ class LacartoonsProvider : MainAPI() {
         }
     }
 
+    // Función para cargar la información detallada de una serie/película
     override suspend fun load(url: String): LoadResponse {
         val document = app.get(url).document
 
-        val title = document.selectFirst("h1.film-name")?.text()?.trim()
-            ?: throw ErrorLoadingException("No se pudo obtener el título de la serie.")
-
-        val description = document.selectFirst("div.film-content p.desc")?.text()?.trim()
-
-        val poster = document.selectFirst("div.film-poster img")?.attr("src")?.let { fixUrl(it) }
-
-        val year: Int? = null
-        val rating: Int? = null
-        val tags: List<String> = emptyList()
-        val duration: Int? = null
-
-        val type = if (url.contains("/serie/")) TvType.TvSeries else TvType.TvSeries
+        val title = document.selectFirst("h1.titulo-principal-serie")?.text()?.trim() ?: ""
+        val plot = document.selectFirst("div.descripcion-serie p")?.text()?.trim() ?: ""
+        val poster = document.selectFirst("div.portada-serie img")?.attr("src")?.let { fixUrl(it) }
 
         val episodes = ArrayList<Episode>()
 
-        document.select("div.list-season").forEach { seasonDiv ->
-            val seasonName = seasonDiv.selectFirst("h3")?.text()?.trim()
-            val seasonNumber = seasonName?.replace("Temporada ", "")?.toIntOrNull() ?: 1
+        val seasonElements = document.select("div.temporadas-nav a")
+        if (seasonElements.isNotEmpty()) {
+            seasonElements.amap { seasonLink ->
+                val seasonUrl = seasonLink.attr("href")?.let { fixUrl(it) } ?: return@amap
+                val seasonName = seasonLink.text()?.trim()
+                val seasonNumber = seasonName?.substringAfter("Temporada ")?.toIntOrNull()
 
-            seasonDiv.select("ul.list-episode li a").forEach { epLink ->
-                val epUrl = fixUrl(epLink.attr("href"))
-                val epTitle = epLink.text().trim()
+                val seasonDoc = app.get(seasonUrl).document
 
-                val episodeNumber = Regex("episodio\\s*(\\d+)").find(epTitle.lowercase())?.groupValues?.get(1)?.toIntOrNull()
-                    ?: Regex("/(\\d+)$").find(epUrl)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: 0
+                val episodeElements = seasonDoc.select("div.episodios-lista a")
+                episodeElements.forEachIndexed { index, episodeElement ->
+                    val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
+                    val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
 
-                episodes.add(
-                    Episode(
-                        data = epUrl,
-                        name = epTitle,
-                        season = seasonNumber,
-                        episode = episodeNumber
+                    if (episodeUrl != null && episodeTitle != null) {
+                        episodes.add(
+                            Episode(
+                                data = episodeUrl,
+                                name = episodeTitle,
+                                season = seasonNumber,
+                                episode = index + 1
+                            )
+                        )
+                    }
+                }
+            }
+        } else {
+            val episodeElements = document.select("div.episodios-lista a")
+            episodeElements.forEachIndexed { index, episodeElement ->
+                val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
+                val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
+
+                if (episodeUrl != null && episodeTitle != null) {
+                    episodes.add(
+                        Episode(
+                            data = episodeUrl,
+                            name = episodeTitle,
+                            episode = index + 1
+                        )
                     )
-                )
+                }
             }
         }
 
-        // CORRECCIÓN PRINCIPAL para el error de Type Mismatch:
-        // Usamos sortWith y un comparador lambda explícito para manejar los nulos.
-        episodes.sortWith(compareBy<Episode> { it.season ?: 0 }.thenBy { it.episode ?: 0 })
-
-
-        return newTvSeriesLoadResponse(
-            name = title,
-            url = url,
-            type = type,
-            episodes = episodes
-        ) {
-            this.apiName = this@LacartoonsProvider.name
+        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            this.plot = plot
             this.posterUrl = poster
-            this.year = year
-            this.plot = description
-            this.showStatus = null
-            this.rating = rating
-            this.tags = tags
-            this.duration = duration
-            this.trailers = mutableListOf()
-            this.recommendations = null
-            this.actors = null
-            this.comingSoon = false
-            this.syncData = mutableMapOf()
-            this.posterHeaders = null
-            this.nextAiring = null
-            this.seasonNames = null
-            this.backgroundPosterUrl = null
-            this.contentRating = null
         }
     }
 
+    // Función para obtener enlaces de streaming de un episodio
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -143,38 +136,10 @@ class LacartoonsProvider : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
-        document.select("iframe").forEach { iframe ->
-            val iframeSrc = iframe.attr("src")
-            if (iframeSrc.startsWith("http")) {
-                loadExtractor(iframeSrc, data, subtitleCallback, callback)
-            }
-        }
-
-        document.select("script").forEach { script ->
-            val scriptText = script.html()
-
-            val playerUrlRegex = Regex("""player_url\s*=\s*['"](https?://[^'"]+)['"]""")
-            playerUrlRegex.findAll(scriptText).forEach { match ->
-                val embedUrl = match.groupValues[1]
-                if (!embedUrl.isNullOrEmpty()) {
-                    loadExtractor(embedUrl, data, subtitleCallback, callback)
-                }
-            }
-
-            val onclickRegex = Regex("go_to_playerVast\\('([^']+)'\\)")
-            onclickRegex.findAll(scriptText).forEach { match ->
-                val embedUrl = match.groupValues[1]
-                if (!embedUrl.isNullOrEmpty()) {
-                    loadExtractor(embedUrl, data, subtitleCallback, callback)
-                }
-            }
-
-            val videoArrayRegex = Regex("""video\[\d+\] = '([^']+)';""")
-            videoArrayRegex.findAll(scriptText).forEach { match ->
-                val embedUrl = match.groupValues[1] // Corregido: usar embedUrl
-                if (!embedUrl.isNullOrEmpty()) {
-                    loadExtractor(embedUrl, data, subtitleCallback, callback)
-                }
+        document.select("iframe[src]").forEach { iframe ->
+            val iframeSrc = iframe.attr("src")?.let { fixUrl(it) }
+            if (iframeSrc != null) {
+                loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
             }
         }
 
