@@ -44,6 +44,8 @@ class PelisplusProvider : MainAPI() {
         )
 
         val homePageLists = urls.apmap { (name, url) ->
+            Log.d("Pelisplus", "getMainPage - Procesando categoría: $name desde URL: $url") // LOG 1
+
             val tvType = when (name) {
                 "Películas" -> TvType.Movie
                 "Series" -> TvType.TvSeries
@@ -51,26 +53,45 @@ class PelisplusProvider : MainAPI() {
                 "Doramas" -> TvType.TvSeries
                 else -> TvType.Others
             }
-            val doc = app.get(url).document
-            val homeItems = doc.select("div.Posters article.listing-content").mapNotNull {
-                val title = it.selectFirst("p")?.text()
-                val link = it.selectFirst("a.Posters-link")?.attr("href")
-                val img = it.selectFirst("img.Posters-img")?.attr("src")
+            val doc = try {
+                app.get(url).document
+            } catch (e: Exception) {
+                Log.e("Pelisplus", "getMainPage - ERROR al obtener documento de $url: ${e.message}", e) // LOG ERROR FETCH
+                return@apmap null // Retorna nulo para esta categoría si falla la petición
+            }
 
-                if (title != null && link != null) {
+            Log.d("Pelisplus", "getMainPage - Documento obtenido para $name. Intentando seleccionar posters.") // LOG 2
+            val homeItems = doc.select("div.Posters article.listing-content").mapNotNull { element ->
+                val title = element.selectFirst("p")?.text()
+                val link = element.selectFirst("a.Posters-link")?.attr("href")
+                val img = element.selectFirst("img.Posters-img")?.attr("src")
+
+                if (title == null || link == null) {
+                    Log.d("Pelisplus", "getMainPage - Elemento de poster sin título o link: ${element.html()}") // LOG 3
+                    null
+                } else {
+                    val fixedLink = fixUrl(link)
+                    val fixedImg = fixUrl(img ?: "") // Asegurarse de que img no sea nulo antes de fixUrl
+
+                    Log.d("Pelisplus", "getMainPage - Encontrado: Título=$title, Link=$fixedLink, Img=$fixedImg") // LOG 4
                     newAnimeSearchResponse(
                         title,
-                        fixUrl(link)
+                        fixedLink
                     ) {
                         this.type = tvType
-                        this.posterUrl = img
+                        this.posterUrl = fixedImg
                     }
-                } else null
+                }
+            }
+            if (homeItems.isEmpty()) {
+                Log.w("Pelisplus", "getMainPage - No se encontraron items para la categoría $name en la URL $url") // LOG 5
+            } else {
+                Log.d("Pelisplus", "getMainPage - Encontrados ${homeItems.size} items para la categoría $name.") // LOG 6
             }
             HomePageList(name, homeItems)
         }
 
-        items.addAll(homePageLists)
+        items.addAll(homePageLists.filterNotNull()) // Añadir solo los que no sean nulos
 
         return newHomePageResponse(items, false)
     }
@@ -238,7 +259,7 @@ class PelisplusProvider : MainAPI() {
             cleanedData = match.groupValues[1]
             Log.d("Pelisplus", "loadLinks - Data limpia por Regex (primer intento): $cleanedData")
         } else {
-            Log.d("Pelisplus", "loadLinks - Regex inicial no encontró coincidencia. Usando data original: $cleanedData")
+            Log.d("Pelisplus", "loadLinks - Regex inicial no encontró coincidencia. Usando data original/ajustada: $cleanedData")
         }
 
         val targetUrl: String
