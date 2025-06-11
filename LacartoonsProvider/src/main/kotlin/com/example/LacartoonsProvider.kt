@@ -36,10 +36,7 @@ class LacartoonsProvider : MainAPI() {
         try {
             val document = app.get(mainUrl).document
 
-            // Usamos el mismo selector que en la búsqueda para el ejemplo de la página principal.
-            // Asegúrate que 'div.conjuntos-series a' y sus elementos internos existan en la PÁGINA PRINCIPAL
-            // de LaCartoons.com para que esto funcione correctamente en Home.
-            val latestAdded = document.select("div.conjuntos-series a") // Ajustado basado en image_03cc52.png
+            val latestAdded = document.select("div.conjuntos-series a")
 
             val parsedList = latestAdded.mapNotNull { item ->
                 val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
@@ -87,13 +84,10 @@ class LacartoonsProvider : MainAPI() {
 
         // Selectores actualizados basados en image_f95011.png
         val title = document.selectFirst("h2.subtitulo-serie-seccion")?.text()?.trim() ?: ""
-        // La sinopsis no es obvia en la imagen f95011.png. Si hay una sección de "Reseña:",
-        // podrías buscar el párrafo dentro de ella, pero no hay un selector claro.
-        // Asumiendo que el texto del plot está en algún <p> dentro de "informacion-serie-seccion".
-        // NECESITARÁS VERIFICAR ESTO MANUALMENTE EN LA PÁGINA WEB.
-        val plot = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")?.nextElementSibling()?.text()?.trim()
-            ?: document.selectFirst("div.informacion-serie-seccion p:last-of-type")?.text()?.trim() // Último p en esa sección
-            ?: "" // Si no se encuentra, dejar vacío
+
+        // Para el plot (sinopsis), busca la etiqueta "Reseña:" y luego toma el texto del siguiente elemento
+        val plotElement = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")
+        val plot = plotElement?.nextElementSibling()?.text()?.trim() ?: "" // Asume que la sinopsis es el siguiente hermano
 
         val poster = document.selectFirst("div.imagen-serie img")?.attr("src")?.let { fixUrl(it) }
 
@@ -101,22 +95,20 @@ class LacartoonsProvider : MainAPI() {
 
         // Basado en image_f8fd99.png y el JavaScript, las temporadas usan un acordeón
         // y están cargadas en la misma página.
-        val seasonHeaders = document.select("h4.accordion") // Selectores para las cabeceras de temporada
+        val seasonHeaders = document.select("h4.accordion") // Selector para las cabeceras de temporada
 
         seasonHeaders.forEach { seasonHeader ->
-            val seasonName = seasonHeader.text()?.trim()?.replace("Temporada ", "") ?: ""
-            val seasonNumber = seasonName.toIntOrNull()
+            // Extrae el número de temporada del texto del encabezado (ej. "Temporada 1")
+            val seasonName = seasonHeader.text()?.trim()
+            val seasonNumber = seasonName?.substringAfter("Temporada ")?.toIntOrNull()
 
             // Encuentra la lista de episodios asociada a esta cabecera de temporada.
             // El JavaScript indica que 'nextElementSibling' es 'panel' que contiene el 'ul'.
-            val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first() // ¡Verifica 'listas-de-episodion' por la 'n' extra!
+            val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first() // ¡CUIDADO con 'listas-de-episodion' por la 'n' extra!
 
             episodeList?.select("a")?.forEach { episodeElement ->
-                // Asumiendo que el título del episodio está dentro del <a> o un <span> hijo.
-                // Usamos el selector anterior, si no funciona, necesitarás inspeccionar un enlace de episodio.
-                val episodeTitle = episodeElement.text()?.trim() // A veces el texto del <a> es el título
-                    ?: episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim() // Si hay un span específico
-                    ?: ""
+                // El título del episodio podría ser el texto directo del <a> o dentro de un <span>.
+                val episodeTitle = episodeElement.text()?.trim() ?: ""
 
                 val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
 
@@ -126,19 +118,18 @@ class LacartoonsProvider : MainAPI() {
                             data = episodeUrl,
                             name = episodeTitle,
                             season = seasonNumber,
-                            // El número de episodio se puede extraer del texto si está presente (ej. "Episodio 12")
-                            // o simplemente usar el índice, que es lo más fiable si no está claro.
-                            episode = episodeElement.selectFirst("span.numero-episodio")?.text()?.toIntOrNull() ?: (episodes.size + 1)
+                            episode = episodes.size + 1 // Utiliza el índice si no se puede extraer un número específico
                         )
                     )
                 }
             }
         }
 
-        // Si no hay cabeceras de temporada (o es una película que se carga como serie de un episodio)
+        // Caso para series de una sola temporada o películas cargadas como series,
+        // donde no hay un acordeón de temporadas y los episodios están directamente listados.
         if (episodes.isEmpty()) {
-            val episodeElements = document.select("div.episodios-lista a") // Selector antiguo, verifica si aplica a series sin acordeón
-            episodeElements.forEachIndexed { index, episodeElement ->
+            val singleSeasonEpisodeElements = document.select("div.episodios-lista a") // Vuelve al selector que tenías
+            singleSeasonEpisodeElements.forEachIndexed { index, episodeElement ->
                 val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
                 val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
 
@@ -154,7 +145,6 @@ class LacartoonsProvider : MainAPI() {
             }
         }
 
-
         return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
             this.plot = plot
             this.posterUrl = poster
@@ -169,12 +159,22 @@ class LacartoonsProvider : MainAPI() {
     ): Boolean {
         val document = app.get(data).document
 
+        // Intenta encontrar el iframe principal.
+        // NO uses fixUrl para el src del iframe si ya es una URL absoluta (https://...).
         document.select("iframe[src]").forEach { iframe ->
-            val iframeSrc = iframe.attr("src")?.let { fixUrl(it) }
-            if (iframeSrc != null) {
+            val iframeSrc = iframe.attr("src")
+            if (iframeSrc != null && (iframeSrc.startsWith("http://") || iframeSrc.startsWith("https://"))) {
+                // Aquí, loadExtractor intentará resolver la URL del iframe.
+                // Si rpmvid.com no es soportado, no funcionará.
                 loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
             }
         }
+
+        // Si el iframe principal no funciona, la única otra opción viable (sin ejecutar JS)
+        // sería buscar una URL de video directa en los scripts o tags <video>.
+        // Los scripts que proporcionaste son principalmente para pop-ups, no para el video directo.
+        // Si hay un script oculto con el video real, necesitarías encontrar su patrón.
+
         return true
     }
 }
