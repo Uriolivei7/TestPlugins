@@ -154,35 +154,11 @@ class LacartoonsProvider : MainAPI() {
         document.select("iframe[src]").forEach { iframe ->
             val iframeSrc = iframe.attr("src")
             if (iframeSrc != null && (iframeSrc.startsWith("http://") || iframeSrc.startsWith("https://"))) {
-                if (iframeSrc.contains("cubeembed.rpmvid.com")) {
-                    val parsedUri = URI(iframeSrc)
-                    val domain = parsedUri.scheme + "://" + parsedUri.host
-                    val masterM3u8Url = "$domain/master.m3u8"
-
-                    // Define los encabezados HTTP, incluyendo el User-Agent
-                    val headers = mapOf(
-                        "Referer" to iframeSrc,
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-                    )
-
-                    callback.invoke(
-                        ExtractorLink(
-                            source = name,
-                            name = "Stream Principal",
-                            url = masterM3u8Url,
-                            referer = iframeSrc, // Este referer es el que se pasa al constructor, pero el `headers` map es el que realmente se usa para la petición
-                            quality = 1080,
-                            headers = headers, // <-- ¡Pasa el mapa de encabezados aquí!
-                            type = ExtractorLinkType.M3U8
-                        )
-                    )
-
-                } else {
-                    loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
-                }
+                // Delegamos la extracción del video a loadExtractor para CUALQUIER iframe.
+                // Esto es crucial para URLs dinámicas generadas por JavaScript como las de cubeembed.rpmvid.com.
+                loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
             }
         }
-
         return true
     }
 }
