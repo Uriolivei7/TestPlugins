@@ -309,7 +309,6 @@ class PelisplusProvider : MainAPI() {
 
         val playerUrls = mutableListOf<String>()
 
-        // 1. Intenta encontrar CUALQUIER iframe directamente en el HTML (con filtro de isNotBlank)
         doc.selectFirst("iframe")?.attr("src")?.let { src ->
             if (src.isNotBlank()) {
                 playerUrls.add(src)
@@ -317,7 +316,6 @@ class PelisplusProvider : MainAPI() {
             }
         }
 
-        // 2. Busca en scripts por src="..."
         val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
         val embed69SrcRegex = Regex("""src=["']([^"']+)embed69\.org([^"']*)["']""")
@@ -334,7 +332,6 @@ class PelisplusProvider : MainAPI() {
             Log.d("Pelisplus", "Found xupalace.org URL in script (src='...'): ${src.replace("\\/", "/")}")
         }
 
-        // 3. Busca en scripts por variables `video[N] = '...'`
         val videoVarRegex = Regex("""video\[(\d+)\]\s*=\s*['"](https?:\/\/[^"']+)['"]""")
         videoVarRegex.findAll(scriptContent).forEach { matchResult ->
             val index = matchResult.groupValues[1]
@@ -435,25 +432,24 @@ class PelisplusProvider : MainAPI() {
                     }
                 }
             } else if (playerUrl.contains("xupalace.org/uqlink.php?id=")) {
-                Log.d("Pelisplus", "loadLinks - Detectado xupalace.org/uqlink.php URL (posible Uqload): $playerUrl")
+                Log.d("Pelisplus", "loadLinks - Detectado xupalace.org/uqlink.php URL (Manejo de Iframe Directo): $playerUrl")
 
-                val response = try {
-                    app.get(fixUrl(playerUrl), referer = targetUrl)
+                val uqlinkDoc = try {
+                    app.get(fixUrl(playerUrl), referer = targetUrl).document
                 } catch (e: Exception) {
-                    Log.e("Pelisplus", "Error al obtener la respuesta de uqlink.php ($playerUrl): ${e.message}")
+                    Log.e("Pelisplus", "Error al obtener el contenido de uqlink.php ($playerUrl): ${e.message}")
                     continue
                 }
 
-                val finalUqloadUrl = response.url // Esta es la URL después de todas las redirecciones
-                Log.d("Pelisplus", "Uqlink.php: URL FINAL después de redirecciones: $finalUqloadUrl")
+                val uqloadIframeSrc = uqlinkDoc.selectFirst("iframe")?.attr("src")
 
-                if (!finalUqloadUrl.isNullOrBlank() && finalUqloadUrl.contains("uqload.com", ignoreCase = true)) {
-                    Log.d("Pelisplus", "Uqlink.php: Procesando URL final de Uqload: $finalUqloadUrl")
-                    if (loadExtractor(fixUrl(finalUqloadUrl), playerUrl, subtitleCallback, callback)) {
+                if (!uqloadIframeSrc.isNullOrBlank() && uqloadIframeSrc.contains("uqload.io", ignoreCase = true)) {
+                    Log.d("Pelisplus", "Uqlink.php: Encontrado iframe de Uqload: $uqloadIframeSrc")
+                    if (loadExtractor(fixUrl(uqloadIframeSrc), playerUrl, subtitleCallback, callback)) {
                         linksFound = true
                     }
                 } else {
-                    Log.w("Pelisplus", "Uqlink.php: La URL final ($finalUqloadUrl) no es una URL de Uqload o está vacía para $playerUrl.")
+                    Log.w("Pelisplus", "Uqlink.php: No se encontró iframe de Uqload válido en $playerUrl.")
                 }
             }
             else {
