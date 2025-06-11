@@ -307,11 +307,39 @@ class PelisplusProvider : MainAPI() {
 
         val doc = app.get(targetUrl).document
 
-        // CAMBIO CLAVE AQUÍ: Nuevo selector para el iframe
-        val iframeSrc = doc.selectFirst("div.video iframe")?.attr("src") //
+        // NUEVA LÓGICA PARA ENCONTRAR EL IFRAME SRC
+        var iframeSrc = doc.selectFirst("iframe")?.attr("src") // Intenta encontrar CUALQUIER iframe primero
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "No se encontró iframe del reproductor con el selector específico en Pelisplus.")
+            Log.d("Pelisplus", "No se encontró iframe directamente en el HTML. Buscando en scripts.")
+            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+
+            // Buscar patrón de embed69.org
+            val embed69Regex = Regex("""src=["']([^"']+)embed69\.org([^"']*)["']""")
+            val embed69Match = embed69Regex.find(scriptContent)
+            if (embed69Match != null) {
+                // Eliminar cualquier barra invertida de escape y obtener la URL completa
+                iframeSrc = embed69Match.groupValues[1] + "embed69.org" + embed69Match.groupValues[2]
+                iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
+                Log.d("Pelisplus", "Found embed69.org URL in script: $iframeSrc")
+            }
+
+            // Si no es embed69, buscar patrón de xupalace.org
+            if (iframeSrc.isNullOrBlank()) {
+                val xupalaceRegex = Regex("""src=["']([^"']+)xupalace\.org([^"']*)["']""")
+                val xupalaceMatch = xupalaceRegex.find(scriptContent)
+                if (xupalaceMatch != null) {
+                    // Eliminar cualquier barra invertida de escape y obtener la URL completa
+                    iframeSrc = xupalaceMatch.groupValues[1] + "xupalace.org" + xupalaceMatch.groupValues[2]
+                    iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
+                    Log.d("Pelisplus", "Found xupalace.org URL in script: $iframeSrc")
+                }
+            }
+        }
+
+
+        if (iframeSrc.isNullOrBlank()) {
+            Log.d("Pelisplus", "FINALMENTE: No se encontró iframe del reproductor con ningún selector o en scripts en Pelisplus.")
             return false
         }
 
