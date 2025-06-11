@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -117,8 +117,6 @@ class PelisplusProvider : MainAPI() {
                     this.posterUrl = img
                 }
             }
-            // Para asegurar que la búsqueda pueda mostrar tanto series como películas
-            // Podrías añadir lógica adicional aquí si los resultados de búsqueda distinguen claramente.
         }
     }
 
@@ -131,13 +129,11 @@ class PelisplusProvider : MainAPI() {
         Log.d("Pelisplus", "load - URL de entrada: $url")
 
         var cleanUrl = url
-        // Intenta limpiar URL si viene en formato JSON
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("Pelisplus", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
-            // Asegura que la URL comience con https:// si no lo hace
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                 cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("Pelisplus", "load - URL limpiada con HTTPS: $cleanUrl")
@@ -166,7 +162,6 @@ class PelisplusProvider : MainAPI() {
                 var episodeNumber: Int? = null
                 var epTitle: String = fullEpTitle
 
-                // Regex para "T#-E#: Titulo"
                 val regex = Regex("""T(\d+)\s*-\s*E(\d+):\s*(.*)""")
                 val match = regex.find(fullEpTitle)
 
@@ -175,19 +170,17 @@ class PelisplusProvider : MainAPI() {
                     episodeNumber = match.groupValues[2].toIntOrNull()
                     epTitle = match.groupValues[3].trim()
                 } else {
-                    // Regex para "Episodio #"
                     val simpleEpRegex = Regex("""Episodio\s*(\d+)""")
                     val simpleMatch = simpleEpRegex.find(fullEpTitle)
                     if (simpleMatch != null) {
                         episodeNumber = simpleMatch.groupValues[1].toIntOrNull()
                     }
-                    // Intentar obtener la temporada del tab activo si no se encontró en el título del episodio
                     if (seasonNumber == null) {
                         val activeSeasonTab = doc.selectFirst("ul.tbVideoNv.nav-tabs li a.nav-link.active")
                         val seasonText = activeSeasonTab?.text()
                         val seasonRegex = Regex("""TEMPORADA\s*(\d+)""")
                         val seasonMatch = seasonRegex.find(seasonText ?: "")
-                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1 // Asume T1 si no se encuentra
+                        seasonNumber = seasonMatch?.groupValues?.get(1)?.toIntOrNull() ?: 1
                     }
                 }
 
@@ -196,7 +189,6 @@ class PelisplusProvider : MainAPI() {
                 if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                     Log.d("Pelisplus", "load (Series) - Encontrado episodio: Título=$epTitle, URL=$epurl, Temporada=$seasonNumber, Episodio=$episodeNumber")
                     newEpisode(
-                        // Envía la URL completa del episodio dentro del JSON para loadLinks
                         EpisodeLoadData(epTitle, epurl).toJson()
                     ) {
                         this.name = epTitle
@@ -231,7 +223,7 @@ class PelisplusProvider : MainAPI() {
                     name = title,
                     url = cleanUrl,
                     type = tvType,
-                    dataUrl = cleanUrl // dataUrl para películas será la propia URL de la película
+                    dataUrl = cleanUrl
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -244,7 +236,6 @@ class PelisplusProvider : MainAPI() {
         }
     }
 
-    // --- Data Classes y Función de Desencriptación para Embed69 ---
     data class SortedEmbed(
         val servername: String,
         val link: String,
@@ -279,7 +270,6 @@ class PelisplusProvider : MainAPI() {
             return null
         }
     }
-    // --- Fin de Data Classes y Función de Desencriptación ---
 
 
     override suspend fun loadLinks(
@@ -318,159 +308,167 @@ class PelisplusProvider : MainAPI() {
 
         val doc = app.get(targetUrl).document
 
-        // LÓGICA PARA ENCONTRAR LA URL DEL IFRAME/REPRODUCTOR INICIAL
-        var iframeSrc: String? = null
+        // --- LÓGICA PARA ENCONTRAR LAS URLs DE REPRODUCTOR INICIALES ---
+        val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-        // 1. Intenta encontrar CUALQUIER iframe directamente en el HTML
-        iframeSrc = doc.selectFirst("iframe")?.attr("src")
-        if (!iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "Iframe encontrado directamente en el HTML: $iframeSrc")
-        }
+        var foundPlayerUrl = false
 
-        // 2. Si no se encontró iframe, busca en scripts por src="..."
-        if (iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "No se encontró iframe directamente en el HTML. Buscando en scripts por 'src='.")
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
-
-            // Buscar patrón de src="...embed69.org..."
-            val embed69Regex = Regex("""src=["']([^"']+)embed69\.org([^"']*)["']""")
-            val embed69Match = embed69Regex.find(scriptContent)
-            if (embed69Match != null) {
-                iframeSrc = embed69Match.groupValues[1] + "embed69.org" + embed69Match.groupValues[2]
-                iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
-                Log.d("Pelisplus", "Found embed69.org URL in script (src='...'): $iframeSrc")
-            }
-
-            // Si no embed69, buscar patrón de src="...xupalace.org..."
-            if (iframeSrc.isNullOrBlank()) {
-                val xupalaceRegex = Regex("""src=["']([^"']+)xupalace\.org([^"']*)["']""")
-                val xupalaceMatch = xupalaceRegex.find(scriptContent)
-                if (xupalaceMatch != null) {
-                    iframeSrc = xupalaceMatch.groupValues[1] + "xupalace.org" + xupalaceMatch.groupValues[2]
-                    iframeSrc = iframeSrc?.replace("\\/", "/") // Limpiar barras invertidas de escape
-                    Log.d("Pelisplus", "Found xupalace.org URL in script (src='...'): $iframeSrc")
-                }
+        // Intentar encontrar video[1] y video[2]
+        val videoUrls = mutableMapOf<Int, String>()
+        val videoVarRegex = Regex("""video\[(\d+)\]\s*=\s*['"](https?:\/\/[^"']+)['"]""")
+        videoVarRegex.findAll(scriptContent).forEach { matchResult ->
+            val index = matchResult.groupValues[1].toIntOrNull()
+            val url = matchResult.groupValues[2]
+            if (index != null && url.isNotBlank()) {
+                videoUrls[index] = url
+                Log.d("Pelisplus", "Found video[$index] URL in script: $url")
             }
         }
 
-        // 3. Si aún no se encontró, busca en scripts por variable `video[1] = '...'` (como el caso de Xupalace/Embed69)
-        if (iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "No se encontró iframe por src. Buscando en scripts por 'video[1] = ...'.")
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+        // Priorizar video[1] si existe, luego video[2]
+        val playerUrlsToProcess = mutableListOf<String>()
 
-            val videoVarRegex = Regex("""video\[1\]\s*=\s*['"](https?:\/\/[^"']+)['"]""")
-            val videoVarMatch = videoVarRegex.find(scriptContent)
-            if (videoVarMatch != null) {
-                iframeSrc = videoVarMatch.groupValues[1]
-                Log.d("Pelisplus", "Found video[1] URL in script: $iframeSrc")
+        videoUrls[1]?.let { playerUrlsToProcess.add(it) }
+        videoUrls[2]?.let { playerUrlsToProcess.add(it) } // Añadir UQload/uqlink.php
+
+        if (playerUrlsToProcess.isEmpty()) {
+            Log.d("Pelisplus", "No se encontraron URLs de reproductor en variables video[1] o video[2].")
+            // Intenta encontrar iframe directamente en el HTML como respaldo (menos común para Pelisplus)
+            val iframeSrc = doc.selectFirst("iframe")?.attr("src")
+            if (!iframeSrc.isNullOrBlank()) {
+                Log.d("Pelisplus", "Iframe encontrado directamente en el HTML (respaldo): $iframeSrc")
+                playerUrlsToProcess.add(iframeSrc)
             }
         }
 
-
-        if (iframeSrc.isNullOrBlank()) {
-            Log.d("Pelisplus", "FINALMENTE: No se encontró URL del reproductor en Pelisplus.")
+        if (playerUrlsToProcess.isEmpty()) {
+            Log.d("Pelisplus", "FINALMENTE: No se encontró URL del reproductor en Pelisplus con ningún método.")
             return false
         }
 
-        Log.d("Pelisplus", "URL de reproductor final encontrado: $iframeSrc")
+        // --- PROCESAR CADA URL DE REPRODUCTOR ENCONTRADA ---
+        for (iframeSrc in playerUrlsToProcess) {
+            Log.d("Pelisplus", "Procesando URL de reproductor: $iframeSrc")
+            foundPlayerUrl = true
 
-        // --- LÓGICA PRINCIPAL: Manejar diferentes dominios de iframes ---
+            if (iframeSrc.contains("embed69.org")) {
+                Log.d("Pelisplus", "loadLinks - Detectado embed69.org URL: $iframeSrc")
+                val frameDoc = try {
+                    app.get(fixUrl(iframeSrc), referer = targetUrl).document
+                } catch (e: Exception) {
+                    Log.e("Pelisplus", "Error al obtener el contenido del reproductor de embed69.org ($iframeSrc): ${e.message}")
+                    continue // Continúa con el siguiente reproductor si falla este
+                }
 
-        if (iframeSrc.contains("embed69.org")) {
-            Log.d("Pelisplus", "loadLinks - Detectado embed69.org URL: $iframeSrc")
-            val frameDoc = try {
-                // Al acceder al frame de embed69, enviar el referer de la página de PelisplusHD
-                app.get(fixUrl(iframeSrc), referer = targetUrl).document
-            } catch (e: Exception) {
-                Log.e("Pelisplus", "Error al obtener el contenido del reproductor de embed69.org ($iframeSrc): ${e.message}")
-                return false
-            }
+                val scriptContentEmbed = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
-            val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
+                val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
+                val dataLinkJsonString = dataLinkRegex.find(scriptContentEmbed)?.groupValues?.get(1)
 
-            val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
-            val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
+                if (dataLinkJsonString.isNullOrBlank()) {
+                    Log.e("Pelisplus", "No se encontró la variable dataLink en el script de embed69.org.")
+                    continue
+                }
 
-            if (dataLinkJsonString.isNullOrBlank()) {
-                Log.e("Pelisplus", "No se encontró la variable dataLink en el script de embed69.org.")
-                return false
-            }
+                Log.d("Pelisplus", "dataLink JSON string encontrado (Embed69): $dataLinkJsonString")
 
-            Log.d("Pelisplus", "dataLink JSON string encontrado: $dataLinkJsonString")
+                val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
 
-            val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
+                if (dataLinkEntries.isNullOrEmpty()) {
+                    Log.e("Pelisplus", "Error al parsear dataLink JSON o está vacío (Embed69).")
+                    continue
+                }
 
-            if (dataLinkEntries.isNullOrEmpty()) {
-                Log.e("Pelisplus", "Error al parsear dataLink JSON o está vacío.")
-                return false
-            }
+                val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
 
-            val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE" // Clave de desencriptación para Embed69
-
-            var foundEmbed69Links = false
-            for (entry in dataLinkEntries) {
-                for (embed in entry.sortedEmbeds) {
-                    if (embed.type == "video") {
-                        val decryptedLink = decryptLink(embed.link, secretKey)
-                        if (decryptedLink != null) {
-                            Log.d("Pelisplus", "Link desencriptado para ${embed.servername}: $decryptedLink")
-                            foundEmbed69Links = true
-                            // Intentar cargar con extractores de Cloudstream (para Streamwish, etc.)
-                            loadExtractor(fixUrl(decryptedLink), iframeSrc, subtitleCallback, callback)
+                var foundEmbed69Links = false
+                for (entry in dataLinkEntries) {
+                    for (embed in entry.sortedEmbeds) {
+                        if (embed.type == "video") {
+                            val decryptedLink = decryptLink(embed.link, secretKey)
+                            if (decryptedLink != null) {
+                                Log.d("Pelisplus", "Link desencriptado para ${embed.servername}: $decryptedLink")
+                                foundEmbed69Links = true
+                                loadExtractor(fixUrl(decryptedLink), iframeSrc, subtitleCallback, callback)
+                            }
                         }
                     }
                 }
-            }
 
-            if (!foundEmbed69Links) {
-                Log.d("Pelisplus", "No se encontraron enlaces de video desencriptados de embed69.org.")
-                return false
-            }
-            return true // Se encontraron y procesaron enlaces de Embed69
-        } else if (iframeSrc.contains("xupalace.org")) {
-            Log.d("Pelisplus", "loadLinks - Detectado xupalace.org URL: $iframeSrc")
-            val xupalaceDoc = try {
-                // Al acceder al frame de Xupalace, enviar el referer de la página de PelisplusHD
-                app.get(fixUrl(iframeSrc), referer = targetUrl).document
-            } catch (e: Exception) {
-                Log.e("Pelisplus", "Error al obtener el contenido del reproductor de Xupalace ($iframeSrc): ${e.message}")
-                return false
-            }
+                if (!foundEmbed69Links) {
+                    Log.d("Pelisplus", "No se encontraron enlaces de video desencriptados de embed69.org.")
+                }
+                // Si encontramos links, consideramos que este reproductor fue exitoso.
+                if (foundEmbed69Links) return true
 
-            val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
-            val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
+            } else if (iframeSrc.contains("xupalace.org/video/") || iframeSrc.contains("xupalace.org/uqlink.php")) {
+                // Bloque para manejar ambas URLs de Xupalace
+                Log.d("Pelisplus", "loadLinks - Detectado URL de Xupalace: $iframeSrc")
 
-            if (elementsWithOnclick.isEmpty()) {
-                Log.w("Pelisplus", "No se encontraron elementos con 'go_to_playerVast' en xupalace.org.")
-                return false
-            }
+                val xupalaceDoc = try {
+                    app.get(fixUrl(iframeSrc), referer = targetUrl).document
+                } catch (e: Exception) {
+                    Log.e("Pelisplus", "Error al obtener el contenido del reproductor de Xupalace ($iframeSrc): ${e.message}")
+                    continue
+                }
 
-            var foundXupalaceLinks = false
-            for (element in elementsWithOnclick) {
-                val onclickAttr = element.attr("onclick")
-                val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
+                var foundXupalaceVideoLinks = false
 
-                if (matchPlayerUrl != null) {
-                    val videoUrl = matchPlayerUrl.groupValues[1]
-                    Log.d("Pelisplus", "Xupalace: Encontrado URL: $videoUrl")
-                    if (videoUrl.isNotBlank()) {
-                        foundXupalaceLinks = true
-                        // Intentar cargar con extractores de Cloudstream (para Streamwish, Streamtape, etc.)
-                        loadExtractor(fixUrl(videoUrl), iframeSrc, subtitleCallback, callback)
+                if (iframeSrc.contains("xupalace.org/video/")) {
+                    val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
+                    val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
+
+                    if (elementsWithOnclick.isEmpty()) {
+                        Log.w("Pelisplus", "No se encontraron elementos con 'go_to_playerVast' en xupalace.org/video/.")
+                    } else {
+                        for (element in elementsWithOnclick) {
+                            val onclickAttr = element.attr("onclick")
+                            val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
+
+                            if (matchPlayerUrl != null) {
+                                val videoUrl = matchPlayerUrl.groupValues[1]
+                                Log.d("Pelisplus", "Xupalace/video: Encontrado URL: $videoUrl")
+                                if (videoUrl.isNotBlank()) {
+                                    foundXupalaceVideoLinks = true
+                                    loadExtractor(fixUrl(videoUrl), iframeSrc, subtitleCallback, callback)
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            if (!foundXupalaceLinks) {
-                Log.d("Pelisplus", "No se encontraron enlaces de video de Xupalace.org.")
-                return false
+                if (iframeSrc.contains("xupalace.org/uqlink.php")) {
+                    Log.d("Pelisplus", "Xupalace: Intentando extraer UQload link de uqlink.php")
+                    // Buscar patrón para UQload en el HTML/JS de uqlink.php
+                    // El patrón típico es un iframe o un script con la URL de uqload.com/embed/...
+                    val uqloadLinkRegex = Regex("""(https?://uqload\.com/embed/[^"']+)""")
+                    val uqloadMatch = uqloadLinkRegex.find(xupalaceDoc.html()) // Buscar en todo el HTML
+                    if (uqloadMatch != null) {
+                        val uqloadEmbedUrl = uqloadMatch.groupValues[1]
+                        Log.d("Pelisplus", "UQload: Encontrado embed URL: $uqloadEmbedUrl")
+                        if (uqloadEmbedUrl.isNotBlank()) {
+                            foundXupalaceVideoLinks = true
+                            loadExtractor(fixUrl(uqloadEmbedUrl), iframeSrc, subtitleCallback, callback)
+                        }
+                    } else {
+                        Log.w("Pelisplus", "UQload: No se encontró URL de embed en uqlink.php.")
+                    }
+                }
+
+                if (!foundXupalaceVideoLinks) {
+                    Log.d("Pelisplus", "No se encontraron enlaces de video de Xupalace/video o UQload en $iframeSrc.")
+                }
+                // Si encontramos links, consideramos que este reproductor fue exitoso.
+                if (foundXupalaceVideoLinks) return true
+
+            } else {
+                Log.w("Pelisplus", "Tipo de reproductor desconocido o no manejado directamente en Pelisplus: $iframeSrc. Intentando loadExtractor genérico.")
+                // Si se llega aquí, se intenta cargar con un extractor genérico de Cloudstream.
+                val success = loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
+                if (success) return true // Si el genérico funciona, terminar
             }
-            return true // Se encontraron y procesaron enlaces de Xupalace
-        } else {
-            // Este caso es para cualquier otro reproductor no manejado explícitamente.
-            // Cloudstream intentará encontrar un extractor genérico para esta URL.
-            Log.w("Pelisplus", "Tipo de reproductor desconocido o no manejado directamente en Pelisplus: $iframeSrc. Intentando loadExtractor genérico.")
-            return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
         }
+        // Si no se encontró ningún reproductor funcional después de iterar por todos
+        return false
     }
 }
