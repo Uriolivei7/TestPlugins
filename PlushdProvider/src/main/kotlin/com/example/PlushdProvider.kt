@@ -1,12 +1,12 @@
 package com.example
 
 import android.util.Log
-import com.lagradost.cloudstream3.* // Importación general de CloudStream 3
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.SubtitleFile // CORRECCIÓN: Importación directa de SubtitleFile
+import com.lagradost.cloudstream3.SubtitleFile // Importación correcta para SubtitleFile
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 import org.jsoup.Jsoup
@@ -32,13 +32,9 @@ class PlushdProvider : MainAPI() {
     override val hasMainPage = true
     override val hasQuickSearch = true
 
-    // CORRECCIÓN: Estas propiedades ya existen en MainAPI y son 'val'.
-    // No se necesitan las propiedades 'usesLoad', 'usesLoadLinks', 'usesSearch' en esta versión de MainAPI.
     override val hasChromecastSupport = false
     override val hasDownloadSupport = false
-    // ELIMINADAS: override val usesLoad = true
-    // ELIMINADAS: override val usesLoadLinks = true
-    // ELIMINADAS: override val usesSearch = true
+    // Eliminadas las propiedades usesLoad, usesLoadLinks, usesSearch como acordamos.
 
 
     private fun fixUrl(url: String?): String {
@@ -204,15 +200,32 @@ class PlushdProvider : MainAPI() {
         val document = customGet(url)
         Log.d(name, "load: Documento HTML de carga de detalles descargado. Tamaño: ${document.html().length}")
 
-        // **VERIFICAR ESTOS SELECTORES CON EL HTML REAL DE UNA PÁGINA DE DETALLES**
-        val title = document.selectFirst("div.heading > h1, h1.Title")?.text()?.trim()
-        val poster = document.selectFirst("div.image-single img, div.poster-single img")?.attr("src")?.trim()
-        val year = document.selectFirst("div.heading span.year, span.Date")?.text()?.trim()?.toIntOrNull()
-        val plot = document.selectFirst("div.description-single p, div.description > p")?.text()?.trim()
-        val genres = document.select("div.genres-single a, div.meta-data a[href*='/genero/']")?.mapNotNull { it.text()?.trim() }
+        // **Ajustes basados en el HTML proporcionado y suposiciones comunes**
+        // Título: Buscamos un <h1> dentro de un div con clase "heading" o un <h1> con ID "movie-title" o "series-title"
+        // Si el h2 del slider es el más preciso, podríamos probar: h2[itemprop="name"] o h1#Title
+        // A menudo, el título principal está en un <h1> que no es parte de un slider principal.
+        // Prueba con un selector más específico si es posible.
+        val title = document.selectFirst("h1.Title, div.heading > h1, h2[itemprop=\"name\"]")?.text()?.trim()
+
+        // Póster: Generalmente es una <img>. Priorizar `data-src` por lazyload.
+        // Asumiendo que hay una imagen principal para el póster.
+        val poster = document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("data-src")?.trim()
+            ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("src")?.trim()
+
+        // Año: Manteniendo los selectores que tenías, son una buena primera suposición.
+        val year = document.selectFirst("div.heading span.year, span.Date, span.year-info")?.text()?.trim()?.toIntOrNull()
+
+        // Plot/Descripción: Basado en tu imagen, `p.scroll` es un candidato.
+        val plot = document.selectFirst("p.scroll, div.description-single p, div.description > p")?.text()?.trim()
+
+        // Géneros: Tu selector `div.genres a` es correcto según la imagen.
+        val genres = document.select("div.genres a, div.genres-single a, div.meta-data a[href*='/genero/']")?.mapNotNull { it.text()?.trim() }
+
+        // Rating: Manteniendo los selectores que tenías.
         val rating = document.selectFirst("div.rating-single, div.rating-imdb span.rating")?.text()?.trim()?.toFloatOrNull()?.times(100)?.toInt()
+
+        // Runtime: Manteniendo los selectores que tenías.
         val runtime = document.selectFirst("div.meta-data > span:contains(min), span.Duration")?.text()?.replace(" min", "")?.trim()?.toIntOrNull()
-        // val trailerUrl = document.selectFirst("div.trailer iframe")?.attr("src")?.trim()
 
         val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty()) TvType.TvSeries else TvType.Movie
 
@@ -233,19 +246,18 @@ class PlushdProvider : MainAPI() {
                 this.posterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres // Asigna géneros a tags para CloudStream
-                // CORRECCIÓN: Eliminar la asignación directa de 'genres' si no existe en la clase base
-                // this.genres = genres
+                this.tags = genres // Asigna géneros a tags
                 this.rating = rating
                 this.duration = runtime
             }
         } else {
             val episodes = ArrayList<Episode>()
+            // CORRECCIÓN: Ajustado h3#seasonTitle a h3#seasonTitleChange
             val seasonElements = document.select("div.season.main")
 
             if (seasonElements.isNotEmpty()) {
                 seasonElements.forEach { seasonDiv ->
-                    val seasonNumber = seasonDiv.selectFirst("h3#seasonTitle")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
+                    val seasonNumber = seasonDiv.selectFirst("h3#seasonTitleChange")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
                     Log.d(name, "load: Procesando Temporada: $seasonNumber")
 
                     seasonDiv.select("div#episodelist.articlesList article.item a.itemA").forEach { epElement ->
@@ -285,7 +297,7 @@ class PlushdProvider : MainAPI() {
                                 data = episodeDataJson
                             ) {
                                 this.name = epTitle
-                                this.season = 1 // Asumir temporada 1
+                                this.season = 1
                                 this.episode = epNumber
                             }
                         )
@@ -306,9 +318,7 @@ class PlushdProvider : MainAPI() {
                 this.backgroundPosterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres // Asigna géneros a tags para CloudStream
-                // CORRECCIÓN: Eliminar la asignación directa de 'genres' si no existe en la clase base
-                // this.genres = genres
+                this.tags = genres
                 this.rating = rating
                 this.duration = runtime
             }
@@ -339,12 +349,12 @@ class PlushdProvider : MainAPI() {
         }
 
         val document = customGet(targetUrl)
-        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
+        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tama??o: ${document.html().length}")
 
         var linksFound = false
 
         // Selector para el iframe principal del reproductor
-        // **VERIFICAR ESTE SELECTOR CON EL HTML REAL DE UN REPRODUCTOR**
+        // Sigue siendo importante verificar este con la página real.
         val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
         if (iframeSrc != null && iframeSrc.startsWith("http")) {
             Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
@@ -359,6 +369,7 @@ class PlushdProvider : MainAPI() {
         }
 
         // Búsqueda de iframes en las opciones de servidor (si existen, p. ej. debajo del reproductor)
+        // Manteniendo este selector.
         document.select("ul.subselect li[data-server]").forEach { serverOption ->
             val dataServerId = serverOption.attr("data-server")?.trim()
             val serverName = serverOption.selectFirst("span")?.text()?.trim()
