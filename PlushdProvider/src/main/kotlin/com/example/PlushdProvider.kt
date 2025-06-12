@@ -488,22 +488,33 @@ class PlushdProvider : MainAPI() {
             }
         }
 
-        val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
-        if (iframeSrc != null && iframeSrc.startsWith("http")) {
-            Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
-            try {
-                val extractorLoaded = loadExtractor(iframeSrc, targetUrl, subtitleCallback, callback)
-                if (extractorLoaded) {
-                    linksFound = true
-                    Log.d(name, "loadLinks: loadExtractor tuvo éxito para iframe: $iframeSrc")
-                } else {
-                    Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el iframe principal: $iframeSrc")
+        // 3. Buscar el data-tr en el reproductor principal (confirmado por la imagen)
+        val playerTrDiv = document.selectFirst("div#player-tr[data-tr]") // Selecciona el div con id "player-tr" y atributo "data-tr"
+        if (playerTrDiv != null) {
+            val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim()
+            if (!dataTrEncoded.isNullOrBlank()) {
+                try {
+                    val decodedBytes = Base64.decode(dataTrEncoded, Base64.DEFAULT)
+                    val decodedPlayerUrl = String(decodedBytes)
+                    Log.d(name, "loadLinks: Encontrado y decodificado data-tr del reproductor principal: '$decodedPlayerUrl'")
+
+                    // El decodedPlayerUrl debería ser la URL real del video o de un extractor
+                    val extractorLoaded = loadExtractor(decodedPlayerUrl, targetUrl, subtitleCallback, callback)
+                    if (extractorLoaded) {
+                        linksFound = true
+                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para el data-tr principal: $decodedPlayerUrl")
+                    } else {
+                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-tr principal: $decodedPlayerUrl.")
+                    }
+                } catch (e: Exception) {
+                    Log.e(name, "loadLinks: Error al decodificar Base64 o procesar data-tr: '$dataTrEncoded'. Error: ${e.message}")
+                    e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                Log.e(name, "loadLinks: Error al cargar extractor para iframe: $iframeSrc. Error: ${e.message}")
+            } else {
+                Log.w(name, "loadLinks: Atributo 'data-tr' del reproductor principal está vacío.")
             }
         } else {
-            Log.i(name, "loadLinks: No se encontró iframe principal válido o no es HTTP. iframeSrc: $iframeSrc")
+            Log.i(name, "loadLinks: No se encontró el div del reproductor principal con id 'player-tr' y atributo 'data-tr'.")
         }
 
         Log.d(name, "loadLinks: Proceso de carga de enlaces finalizado. Links encontrados: $linksFound")
