@@ -375,36 +375,38 @@ class PlushdProvider : MainAPI() {
         return withContext(Dispatchers.IO) {
             try {
                 val m3u8Response = app.get(m3u8Url, headers = headers)
+
                 if (!m3u8Response.isSuccessful) {
-                    // *** CORRECCIÓN EN ESTA LÍNEA ***
                     Log.e(name, "extractM3u8Links: Error al descargar M3U8: ${m3u8Response.code} - Fallo en la respuesta HTTP")
                     return@withContext false
                 }
+
+                // *** CORRECCIÓN EN ESTA LÍNEA ***
+                // Obtener la URL final después de cualquier redirección usando response.url
+                val finalM3u8Url = m3u8Response.url.toString() // <--- CAMBIO AQUÍ
+                Log.d(name, "extractM3u8Links: URL final después de redirecciones: $finalM3u8Url")
 
                 val m3u8Content = m3u8Response.text
                 val lines = m3u8Content.split("\n")
                 var foundLinks = false
 
                 // Asegúrate de que baseUrl termine con '/' para la resolución de URLs relativas
-                val baseUrl = m3u8Url.substringBeforeLast("/") + "/"
+                val baseUrl = finalM3u8Url.substringBeforeLast("/") + "/" // Usar la URL final como base
 
                 // Regex para capturar resolución y URL de variantes de stream
                 val streamInfRegex = Regex("""#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n(https?:\/\/[^\n]+|\/[^\n]+)""")
                 // Regex para capturar solo la URL si no hay RESOLUTION explícita o si es un segmento (no un manifiesto principal)
-                // Asegúrate de que las URLs relativas se capturen correctamente
                 val urlRegex = Regex("""^(https?:\/\/[^\n]+|\/[^\n]+)$""")
 
 
                 for (i in lines.indices) {
                     val line = lines[i]
                     if (line.startsWith("#EXT-X-STREAM-INF:")) {
-                        // Concatenamos la línea actual con la siguiente para que el regex pueda encontrar la URL
                         val fullLineForRegex = line + "\n" + lines.getOrElse(i + 1) { "" }
                         val match = streamInfRegex.find(fullLineForRegex)
                         if (match != null) {
                             val resolution = match.groupValues[1]
                             val streamUrl = match.groupValues[2]
-                            // Convertir URL relativa a absoluta si es necesario
                             val absoluteStreamUrl = if (streamUrl.startsWith("/")) baseUrl + streamUrl.substring(1) else streamUrl
 
                             val quality = when {
@@ -417,8 +419,8 @@ class PlushdProvider : MainAPI() {
                             Log.d(name, "extractM3u8Links: Encontrado stream de HLS: $resolution - $absoluteStreamUrl")
                             callback(
                                 ExtractorLink(
-                                    this@PlushdProvider.name, // Usar 'this@PlushdProvider.name' para el nombre del proveedor
-                                    "Pelisplus HLS (${quality.name.replace("P", "")})", // Nombre de la fuente más limpio
+                                    this@PlushdProvider.name,
+                                    "Pelisplus HLS (${quality.name.replace("P", "")})",
                                     absoluteStreamUrl,
                                     sourceReferer,
                                     quality.value,
@@ -429,8 +431,6 @@ class PlushdProvider : MainAPI() {
                             foundLinks = true
                         }
                     } else if (line.endsWith(".m3u8") || line.endsWith(".mp4") || line.endsWith(".ts")) {
-                        // Captura directas de m3u8, mp4 o ts si no están en EXT-X-STREAM-INF,
-                        // útil si la URL es directamente un stream final.
                         val match = urlRegex.find(line)
                         if (match != null) {
                             val mediaUrl = match.groupValues[1]
