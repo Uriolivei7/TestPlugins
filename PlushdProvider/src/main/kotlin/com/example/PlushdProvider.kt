@@ -1,5 +1,6 @@
 package com.example
 
+import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.mvvm.safeApiCall
@@ -17,9 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-
-// CAMBIO AQUÍ: Usar android.util.Base64 para compatibilidad con API más bajas
-import android.util.Base64
 
 // @CloudstreamProvider
 class PlushdProvider : MainAPI() {
@@ -362,6 +360,67 @@ class PlushdProvider : MainAPI() {
 
         var linksFound = false
 
+        // Buscando la configuración de JW Player en los scripts
+        // Regex para capturar el contenido dentro de jwplayer("...").setup({...});
+        val jwPlayerSetupRegex = Regex("""jwplayer\(\s*['"].*?['"]\s*\)\.setup\(\s*(\{[\s\S]*?\}\s*)\);""")
+        val scriptElements = document.select("script")
+
+        for (script in scriptElements) {
+            val scriptContent = script.html()
+            val match = jwPlayerSetupRegex.find(scriptContent)
+
+            if (match != null) {
+                val setupConfigJsonString = match.groupValues[1]
+                Log.d(name, "loadLinks: Encontrada configuración de JW Player: $setupConfigJsonString")
+
+                // Ahora necesitamos parsear este JSON. Jsoup no lo hace, así que usamos un regex más específico.
+                // Regex para 'file'
+                val fileRegex = Regex("""file\s*:\s*['"](https?:\/\/[^"']+\.m3u8[^"']*)['"]""")
+                val fileMatch = fileRegex.find(setupConfigJsonString)
+                val m3u8Url = fileMatch?.groupValues?.get(1)
+
+                if (m3u8Url != null) {
+                    Log.d(name, "loadLinks: Encontrado Master M3U8 URL en JW Player setup: $m3u8Url")
+                    callback(
+                        ExtractorLink(
+                            this.name,
+                            "Pelisplus M3U8",
+                            m3u8Url,
+                            targetUrl,
+                            Qualities.Unknown.value, // O podrías intentar extraer la calidad del nombre del archivo si es posible
+                            headers = mapOf("Referer" to targetUrl),
+                            type = ExtractorLinkType.M3U8
+                        )
+                    )
+                    linksFound = true
+                } else {
+                    Log.w(name, "loadLinks: No se encontró URL de M3U8 en la configuración de JW Player 'file'.")
+                }
+
+                // Regex para 'tracks' (subtítulos)
+                val tracksRegex = Regex("""tracks\s*:\s*(\[[\s\S]*?\])""")
+                val tracksMatch = tracksRegex.find(setupConfigJsonString)
+                val tracksJsonString = tracksMatch?.groupValues?.get(1)
+
+                if (tracksJsonString != null) {
+                    Log.d(name, "loadLinks: Encontrados subtítulos en JW Player setup: $tracksJsonString")
+                    // Aquí, necesitas parsear el array JSON de subtítulos.
+                    // Esto es más complejo con regex, pero para un solo VTT simple, podríamos intentar:
+                    val vttFileRegex = Regex("""\{[^}]*?file\s*:\s*['"](https?:\/\/[^"']+\.vtt[^"']*)['"][^}]*?(?:label\s*:\s*['"]([^"']+)['"])?[^}]*?\}""")
+                    vttFileRegex.findAll(tracksJsonString).forEach { vttMatch ->
+                        val vttUrl = vttMatch.groupValues[1]
+                        val vttLabel = vttMatch.groupValues.getOrNull(2) ?: "Unknown"
+                        Log.d(name, "loadLinks: Subtítulo VTT encontrado: $vttLabel - $vttUrl")
+                        subtitleCallback(SubtitleFile(vttLabel, vttUrl))
+                        linksFound = true
+                    }
+                } else {
+                    Log.i(name, "loadLinks: No se encontraron subtítulos en la configuración de JW Player.")
+                }
+            }
+        }
+
+        // Considera el iframe principal como un fallback, aunque JW Player es más probable
         val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
         if (iframeSrc != null && iframeSrc.startsWith("http")) {
             Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
@@ -375,21 +434,19 @@ class PlushdProvider : MainAPI() {
             Log.i(name, "loadLinks: No se encontró iframe principal válido o no es HTTP. iframeSrc: $iframeSrc")
         }
 
+        // La sección de data-server es para otros reproductores, no directamente para HLS de JW Player
+        // La mantendremos comentada por ahora, ya que la prioridad es el JW Player.
+        /*
         document.select("ul.subselect li[data-server]").forEach { serverOption ->
             val dataServerId = serverOption.attr("data-server")?.trim()
             val serverName = serverOption.selectFirst("span")?.text()?.trim()
 
             if (dataServerId != null && dataServerId.isNotBlank()) {
                 try {
-                    // CAMBIO AQUÍ: Usar android.util.Base64 para la decodificación
-                    val decodedServerUrl = String(Base64.decode(dataServerId, Base64.DEFAULT))
-                    Log.d(name, "loadLinks: Intentando loadExtractor con URL decodificada: '$decodedServerUrl' ($serverName)")
-                    val extractorResult = safeApiCall { loadExtractor(decodedServerUrl, targetUrl, subtitleCallback, callback) }
-                    if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
-                        linksFound = true
-                    } else {
-                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces o falló para URL decodificada: '$decodedServerUrl'")
-                    }
+                    val decodedServerId = String(Base64.decode(dataServerId, Base64.DEFAULT))
+                    Log.d(name, "loadLinks: Data-server decodificado: '$decodedServerId' ($serverName)")
+                    // Este es el punto donde se necesitaría una llamada AJAX
+                    // para obtener la URL real del extractor si decodedServerId no es una URL directa.
                 } catch (e: Exception) {
                     Log.e(name, "loadLinks: Error al decodificar Base64 para data-server ID: '$dataServerId'. Error: ${e.message}")
                 }
@@ -397,38 +454,7 @@ class PlushdProvider : MainAPI() {
                 Log.i(name, "loadLinks: Opción de servidor sin data-server ID válido. ID: $dataServerId, Nombre: $serverName")
             }
         }
-
-        val scriptContent = document.select("script").map { it.html() }.joinToString("\n")
-        val masterM3u8Regex = Regex("""(https?:\/\/[^\s"']+\.m3u8\?[^\s"']*)""")
-        val vttRegex = Regex("""(https?:\/\/[^\s"']+\.vtt\?[^\s"']*)""")
-
-        val masterM3u8Url = masterM3u8Regex.find(scriptContent)?.groupValues?.get(1)
-        if (masterM3u8Url != null) {
-            Log.d(name, "loadLinks: Encontrado Master M3U8 URL en script/HTML: $masterM3u8Url")
-            callback(
-                ExtractorLink(
-                    this.name,
-                    "Pelisplus M3U8",
-                    masterM3u8Url,
-                    targetUrl,
-                    Qualities.Unknown.value,
-                    headers = mapOf("Referer" to targetUrl),
-                    type = ExtractorLinkType.M3U8
-                )
-            )
-            linksFound = true
-        } else {
-            Log.i(name, "loadLinks: No se encontró Master M3U8 URL en script/HTML.")
-        }
-
-        val vttUrl = vttRegex.find(scriptContent)?.groupValues?.get(1)
-        if (vttUrl != null) {
-            Log.d(name, "loadLinks: Encontrado VTT URL en script/HTML: $vttUrl")
-            subtitleCallback(SubtitleFile("Español", vttUrl))
-            linksFound = true
-        } else {
-            Log.i(name, "loadLinks: No se encontró VTT URL en script/HTML.")
-        }
+        */
 
         Log.d(name, "loadLinks: Proceso de carga de enlaces finalizado. Links encontrados: $linksFound")
         return linksFound
