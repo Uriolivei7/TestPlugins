@@ -18,6 +18,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 
+// CAMBIO AQUÍ: Usar android.util.Base64 para compatibilidad con API más bajas
+import android.util.Base64
+
 // @CloudstreamProvider
 class PlushdProvider : MainAPI() {
     override var name = "PlusHD"
@@ -225,6 +228,7 @@ class PlushdProvider : MainAPI() {
             (hours * 60) + minutes
         }
 
+        // Determina el tipo basado en la URL o la presencia de elementos de serie
         val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty() || document.select("div#episodelist").isNotEmpty()) TvType.TvSeries else TvType.Movie
 
         Log.d(name, "load: Título detectado: $title, Tipo: $type, Póster: $poster, Año: $year, Plot: $plot, Géneros: $genres, Rating: $rating, Duración: $runtime")
@@ -244,69 +248,72 @@ class PlushdProvider : MainAPI() {
                 this.posterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres ?: arrayListOf()
+                this.tags = genres
                 this.rating = rating
                 this.duration = runtime
             }
         } else {
             val episodes = ArrayList<Episode>()
             val seasonElements = document.select("div.season.main")
-            val episodeListContainer = document.selectFirst("div#episodelist.articlesList")
+            val allEpisodeItems = document.select("div#episodelist article.item")
 
-            if (seasonElements.isNotEmpty()) {
-                // Caso 1: Series con estructura de temporadas (como Avatar)
-                seasonElements.forEach { seasonDiv ->
-                    val seasonNumber = seasonDiv.selectFirst("h3#seasonTitleChange")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
-                    Log.d(name, "load: Procesando Temporada: $seasonNumber")
+            if (allEpisodeItems.isNotEmpty()) {
+                if (seasonElements.isNotEmpty()) {
+                    seasonElements.forEach { seasonDiv ->
+                        val seasonNumber = seasonDiv.selectFirst("h3#seasonTitleChange")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
+                        Log.d(name, "load: Procesando Temporada: $seasonNumber")
 
-                    seasonDiv.select("div#episodelist.articlesList article.item a.itemA").forEach { epElement ->
-                        val episodeLink = epElement.attr("href")?.trim()
-                        val epTitle = epElement.selectFirst("h2")?.text()?.trim()
-                        val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
+                        seasonDiv.select("div#episodelist article.item a.itemA").forEach { epElement ->
+                            val episodeLink = epElement.attr("href")?.trim()
+                            val epTitle = epElement.selectFirst("h2")?.text()?.trim()
+                            val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
 
-                        if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
-                            val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), seasonNumber, epNumber).toJson()
-                            Log.d(name, "load: Episodio encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
-                            episodes.add(
-                                newEpisode(
-                                    data = episodeDataJson
-                                ) {
-                                    this.name = epTitle
-                                    this.season = seasonNumber
-                                    this.episode = epNumber
-                                }
-                            )
-                        } else {
-                            Log.w(name, "load: Episodio incompleto o nulo encontrado en temporada. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
+                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), seasonNumber, epNumber).toJson()
+                                Log.d(name, "load: Episodio (temporada $seasonNumber) encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                                episodes.add(
+                                    newEpisode(
+                                        data = episodeDataJson
+                                    ) {
+                                        this.name = epTitle
+                                        this.season = seasonNumber
+                                        this.episode = epNumber
+                                    }
+                                )
+                            } else {
+                                Log.w(name, "load: Episodio incompleto o nulo encontrado en temporada $seasonNumber. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            }
+                        }
+                    }
+                } else {
+                    Log.d(name, "load: No se encontraron elementos de temporada 'div.season.main'. Buscando episodios planos en el contenedor global de episodios.")
+                    allEpisodeItems.forEach { item ->
+                        val epElement = item.selectFirst("a.itemA")
+                        if (epElement != null) {
+                            val episodeLink = epElement.attr("href")?.trim()
+                            val epTitle = epElement.selectFirst("h2")?.text()?.trim()
+                            val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
+
+                            if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
+                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), 1, epNumber).toJson()
+                                Log.d(name, "load: Episodio (sin temporada explícita, asumido Temporada 1) encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                                episodes.add(
+                                    newEpisode(
+                                        data = episodeDataJson
+                                    ) {
+                                        this.name = epTitle
+                                        this.season = 1
+                                        this.episode = epNumber
+                                    }
+                                )
+                            } else {
+                                Log.w(name, "load: Episodio (sin temporada explícita) incompleto o nulo encontrado. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            }
                         }
                     }
                 }
-            } else if (episodeListContainer != null) {
-                // Caso 2: Series con una lista plana de episodios (sin div.season.main), asumiendo Temporada 1
-                Log.d(name, "load: No se encontraron elementos de temporada 'div.season.main'. Buscando episodios planos.")
-                episodeListContainer.select("article.item a.itemA").forEach { epElement ->
-                    val episodeLink = epElement.attr("href")?.trim()
-                    val epTitle = epElement.selectFirst("h2")?.text()?.trim()
-                    val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
-
-                    if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
-                        val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), 1, epNumber).toJson()
-                        Log.d(name, "load: Episodio (sin temporada explícita) encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
-                        episodes.add(
-                            newEpisode(
-                                data = episodeDataJson
-                            ) {
-                                this.name = epTitle
-                                this.season = 1
-                                this.episode = epNumber
-                            }
-                        )
-                    } else {
-                        Log.w(name, "load: Episodio (sin temporada explícita) incompleto o nulo encontrado. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
-                    }
-                }
             } else {
-                Log.w(name, "load: No se encontraron elementos de temporada ni lista de episodios 'div#episodelist' en la página de la serie: $url")
+                Log.w(name, "load: No se encontraron elementos de episodio 'div#episodelist article.item' en la página de la serie: $url")
             }
             Log.d(name, "load: Se encontraron ${episodes.size} episodios en total.")
 
@@ -320,7 +327,7 @@ class PlushdProvider : MainAPI() {
                 this.backgroundPosterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres ?: arrayListOf()
+                this.tags = genres
                 this.rating = rating
                 this.duration = runtime
             }
@@ -373,12 +380,18 @@ class PlushdProvider : MainAPI() {
             val serverName = serverOption.selectFirst("span")?.text()?.trim()
 
             if (dataServerId != null && dataServerId.isNotBlank()) {
-                Log.d(name, "loadLinks: Intentando loadExtractor con data-server ID: '$dataServerId' ($serverName)")
-                val extractorResult = safeApiCall { loadExtractor(dataServerId, targetUrl, subtitleCallback, callback) }
-                if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
-                    linksFound = true
-                } else {
-                    Log.w(name, "loadLinks: loadExtractor no encontró enlaces o falló para data-server ID: '$dataServerId'")
+                try {
+                    // CAMBIO AQUÍ: Usar android.util.Base64 para la decodificación
+                    val decodedServerUrl = String(Base64.decode(dataServerId, Base64.DEFAULT))
+                    Log.d(name, "loadLinks: Intentando loadExtractor con URL decodificada: '$decodedServerUrl' ($serverName)")
+                    val extractorResult = safeApiCall { loadExtractor(decodedServerUrl, targetUrl, subtitleCallback, callback) }
+                    if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
+                        linksFound = true
+                    } else {
+                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces o falló para URL decodificada: '$decodedServerUrl'")
+                    }
+                } catch (e: Exception) {
+                    Log.e(name, "loadLinks: Error al decodificar Base64 para data-server ID: '$dataServerId'. Error: ${e.message}")
                 }
             } else {
                 Log.i(name, "loadLinks: Opción de servidor sin data-server ID válido. ID: $dataServerId, Nombre: $serverName")
