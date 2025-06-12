@@ -1,6 +1,6 @@
 package com.example
 
-import android.util.Log // Importa la clase Log para depuración
+import android.util.Log
 
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.LoadResponse
@@ -14,7 +14,7 @@ import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.loadExtractor // Sigue siendo necesario para otros extractores
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
@@ -22,10 +22,11 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URI
 
-/**
- * Clase principal del proveedor LaCartoons para Cloudstream.
- * Implementa MainAPI para manejar búsquedas, carga de contenido y enlaces.
- */
+// Importaciones ESPECÍFICAS para el Extractor CubeEmbedExtractorInternal
+import com.lagradost.cloudstream3.utils.ExtractorApi
+import com.lagradost.cloudstream3.utils.Qualities
+
+
 class LacartoonsProvider : MainAPI() {
 
     override var name = "LaCartoons"
@@ -33,15 +34,11 @@ class LacartoonsProvider : MainAPI() {
     override var supportedTypes = setOf(TvType.TvSeries, TvType.Anime, TvType.Cartoon)
     override var lang = "es"
 
-    // Constante para el TAG de los logs, facilita el filtrado
-    private val TAG = "LaCartoonsProvider"
-
     private fun fixUrl(url: String): String {
         return if (url.startsWith("http://") || url.startsWith("https://")) url else mainUrl + url
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        Log.d(TAG, "getMainPage: Solicitando página principal para la página $page")
         try {
             val document = app.get(mainUrl).document
 
@@ -60,67 +57,57 @@ class LacartoonsProvider : MainAPI() {
             }
 
             if (parsedList.isNotEmpty()) {
-                Log.d(TAG, "getMainPage: Se encontraron ${parsedList.size} elementos en la página principal.")
                 val homePageList = HomePageList("Últimos Agregados", parsedList, true)
                 return HomePageResponse(arrayListOf(homePageList))
-            } else {
-                Log.w(TAG, "getMainPage: No se encontraron elementos en la página principal.")
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "getMainPage: Error al cargar la página principal", e)
-            e.printStackTrace()
+            Log.e(name, "Error en getMainPage: ${e.message}", e)
         }
         return null
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        Log.d(TAG, "search: Buscando contenido para la consulta -> $query")
-        val document = app.get("$mainUrl?Titulo=$query").document
+        return try {
+            val document = app.get("$mainUrl?Titulo=$query").document
 
-        val searchResults = document.select("div.conjuntos-series a")
+            val searchResults = document.select("div.conjuntos-series a")
 
-        return searchResults.mapNotNull { item ->
-            val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
-            val title = item.selectFirst("div.informacion-serie p.nombre-serie")?.text()?.trim() ?: ""
-            val poster = item.selectFirst("img")?.attr("src")?.let { fixUrl(it) }
+            searchResults.mapNotNull { item ->
+                val href = item.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
+                val title = item.selectFirst("div.informacion-serie p.nombre-serie")?.text()?.trim() ?: ""
+                val poster = item.selectFirst("img")?.attr("src")?.let { fixUrl(it) }
 
-            if (title.isNotEmpty() && href.isNotEmpty()) {
-                Log.d(TAG, "search: Encontrado resultado -> Título: $title, URL: $href")
-                newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                    this.posterUrl = poster
-                }
-            } else {
-                Log.w(TAG, "search: Resultado de búsqueda inválido o incompleto.")
-                null
+                if (title.isNotEmpty() && href.isNotEmpty()) {
+                    newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
+                        this.posterUrl = poster
+                    }
+                } else null
             }
+        } catch (e: Exception) {
+            Log.e(name, "Error en search para '$query': ${e.message}", e)
+            emptyList()
         }
     }
 
     override suspend fun load(url: String): LoadResponse {
-        Log.d(TAG, "load: Cargando contenido para la URL -> $url")
-        val document = app.get(url).document
+        return try {
+            val document = app.get(url).document
 
-        val title = document.selectFirst("h2.subtitulo-serie-seccion")?.text()?.trim() ?: ""
-        Log.d(TAG, "load: Título de la serie/película -> $title")
+            val title = document.selectFirst("h2.subtitulo-serie-seccion")?.text()?.trim() ?: ""
 
-        val plotElement = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")
-        val plot = plotElement?.nextElementSibling()?.text()?.trim() ?: ""
-        Log.d(TAG, "load: Reseña/Plot -> $plot")
+            val plotElement = document.selectFirst("div.informacion-serie-seccion p:contains(Reseña:)")
+            val plot = plotElement?.nextElementSibling()?.text()?.trim() ?: ""
 
-        val poster = document.selectFirst("div.imagen-serie img")?.attr("src")?.let { fixUrl(it) }
-        Log.d(TAG, "load: URL del póster -> $poster")
+            val poster = document.selectFirst("div.imagen-serie img")?.attr("src")?.let { fixUrl(it) }
 
-        val episodes = ArrayList<Episode>()
+            val episodes = ArrayList<Episode>()
 
-        val seasonHeaders = document.select("h4.accordion")
+            val seasonHeaders = document.select("h4.accordion")
 
-        if (seasonHeaders.isNotEmpty()) {
-            Log.d(TAG, "load: Se encontraron encabezados de temporada. Procesando por temporadas.")
             seasonHeaders.forEach { seasonHeader ->
                 val seasonName = seasonHeader.text()?.trim()
                 val seasonNumber = seasonName?.substringAfter("Temporada ")?.toIntOrNull()
-                Log.d(TAG, "load: Procesando temporada: $seasonName (Número: $seasonNumber)")
 
                 val episodeList = seasonHeader.nextElementSibling()?.select("ul.listas-de-episodion")?.first()
 
@@ -134,45 +121,38 @@ class LacartoonsProvider : MainAPI() {
                                 data = episodeUrl,
                                 name = episodeTitle,
                                 season = seasonNumber,
-                                episode = episodes.size + 1 // Ajustado para un conteo secuencial por temporada
+                                episode = episodes.size + 1
                             )
                         )
-                        Log.d(TAG, "load: Añadido episodio S${seasonNumber ?: "N/A"}E${episodes.size} - $episodeTitle -> $episodeUrl")
-                    } else {
-                        Log.w(TAG, "load: Episodio inválido o incompleto encontrado en temporada $seasonName.")
                     }
                 }
             }
-        } else {
-            Log.d(TAG, "load: No se encontraron encabezados de temporada. Asumiendo episodios sin temporadas.")
-            val singleSeasonEpisodeElements = document.select("div.episodios-lista a")
-            singleSeasonEpisodeElements.forEachIndexed { index, episodeElement ->
-                val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
-                val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
 
-                if (episodeUrl != null && episodeTitle != null) {
-                    episodes.add(
-                        Episode(
-                            data = episodeUrl,
-                            name = episodeTitle,
-                            episode = index + 1
+            if (episodes.isEmpty()) {
+                val singleSeasonEpisodeElements = document.select("div.episodios-lista a")
+                singleSeasonEpisodeElements.forEachIndexed { index, episodeElement ->
+                    val episodeTitle = episodeElement.selectFirst("span.titulo-episodio")?.text()?.trim()
+                    val episodeUrl = episodeElement.attr("href")?.let { fixUrl(it) }
+
+                    if (episodeUrl != null && episodeTitle != null) {
+                        episodes.add(
+                            Episode(
+                                data = episodeUrl,
+                                name = episodeTitle,
+                                episode = index + 1
+                            )
                         )
-                    )
-                    Log.d(TAG, "load: Añadido episodio E${index + 1} - $episodeTitle -> $episodeUrl (Sin temporada)")
-                } else {
-                    Log.w(TAG, "load: Episodio inválido o incompleto encontrado en lista de episodios (sin temporada).")
+                    }
                 }
             }
-        }
 
-        Log.d(TAG, "load: Total de episodios encontrados: ${episodes.size}")
-        if (episodes.isEmpty()) {
-            Log.w(TAG, "load: ¡Advertencia! No se encontraron episodios para esta URL: $url")
-        }
-
-        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-            this.plot = plot
-            this.posterUrl = poster
+            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                this.plot = plot
+                this.posterUrl = poster
+            }
+        } catch (e: Exception) {
+            Log.e(name, "Error en load para '$url': ${e.message}", e)
+            throw e
         }
     }
 
@@ -182,26 +162,99 @@ class LacartoonsProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d(TAG, "loadLinks: Iniciando extracción de enlaces para la URL del episodio -> $data")
+        Log.d(name, "loadLinks: Iniciando extracción de enlaces para la URL del episodio -> $data")
         val document = app.get(data).document
 
-        document.select("iframe[src]").forEach { iframe ->
+        document.select("iframe[src]").forEachIndexed { index, iframe ->
             val iframeSrc = iframe.attr("src")
+            Log.d(name, "loadLinks: Procesando iframe[$index] con src -> $iframeSrc")
+
             if (iframeSrc != null && (iframeSrc.startsWith("http://") || iframeSrc.startsWith("https://"))) {
-                Log.d(TAG, "loadLinks: Detectado iframe válido -> $iframeSrc")
-                // Delegamos la extracción del video a loadExtractor para CUALQUIER iframe.
-                // Esto es crucial para URLs dinámicas generadas por JavaScript como las de cubeembed.rpmvid.com.
-                try {
+                if (iframeSrc.contains("cubeembed.rpmvid.com")) {
+                    Log.d(name, "loadLinks: Detectado iframe de CubeEmbed, llamando a CubeEmbedExtractorInternal.handleUrl.")
+                    // Llamamos a la función auxiliar que hemos creado dentro del extractor
+                    // Ya que no estamos sobrescribiendo directamente 'get', podemos llamar a nuestra propia función.
+                    CubeEmbedExtractorInternal().handleUrl(iframeSrc, mainUrl, subtitleCallback, callback)
+                } else {
+                    Log.d(name, "loadLinks: Llamando a loadExtractor genérico para el iframe -> $iframeSrc")
                     val success = loadExtractor(iframeSrc, mainUrl, subtitleCallback, callback)
-                    Log.d(TAG, "loadLinks: loadExtractor para $iframeSrc completado con éxito -> $success")
-                } catch (e: Exception) {
-                    Log.e(TAG, "loadLinks: Error al ejecutar loadExtractor para $iframeSrc", e)
+                    Log.d(name, "loadLinks: loadExtractor genérico para $iframeSrc completado con éxito -> $success")
                 }
+
             } else {
-                Log.w(TAG, "loadLinks: Iframe con src inválido o nulo, ignorando -> ${iframe.attr("src")}")
+                Log.w(name, "loadLinks: Iframe[$index] con src inválido o nulo, ignorando -> '${iframe.attr("src")}'")
             }
         }
-        Log.d(TAG, "loadLinks: Finalizada la extracción de enlaces para la URL del episodio -> $data")
+        Log.d(name, "loadLinks: Finalizado el procesamiento de enlaces para la URL -> $data")
         return true
     }
+
+    // --- INICIO DEL CÓDIGO DEL EXTRACTOR ANIDADO ---
+    class CubeEmbedExtractorInternal : ExtractorApi() {
+        override val name = "CubeEmbed"
+        override val mainUrl = "https://cubeembed.rpmvid.com"
+        override val requiresReferer = false
+
+        // NO HAY 'override fun get' AQUÍ.
+        // En su lugar, definimos nuestra propia función suspendida.
+        suspend fun handleUrl(
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
+        ): Boolean { // <- Esta función sí retorna Boolean, como espera loadExtractor
+            Log.d(name, "handleUrl: Intentando extraer de CubeEmbed -> $url")
+
+            try {
+                val success = loadExtractor(
+                    url = url,
+                    referer = referer,
+                    subtitleCallback = subtitleCallback,
+                    callback = callback
+                )
+
+                if (success) {
+                    Log.d(name, "handleUrl: ExtractorLink enviado con éxito por loadExtractor.")
+                } else {
+                    Log.e(name, "handleUrl: loadExtractor falló o no encontró enlaces para $url.")
+                }
+                return success
+            } catch (e: Exception) {
+                Log.e(name, "Error al extraer de CubeEmbed en handleUrl: ${e.message}", e)
+                return false
+            }
+        }
+
+        // Si tu ExtractorApi (por la decompilación que me pasaste) requiere que sobrescribas
+        // una de las versiones de 'getUrl', entonces debes añadirla, pero sin la lógica de extracción.
+        // La lógica se delega a 'handleUrl'.
+
+        // Por ejemplo, si el compilador sigue quejándose, podrías añadir esto:
+        /*
+        override suspend fun get(
+            url: String,
+            referer: String?,
+            subtitleCallback: (SubtitleFile) -> Unit,
+            callback: (ExtractorLink) -> Unit
+        ): Any? { // Coincide con la firma de Object/Any? de la decompilación
+            // Simplemente llama a tu función handleUrl
+            return handleUrl(url, referer, subtitleCallback, callback)
+        }
+        */
+        // O si te pide la otra firma:
+        /*
+        override suspend fun get(
+            url: String,
+            referer: String?
+        ): List<ExtractorLink>? {
+            // Esta firma no tiene los callbacks directamente, así que no se usa para stream.
+            // Si te la exige, devuelves una lista vacía.
+            return emptyList()
+        }
+        */
+        // Sin embargo, mi intento actual es evitar el override directo del 'get'
+        // y usar 'handleUrl' como un
+
+    }
+    // --- FIN DEL CÓDIGO DEL EXTRACTOR ANIDADO ---
 }
