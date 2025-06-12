@@ -7,7 +7,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.loadExtractor // Esto se sigue usando para otros extractores si los hubiera, pero no para master.m3u8
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 
@@ -49,8 +49,7 @@ class PlushdProvider : MainAPI() {
         return withContext(Dispatchers.IO) {
             val response = app.get(url, headers = headers)
             if (!response.isSuccessful) {
-                // CORRECCIÓN AQUI: Eliminado response.message
-                val errorMessage = "Error HTTP ${response.code}" // Mensaje genérico o basado en el código
+                val errorMessage = "Error HTTP ${response.code}"
                 Log.e(name, "customGet: Error al descargar HTML de $url: ${response.code} - $errorMessage")
                 throw Exception("Failed to load URL: ${response.code} - $errorMessage")
             }
@@ -110,7 +109,7 @@ class PlushdProvider : MainAPI() {
                 else -> TvType.Movie
             }
             val doc = customGet(url)
-            Log.d(name, "getMainPage: Documento HTML descargado de $url. Tamaño: ${doc.html().length}")
+            Log.d(name, "getMainPage: Documento HTML descargado de $url. Tama??o: ${doc.html().length}")
 
             val homeItems = doc.select("div.articlesList > article.item").mapNotNull { element ->
                 val linkElement = element.selectFirst("a.itemA")
@@ -153,7 +152,7 @@ class PlushdProvider : MainAPI() {
         Log.d(name, "search: Buscando '$query' en $url")
 
         val document = customGet(url)
-        Log.d(name, "search: Documento HTML de búsqueda descargado. Tamaño: ${document.html().length}")
+        Log.d(name, "search: Documento HTML de búsqueda descargado. Tama??o: ${document.html().length}")
 
         val elements = document.select("div.articlesList > article.item")
         Log.d(name, "search: Elementos de búsqueda encontrados: ${elements.size}")
@@ -208,7 +207,7 @@ class PlushdProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         Log.d(name, "load: Cargando información detallada de: $url")
         val document = customGet(url)
-        Log.d(name, "load: Documento HTML de carga de detalles descargado. Tamaño: ${document.html().length}")
+        Log.d(name, "load: Documento HTML de carga de detalles descargado. Tama??o: ${document.html().length}")
 
         val title = document.selectFirst("h1.slugh1, div.home_slider_content h2")?.text()?.trim()
 
@@ -365,6 +364,103 @@ class PlushdProvider : MainAPI() {
         }
     }
 
+    // Nueva función para extraer enlaces M3U8
+    private suspend fun extractM3u8Links(
+        m3u8Url: String,
+        sourceReferer: String,
+        headers: Map<String, String>,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        Log.d(name, "extractM3u8Links: Intentando extraer de M3U8: $m3u8Url")
+        return withContext(Dispatchers.IO) {
+            try {
+                val m3u8Response = app.get(m3u8Url, headers = headers)
+                if (!m3u8Response.isSuccessful) {
+                    // *** CORRECCIÓN EN ESTA LÍNEA ***
+                    Log.e(name, "extractM3u8Links: Error al descargar M3U8: ${m3u8Response.code} - Fallo en la respuesta HTTP")
+                    return@withContext false
+                }
+
+                val m3u8Content = m3u8Response.text
+                val lines = m3u8Content.split("\n")
+                var foundLinks = false
+
+                // Asegúrate de que baseUrl termine con '/' para la resolución de URLs relativas
+                val baseUrl = m3u8Url.substringBeforeLast("/") + "/"
+
+                // Regex para capturar resolución y URL de variantes de stream
+                val streamInfRegex = Regex("""#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n(https?:\/\/[^\n]+|\/[^\n]+)""")
+                // Regex para capturar solo la URL si no hay RESOLUTION explícita o si es un segmento (no un manifiesto principal)
+                // Asegúrate de que las URLs relativas se capturen correctamente
+                val urlRegex = Regex("""^(https?:\/\/[^\n]+|\/[^\n]+)$""")
+
+
+                for (i in lines.indices) {
+                    val line = lines[i]
+                    if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                        // Concatenamos la línea actual con la siguiente para que el regex pueda encontrar la URL
+                        val fullLineForRegex = line + "\n" + lines.getOrElse(i + 1) { "" }
+                        val match = streamInfRegex.find(fullLineForRegex)
+                        if (match != null) {
+                            val resolution = match.groupValues[1]
+                            val streamUrl = match.groupValues[2]
+                            // Convertir URL relativa a absoluta si es necesario
+                            val absoluteStreamUrl = if (streamUrl.startsWith("/")) baseUrl + streamUrl.substring(1) else streamUrl
+
+                            val quality = when {
+                                resolution.contains("1080") -> Qualities.P1080
+                                resolution.contains("720") -> Qualities.P720
+                                resolution.contains("480") -> Qualities.P480
+                                resolution.contains("360") -> Qualities.P360
+                                else -> Qualities.Unknown
+                            }
+                            Log.d(name, "extractM3u8Links: Encontrado stream de HLS: $resolution - $absoluteStreamUrl")
+                            callback(
+                                ExtractorLink(
+                                    this@PlushdProvider.name, // Usar 'this@PlushdProvider.name' para el nombre del proveedor
+                                    "Pelisplus HLS (${quality.name.replace("P", "")})", // Nombre de la fuente más limpio
+                                    absoluteStreamUrl,
+                                    sourceReferer,
+                                    quality.value,
+                                    headers = headers,
+                                    type = ExtractorLinkType.M3U8
+                                )
+                            )
+                            foundLinks = true
+                        }
+                    } else if (line.endsWith(".m3u8") || line.endsWith(".mp4") || line.endsWith(".ts")) {
+                        // Captura directas de m3u8, mp4 o ts si no están en EXT-X-STREAM-INF,
+                        // útil si la URL es directamente un stream final.
+                        val match = urlRegex.find(line)
+                        if (match != null) {
+                            val mediaUrl = match.groupValues[1]
+                            val absoluteMediaUrl = if (mediaUrl.startsWith("/")) baseUrl + mediaUrl.substring(1) else mediaUrl
+                            Log.d(name, "extractM3u8Links: Encontrado media directa en M3U8: $absoluteMediaUrl")
+                            callback(
+                                ExtractorLink(
+                                    this@PlushdProvider.name,
+                                    "Pelisplus Direct",
+                                    absoluteMediaUrl,
+                                    sourceReferer,
+                                    Qualities.Unknown.value,
+                                    headers = headers,
+                                    type = if (absoluteMediaUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                                )
+                            )
+                            foundLinks = true
+                        }
+                    }
+                }
+                return@withContext foundLinks
+            } catch (e: Exception) {
+                Log.e(name, "extractM3u8Links: Error al procesar M3U8 de $m3u8Url. Error: ${e.localizedMessage}")
+                e.printStackTrace()
+                return@withContext false
+            }
+        }
+    }
+
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -395,7 +491,7 @@ class PlushdProvider : MainAPI() {
 
 
         val document = customGet(targetUrl, headers = videoHeaders)
-        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
+        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tama??o: ${document.html().length}")
 
         var linksFound = false
 
@@ -415,13 +511,13 @@ class PlushdProvider : MainAPI() {
                     val videoUrlFromDataServer = "https://ww3.pelisplus.to/master.m3u8?t=$decodedServerId"
                     Log.d(name, "loadLinks: Intentando cargar video desde Data-server URL: $videoUrlFromDataServer")
 
-                    // CORRECCIÓN AQUI: Eliminado 'headers = videoHeaders' de loadExtractor
-                    val extractorLoaded = loadExtractor(videoUrlFromDataServer, targetUrl, subtitleCallback, callback)
-                    if (extractorLoaded) {
+                    // AQUÍ USAMOS extractM3u8Links EN LUGAR DE loadExtractor
+                    val extracted = extractM3u8Links(videoUrlFromDataServer, targetUrl, videoHeaders, callback)
+                    if (extracted) {
                         linksFound = true
-                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer")
+                        Log.d(name, "loadLinks: extractM3u8Links tuvo éxito para data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer")
                     } else {
-                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer.")
+                        Log.w(name, "loadLinks: extractM3u8Links no encontró enlaces para el data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer.")
                     }
                 } catch (e: Exception) {
                     Log.e(name, "loadLinks: Error al decodificar Base64 o procesar servidor: '$dataServerId' ($currentServerName). Error: ${e.localizedMessage}")
@@ -452,19 +548,33 @@ class PlushdProvider : MainAPI() {
 
                 if (mediaUrl != null) {
                     Log.d(name, "loadLinks: Encontrado Media URL (M3U8/MP4) en JW Player setup: $mediaUrl")
-                    val linkType = if (mediaUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    callback(
-                        ExtractorLink(
-                            this.name,
-                            "Pelisplus (Principal)",
-                            mediaUrl,
-                            targetUrl,
-                            Qualities.Unknown.value,
-                            headers = videoHeaders,
-                            type = linkType
+
+                    // Aquí, si el mediaUrl es un M3U8, también lo pasamos a extractM3u8Links.
+                    // Si es un MP4 directo, lo enviamos directamente al callback.
+                    if (mediaUrl.contains(".m3u8")) {
+                        val extracted = extractM3u8Links(mediaUrl, targetUrl, videoHeaders, callback)
+                        if (extracted) {
+                            linksFound = true
+                            Log.d(name, "loadLinks: extractM3u8Links tuvo éxito para JW Player M3U8: $mediaUrl")
+                        } else {
+                            Log.w(name, "loadLinks: extractM3u8Links no encontró enlaces para JW Player M3U8: $mediaUrl.")
+                        }
+                    } else {
+                        // Si es un MP4 directo, lo agregamos como ExtractorLink
+                        callback(
+                            ExtractorLink(
+                                this.name,
+                                "Pelisplus (Directo)",
+                                mediaUrl,
+                                targetUrl,
+                                Qualities.Unknown.value,
+                                headers = videoHeaders,
+                                type = ExtractorLinkType.VIDEO
+                            )
                         )
-                    )
-                    linksFound = true
+                        linksFound = true
+                        Log.d(name, "loadLinks: Encontrado MP4 directo en JW Player setup: $mediaUrl")
+                    }
                 } else {
                     Log.w(name, "loadLinks: No se encontró URL de M3U8/MP4 en la configuración de JW Player 'file'.")
                 }
@@ -500,13 +610,13 @@ class PlushdProvider : MainAPI() {
                     val videoUrl = "https://ww3.pelisplus.to/master.m3u8?t=$decodedDataTr"
                     Log.d(name, "loadLinks: Intentando cargar video desde URL: $videoUrl")
 
-                    // CORRECCIÓN AQUI: Eliminado 'headers = videoHeaders' de loadExtractor
-                    val extractorLoaded = loadExtractor(videoUrl, targetUrl, subtitleCallback, callback)
-                    if (extractorLoaded) {
+                    // AQUÍ TAMBIÉN USAMOS extractM3u8Links EN LUGAR DE loadExtractor
+                    val extracted = extractM3u8Links(videoUrl, targetUrl, videoHeaders, callback)
+                    if (extracted) {
                         linksFound = true
-                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para la URL de video: $videoUrl")
+                        Log.d(name, "loadLinks: extractM3u8Links tuvo éxito para la URL de video: $videoUrl")
                     } else {
-                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para la URL de video: $videoUrl.")
+                        Log.w(name, "loadLinks: extractM3u8Links no encontró enlaces para la URL de video: $videoUrl.")
                     }
 
                 } catch (e: Exception) {
