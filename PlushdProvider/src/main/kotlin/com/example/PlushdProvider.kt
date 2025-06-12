@@ -6,7 +6,7 @@ import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.SubtitleFile // Importación correcta para SubtitleFile
+import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 import org.jsoup.Jsoup
@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 
-// @CloudstreamProvider // Descomentar esta línea cuando el plugin esté listo para ser usado
+// @CloudstreamProvider
 class PlushdProvider : MainAPI() {
     override var name = "PlusHD"
     override var mainUrl = "https://ww3.pelisplus.to"
@@ -34,7 +34,6 @@ class PlushdProvider : MainAPI() {
 
     override val hasChromecastSupport = false
     override val hasDownloadSupport = false
-    // Eliminadas las propiedades usesLoad, usesLoadLinks, usesSearch como acordamos.
 
 
     private fun fixUrl(url: String?): String {
@@ -200,45 +199,33 @@ class PlushdProvider : MainAPI() {
         val document = customGet(url)
         Log.d(name, "load: Documento HTML de carga de detalles descargado. Tamaño: ${document.html().length}")
 
-        // --- Ajustes de selectores basados en el HTML proporcionado ---
-        // Título: Priorizamos h1.slugh1 para películas, luego h2 dentro de home_slider_content.
         val title = document.selectFirst("h1.slugh1, div.home_slider_content h2")?.text()?.trim()
 
-        // Póster: Si la imagen está en un background-image de div.bg, extraemos de ahí.
-        // Si no, buscamos un img con data-src o src.
         val poster = document.selectFirst("div.bg")?.attr("style")?.let { style ->
             Regex("""url\("?([^")]*)"?\)""").find(style)?.groupValues?.get(1)
         } ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("data-src")?.trim()
         ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("src")?.trim()
 
-        // Año: Lo buscamos en el enlace dentro de div.genres.rating
         val year = document.selectFirst("div.genres.rating a[href*=\"/year/\"]")?.text()?.trim()?.toIntOrNull()
 
-        // Plot/Descripción: div.description p o p.scroll
         val plot = document.selectFirst("div.description p, p.scroll")?.text()?.trim()
 
-        // Géneros: Correcto con div.genres a
         val genres = document.select("div.genres a")?.mapNotNull { it.text()?.trim() }
 
-        // Rating: Extraemos el texto después de "Rating:" en div.genres.rating
         val ratingText = document.selectFirst("div.genres.rating span:contains(Rating)")?.text()?.trim()
         val rating = ratingText?.let {
-            // Extraer solo el número después de "Rating:"
             val value = Regex("""Rating:\s*([\d.]+)""").find(it)?.groupValues?.get(1)
             value?.toFloatOrNull()?.times(100)?.toInt()
         }
 
-        // Runtime: Extraemos el texto después de "Duración:" en div.genres.rating
         val runtimeText = document.selectFirst("div.genres.rating span:contains(Duración)")?.text()?.trim()
         val runtime = runtimeText?.let {
-            // Extraer solo los números y luego parsear a minutos.
             val hours = Regex("""(\d+)\s*hora(?:s)?""").find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val minutes = Regex("""(\d+)\s*minuto(?:s)?""").find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             (hours * 60) + minutes
         }
 
-        // Determinar el tipo (Movie o TvSeries)
-        val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty()) TvType.TvSeries else TvType.Movie
+        val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty() || document.select("div#episodelist").isNotEmpty()) TvType.TvSeries else TvType.Movie
 
         Log.d(name, "load: Título detectado: $title, Tipo: $type, Póster: $poster, Año: $year, Plot: $plot, Géneros: $genres, Rating: $rating, Duración: $runtime")
 
@@ -257,18 +244,18 @@ class PlushdProvider : MainAPI() {
                 this.posterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres ?: arrayListOf() // Asegúrate de que no sea null
+                this.tags = genres ?: arrayListOf()
                 this.rating = rating
                 this.duration = runtime
             }
         } else {
             val episodes = ArrayList<Episode>()
-            // Selector para div.season.main que contiene las temporadas
             val seasonElements = document.select("div.season.main")
+            val episodeListContainer = document.selectFirst("div#episodelist.articlesList")
 
             if (seasonElements.isNotEmpty()) {
+                // Caso 1: Series con estructura de temporadas (como Avatar)
                 seasonElements.forEach { seasonDiv ->
-                    // CORRECCIÓN: Confirmado h3#seasonTitleChange
                     val seasonNumber = seasonDiv.selectFirst("h3#seasonTitleChange")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
                     Log.d(name, "load: Procesando Temporada: $seasonNumber")
 
@@ -290,13 +277,14 @@ class PlushdProvider : MainAPI() {
                                 }
                             )
                         } else {
-                            Log.w(name, "load: Episodio incompleto o nulo encontrado. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            Log.w(name, "load: Episodio incompleto o nulo encontrado en temporada. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
                         }
                     }
                 }
-            } else {
-                Log.w(name, "load: No se encontraron elementos de temporada 'div.season.main' en la página de la serie: $url. Buscando episodios planos.")
-                document.select("div#episodelist.articlesList article.item a.itemA").forEach { epElement ->
+            } else if (episodeListContainer != null) {
+                // Caso 2: Series con una lista plana de episodios (sin div.season.main), asumiendo Temporada 1
+                Log.d(name, "load: No se encontraron elementos de temporada 'div.season.main'. Buscando episodios planos.")
+                episodeListContainer.select("article.item a.itemA").forEach { epElement ->
                     val episodeLink = epElement.attr("href")?.trim()
                     val epTitle = epElement.selectFirst("h2")?.text()?.trim()
                     val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
@@ -317,6 +305,8 @@ class PlushdProvider : MainAPI() {
                         Log.w(name, "load: Episodio (sin temporada explícita) incompleto o nulo encontrado. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
                     }
                 }
+            } else {
+                Log.w(name, "load: No se encontraron elementos de temporada ni lista de episodios 'div#episodelist' en la página de la serie: $url")
             }
             Log.d(name, "load: Se encontraron ${episodes.size} episodios en total.")
 
@@ -327,10 +317,10 @@ class PlushdProvider : MainAPI() {
                 episodes.sortedWith(compareBy({it.season}, {it.episode}))
             ) {
                 this.posterUrl = poster ?: ""
-                this.backgroundPosterUrl = poster ?: "" // Usar el mismo póster para el fondo si no hay uno específico
+                this.backgroundPosterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres ?: arrayListOf() // Asegúrate de que no sea null
+                this.tags = genres ?: arrayListOf()
                 this.rating = rating
                 this.duration = runtime
             }
@@ -365,13 +355,10 @@ class PlushdProvider : MainAPI() {
 
         var linksFound = false
 
-        // Selector para el iframe principal del reproductor
         val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
         if (iframeSrc != null && iframeSrc.startsWith("http")) {
             Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
             val extractorResult = safeApiCall { loadExtractor(iframeSrc, targetUrl, subtitleCallback, callback) }
-            // Corrección: El resultado de safeApiCall es Resource.Success o Resource.Failure.
-            // Para verificar si se encontraron enlaces, revisamos si el resultado es Success y su valor es true.
             if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
                 linksFound = true
             } else {
@@ -381,7 +368,6 @@ class PlushdProvider : MainAPI() {
             Log.i(name, "loadLinks: No se encontró iframe principal válido o no es HTTP. iframeSrc: $iframeSrc")
         }
 
-        // Búsqueda de iframes en las opciones de servidor (si existen, p. ej. debajo del reproductor)
         document.select("ul.subselect li[data-server]").forEach { serverOption ->
             val dataServerId = serverOption.attr("data-server")?.trim()
             val serverName = serverOption.selectFirst("span")?.text()?.trim()
@@ -399,7 +385,6 @@ class PlushdProvider : MainAPI() {
             }
         }
 
-        // Búsqueda de URLs M3U8 y VTT directamente en el script o HTML
         val scriptContent = document.select("script").map { it.html() }.joinToString("\n")
         val masterM3u8Regex = Regex("""(https?:\/\/[^\s"']+\.m3u8\?[^\s"']*)""")
         val vttRegex = Regex("""(https?:\/\/[^\s"']+\.vtt\?[^\s"']*)""")
