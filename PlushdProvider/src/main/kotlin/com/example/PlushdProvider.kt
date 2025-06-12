@@ -4,12 +4,12 @@ import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType // Asegúrate de que esta importación exista
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.google.gson.Gson // Añade esta línea
-import com.google.gson.JsonObject // Asegúrate de que esta línea esté presente
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -27,8 +27,6 @@ class PlushdProvider : MainAPI() {
     override var name = "PlusHD"
     override var mainUrl = "https://ww3.pelisplus.to"
     override var lang = "es"
-
-    private val httpClient = OkHttpClient()
 
     override val supportedTypes = setOf(
         TvType.Movie,
@@ -49,19 +47,14 @@ class PlushdProvider : MainAPI() {
     private suspend fun customGet(url: String, headers: Map<String, String> = emptyMap()): Document {
         Log.d(name, "customGet: Descargando HTML de: $url")
         return withContext(Dispatchers.IO) {
-            val requestBuilder = Request.Builder().url(url)
-            headers.forEach { (name, value) ->
-                requestBuilder.addHeader(name, value)
-            }
-            val request = requestBuilder.build()
-
-            val response = httpClient.newCall(request).execute()
-
+            val response = app.get(url, headers = headers)
             if (!response.isSuccessful) {
-                Log.e(name, "customGet: Error al descargar HTML de $url: ${response.code} - ${response.message}")
-                throw Exception("Failed to load URL: ${response.code} - ${response.message}")
+                // CORRECCIÓN AQUI: Eliminado response.message
+                val errorMessage = "Error HTTP ${response.code}" // Mensaje genérico o basado en el código
+                Log.e(name, "customGet: Error al descargar HTML de $url: ${response.code} - $errorMessage")
+                throw Exception("Failed to load URL: ${response.code} - $errorMessage")
             }
-            Jsoup.parse(response.body?.string() ?: "")
+            Jsoup.parse(response.text)
         }
     }
 
@@ -87,16 +80,12 @@ class PlushdProvider : MainAPI() {
         companion object {
             fun fromJson(jsonString: String?): EpisodeLoadData? {
                 if (jsonString.isNullOrBlank()) return null
-                val regex = Regex("""\{"name":"(.*?)","url":"(.*?)"(?:,"season":(\d+|null))?(?:,"episode":(\d+|null))?\}""")
-                val match = regex.find(jsonString)
-                return if (match != null) {
-                    EpisodeLoadData(
-                        match.groupValues[1],
-                        match.groupValues[2],
-                        match.groupValues.getOrNull(3)?.toIntOrNull(),
-                        match.groupValues.getOrNull(4)?.toIntOrNull()
-                    )
-                } else null
+                return try {
+                    Gson().fromJson(jsonString, EpisodeLoadData::class.java)
+                } catch (e: Exception) {
+                    Log.e("EpisodeLoadData", "Error parsing EpisodeLoadData JSON: $jsonString. Error: ${e.localizedMessage}")
+                    null
+                }
             }
         }
     }
@@ -118,8 +107,6 @@ class PlushdProvider : MainAPI() {
             val tvType = when (listName) {
                 "Últimas Películas Agregadas" -> TvType.Movie
                 "Series Recientes" -> TvType.TvSeries
-                "Animes Recientes" -> TvType.Anime
-                "Doramas Recientes" -> TvType.AsianDrama
                 else -> TvType.Movie
             }
             val doc = customGet(url)
@@ -401,34 +388,43 @@ class PlushdProvider : MainAPI() {
             return false
         }
 
-        val document = customGet(targetUrl)
+        val videoHeaders = mapOf(
+            "Referer" to targetUrl,
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+
+
+        val document = customGet(targetUrl, headers = videoHeaders)
         Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
 
         var linksFound = false
 
-        // 1. Parsear los data-server (para otros reproductores)
         val serverOptions = document.select("ul.subselect li[data-server]")
         Log.d(name, "loadLinks: Encontrados ${serverOptions.size} elementos de servidor.")
 
         for (serverOption in serverOptions) {
             val dataServerId = serverOption.attr("data-server")?.trim()
-            val currentServerName = serverOption.selectFirst("span")?.text()?.trim() // Variable local para serverName
+            val currentServerName = serverOption.selectFirst("span")?.text()?.trim()
 
             if (dataServerId != null && dataServerId.isNotBlank()) {
                 try {
                     val decodedBytes = Base64.decode(dataServerId, Base64.DEFAULT)
-                    val decodedServerUrl = String(decodedBytes)
-                    Log.d(name, "loadLinks: Servidor: '$currentServerName', Data-server decodificado: '$decodedServerUrl'")
+                    val decodedServerId = String(decodedBytes)
+                    Log.d(name, "loadLinks: Servidor: '$currentServerName', Data-server decodificado: '$decodedServerId'")
 
-                    val extractorLoaded = loadExtractor(decodedServerUrl, targetUrl, subtitleCallback, callback)
+                    val videoUrlFromDataServer = "https://ww3.pelisplus.to/master.m3u8?t=$decodedServerId"
+                    Log.d(name, "loadLinks: Intentando cargar video desde Data-server URL: $videoUrlFromDataServer")
+
+                    // CORRECCIÓN AQUI: Eliminado 'headers = videoHeaders' de loadExtractor
+                    val extractorLoaded = loadExtractor(videoUrlFromDataServer, targetUrl, subtitleCallback, callback)
                     if (extractorLoaded) {
                         linksFound = true
-                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para data-server: $decodedServerUrl")
+                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer")
                     } else {
-                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-server: $decodedServerUrl.")
+                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-server: $decodedServerId ($currentServerName) con URL: $videoUrlFromDataServer.")
                     }
                 } catch (e: Exception) {
-                    Log.e(name, "loadLinks: Error al decodificar Base64 o procesar servidor: '$dataServerId' ($currentServerName). Error: ${e.message}")
+                    Log.e(name, "loadLinks: Error al decodificar Base64 o procesar servidor: '$dataServerId' ($currentServerName). Error: ${e.localizedMessage}")
                     e.printStackTrace()
                 }
             } else {
@@ -437,7 +433,6 @@ class PlushdProvider : MainAPI() {
         }
 
 
-        // Regex para capturar el contenido dentro de jwplayer("...").setup({...});
         val jwPlayerSetupRegex = Regex("""jwplayer\(\s*['"](?:[^"']+)['"]\s*\)\.setup\(\s*(\{[\s\S]*?\}\s*)\);""")
         val scriptElements = document.select("script")
 
@@ -457,15 +452,15 @@ class PlushdProvider : MainAPI() {
 
                 if (mediaUrl != null) {
                     Log.d(name, "loadLinks: Encontrado Media URL (M3U8/MP4) en JW Player setup: $mediaUrl")
-                    val linkType = if (mediaUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO // **** CORRECCIÓN: ExtractorLinkType.MP4 ****
+                    val linkType = if (mediaUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     callback(
                         ExtractorLink(
                             this.name,
-                            "Pelisplus (Principal)", // **** CORRECCIÓN: Se cambió a "Pelisplus (Principal)" ****
+                            "Pelisplus (Principal)",
                             mediaUrl,
                             targetUrl,
                             Qualities.Unknown.value,
-                            headers = mapOf("Referer" to targetUrl),
+                            headers = videoHeaders,
                             type = linkType
                         )
                     )
@@ -494,28 +489,18 @@ class PlushdProvider : MainAPI() {
             }
         }
 
-        // 3. Buscar el data-tr en el reproductor principal
-        val playerTrDiv = document.selectFirst("div#player-tr[data-tr]") // Selecciona el div con id "player-tr" y atributo "data-tr"
+        val playerTrDiv = document.selectFirst("div#player-tr[data-tr]")
         if (playerTrDiv != null) {
-            val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim() // Este es el Base64 que sale en el HTML
+            val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim()
             if (!dataTrEncoded.isNullOrBlank()) {
                 try {
-                    // No necesitas decodificar el Base64 aquí para la petición,
-                    // el token se usa directamente en la URL o se pasa tal cual.
-                    // Pero sí necesitas el valor real para el URL, que es lo que obtenemos
-                    // después de la decodificación.
-
                     val decodedDataTr = String(Base64.decode(dataTrEncoded, Base64.DEFAULT))
                     Log.d(name, "loadLinks: Encontrado y decodificado data-tr del reproductor principal: '$decodedDataTr'")
 
-                    // **NUEVO: Construir la URL del video directamente**
-                    // Basado en el log de network, la URL es algo como:
-                    // https://ww3.pelisplus.to/master.m3u8?t=pr_DZX2VpLMZTQ88jD...
-                    // La parte 'pr_DZX2VpLMZTQ88jD...' es el data-tr decodificado.
-                    val videoUrl = "https://ww3.pelisplus.to/master.m3u8?t=$decodedDataTr" // Ajusta esta URL si el prefijo/sufijo cambia
+                    val videoUrl = "https://ww3.pelisplus.to/master.m3u8?t=$decodedDataTr"
                     Log.d(name, "loadLinks: Intentando cargar video desde URL: $videoUrl")
 
-                    // **Usar loadExtractor con la URL del video**
+                    // CORRECCIÓN AQUI: Eliminado 'headers = videoHeaders' de loadExtractor
                     val extractorLoaded = loadExtractor(videoUrl, targetUrl, subtitleCallback, callback)
                     if (extractorLoaded) {
                         linksFound = true
@@ -525,7 +510,7 @@ class PlushdProvider : MainAPI() {
                     }
 
                 } catch (e: Exception) {
-                    Log.e(name, "loadLinks: Error al procesar data-tr o cargar video. Error: ${e.message}")
+                    Log.e(name, "loadLinks: Error al procesar data-tr o cargar video. Error: ${e.localizedMessage}")
                     e.printStackTrace()
                 }
             } else {

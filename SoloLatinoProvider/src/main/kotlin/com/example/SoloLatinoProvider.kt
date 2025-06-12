@@ -39,9 +39,7 @@ class SoloLatinoProvider : MainAPI() {
         val urls = listOf(
             Pair("Peliculas", "$mainUrl/peliculas"),
             Pair("Series", "$mainUrl/series"),
-            Pair("Animes", "$mainUrl/animes"),
-            Pair("Cartoons", "$mainUrl/genre_series/toons"),
-            Pair("K-dramas", "$mainUrl/genre_series/kdramas")
+            Pair("Animes", "$mainUrl/animes")
         )
 
         val homePageLists = urls.apmap { (name, url) ->
@@ -49,7 +47,6 @@ class SoloLatinoProvider : MainAPI() {
                 "Peliculas" -> TvType.Movie
                 "Series" -> TvType.TvSeries
                 "Animes" -> TvType.Anime
-                "Cartoons" -> TvType.Cartoon
                 else -> TvType.Others
             }
             val doc = app.get(url).document
