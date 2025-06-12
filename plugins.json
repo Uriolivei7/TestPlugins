@@ -42,18 +42,19 @@
     "fileSize": 23000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlushdProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 3,
-    "name": "LaCartoons",
-    "internalName": "LacartoonsProvider",
+    "name": "PlusHD",
+    "internalName": "PlushdProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para www.lacartoons.com",
+    "description": "Plugin para ww3.pelisplus.to",
     "tvTypes": [
       "TvSeries",
+      "Movie",
       "Anime",
       "Cartoon"
     ],
