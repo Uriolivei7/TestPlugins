@@ -356,17 +356,22 @@ class PlushdProvider : MainAPI() {
         }
 
         val document = customGet(targetUrl)
-        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
+        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tama??o: ${document.html().length}")
 
         var linksFound = false
 
-        // Buscando la configuración de JW Player en los scripts
         // Regex para capturar el contenido dentro de jwplayer("...").setup({...});
-        val jwPlayerSetupRegex = Regex("""jwplayer\(\s*['"].*?['"]\s*\)\.setup\(\s*(\{[\s\S]*?\}\s*)\);""")
+        val jwPlayerSetupRegex = Regex("""jwplayer\(\s*['"](?:[^"']+)['"]\s*\)\.setup\(\s*(\{[\s\S]*?\}\s*)\);""")
         val scriptElements = document.select("script")
 
         for (script in scriptElements) {
             val scriptContent = script.html()
+
+            // LOG DE DEPURACIÓN: Imprime el contenido de cada script para análisis
+            // Se trunca a los primeros 1000 caracteres para evitar logs excesivamente largos.
+            // Si necesitas ver más, ajusta el valor '1000'.
+            Log.d(name, "loadLinks: Contenido de script encontrado (primeros ${scriptContent.length.coerceAtMost(1000)} chars): ${scriptContent.take(1000)}")
+
             val match = jwPlayerSetupRegex.find(scriptContent)
 
             if (match != null) {
@@ -386,7 +391,7 @@ class PlushdProvider : MainAPI() {
                             this.name,
                             "Pelisplus M3U8",
                             m3u8Url,
-                            targetUrl,
+                            targetUrl, // Referer
                             Qualities.Unknown.value, // O podrías intentar extraer la calidad del nombre del archivo si es posible
                             headers = mapOf("Referer" to targetUrl),
                             type = ExtractorLinkType.M3U8
@@ -406,10 +411,11 @@ class PlushdProvider : MainAPI() {
                     Log.d(name, "loadLinks: Encontrados subtítulos en JW Player setup: $tracksJsonString")
                     // Aquí, necesitas parsear el array JSON de subtítulos.
                     // Esto es más complejo con regex, pero para un solo VTT simple, podríamos intentar:
-                    val vttFileRegex = Regex("""\{[^}]*?file\s*:\s*['"](https?:\/\/[^"']+\.vtt[^"']*)['"][^}]*?(?:label\s*:\s*['"]([^"']+)['"])?[^}]*?\}""")
+                    // Se ha mejorado ligeramente el regex para capturar el label y el file con más robustez.
+                    val vttFileRegex = Regex("""\{[^}]*?file\s*:\s*['"](https?:\/\/[^"']+\.vtt[^"']*)['"][^}]*?(?:,\s*label\s*:\s*['"]([^"']+)['"])?[^}]*?\}""")
                     vttFileRegex.findAll(tracksJsonString).forEach { vttMatch ->
                         val vttUrl = vttMatch.groupValues[1]
-                        val vttLabel = vttMatch.groupValues.getOrNull(2) ?: "Unknown"
+                        val vttLabel = vttMatch.groupValues.getOrNull(2) ?: "Unknown" // Si no hay label, usa "Unknown"
                         Log.d(name, "loadLinks: Subtítulo VTT encontrado: $vttLabel - $vttUrl")
                         subtitleCallback(SubtitleFile(vttLabel, vttUrl))
                         linksFound = true
