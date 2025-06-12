@@ -2,8 +2,7 @@ package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida
 
 import android.content.Context
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin // Importa la anotación CloudstreamPlugin
-import com.lagradost.cloudstream3.plugins.Plugin // Importa la clase base Plugin
-import com.lagradost.cloudstream3.providers.PlushdProvider
+import com.lagradost.cloudstream3.plugins.Plugin
 
 /**
  * Esta es la clase principal de tu plugin para CloudStream.
