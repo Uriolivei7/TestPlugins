@@ -3,13 +3,14 @@ package com.example
 import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.ExtractorLinkType // Asegúrate de que esta importación exista
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.loadExtractor
 
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -24,6 +25,8 @@ class PlushdProvider : MainAPI() {
     override var name = "PlusHD"
     override var mainUrl = "https://ww3.pelisplus.to"
     override var lang = "es"
+
+    private val httpClient = OkHttpClient()
 
     override val supportedTypes = setOf(
         TvType.Movie,
@@ -41,10 +44,22 @@ class PlushdProvider : MainAPI() {
         return if (url.isNullOrBlank()) "" else if (url.startsWith("/")) mainUrl + url else url
     }
 
-    private suspend fun customGet(url: String): Document {
+    private suspend fun customGet(url: String, headers: Map<String, String> = emptyMap()): Document {
         Log.d(name, "customGet: Descargando HTML de: $url")
         return withContext(Dispatchers.IO) {
-            Jsoup.connect(url).get()
+            val requestBuilder = Request.Builder().url(url)
+            headers.forEach { (name, value) ->
+                requestBuilder.addHeader(name, value)
+            }
+            val request = requestBuilder.build()
+
+            val response = httpClient.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                Log.e(name, "customGet: Error al descargar HTML de $url: ${response.code} - ${response.message}")
+                throw Exception("Failed to load URL: ${response.code} - ${response.message}")
+            }
+            Jsoup.parse(response.body?.string() ?: "")
         }
     }
 
@@ -108,6 +123,7 @@ class PlushdProvider : MainAPI() {
                 val linkElement = element.selectFirst("a.itemA")
                 val titleFull = element.selectFirst("h2")?.text()?.trim()
                 val posterUrl = element.selectFirst("div.item__image img")?.attr("data-src")?.trim()
+                    ?: element.selectFirst("div.item__image img")?.attr("src")?.trim()
 
                 if (linkElement != null && titleFull != null && posterUrl != null) {
                     val link = linkElement.attr("href")
@@ -153,6 +169,7 @@ class PlushdProvider : MainAPI() {
             val linkElement = element.selectFirst("a.itemA")
             val titleFull = element.selectFirst("h2")?.text()?.trim()
             val posterUrl = element.selectFirst("div.item__image img")?.attr("data-src")?.trim()
+                ?: element.selectFirst("div.item__image img")?.attr("src")?.trim()
             val typeString = element.selectFirst("span.typeItem")?.text()?.trim()
 
             if (linkElement != null && titleFull != null && posterUrl != null && typeString != null) {
@@ -211,7 +228,7 @@ class PlushdProvider : MainAPI() {
 
         val plot = document.selectFirst("div.description p, p.scroll")?.text()?.trim()
 
-        val genres = document.select("div.genres a")?.mapNotNull { it.text()?.trim() }
+        val genres: List<String> = document.select("div.genres a").mapNotNull { it.text()?.trim() }.filter { it.isNotBlank() }
 
         val ratingText = document.selectFirst("div.genres.rating span:contains(Rating)")?.text()?.trim()
         val rating = ratingText?.let {
@@ -226,7 +243,6 @@ class PlushdProvider : MainAPI() {
             (hours * 60) + minutes
         }
 
-        // Determina el tipo basado en la URL o la presencia de elementos de serie
         val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty() || document.select("div#episodelist").isNotEmpty()) TvType.TvSeries else TvType.Movie
 
         Log.d(name, "load: Título detectado: $title, Tipo: $type, Póster: $poster, Año: $year, Plot: $plot, Géneros: $genres, Rating: $rating, Duración: $runtime")
@@ -264,22 +280,34 @@ class PlushdProvider : MainAPI() {
                         seasonDiv.select("div#episodelist article.item a.itemA").forEach { epElement ->
                             val episodeLink = epElement.attr("href")?.trim()
                             val epTitle = epElement.selectFirst("h2")?.text()?.trim()
-                            val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
 
-                            if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
-                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), seasonNumber, epNumber).toJson()
-                                Log.d(name, "load: Episodio (temporada $seasonNumber) encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            val urlRegex = Regex("""/season/(\d+)/episode/(\d+)""")
+                            val urlMatch = urlRegex.find(episodeLink ?: "")
+                            val seasonNumberFromUrl = urlMatch?.groupValues?.get(1)?.toIntOrNull()
+                            val episodeNumberFromUrl = urlMatch?.groupValues?.get(2)?.toIntOrNull()
+
+                            val titleRegex = Regex("""(?:S(\d+))?\s*(?:E(\d+))?""")
+                            val titleMatch = titleRegex.find(epTitle ?: "")
+                            val seasonNumberFromTitle = titleMatch?.groupValues?.get(1)?.toIntOrNull()
+                            val episodeNumberFromTitle = titleMatch?.groupValues?.get(2)?.toIntOrNull()
+
+                            val finalSeason = seasonNumberFromUrl ?: seasonNumberFromTitle ?: 1
+                            val finalEpisode = episodeNumberFromUrl ?: episodeNumberFromTitle
+
+                            if (episodeLink != null && episodeLink.isNotBlank() && finalEpisode != null) {
+                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $finalEpisode", fixUrl(episodeLink), finalSeason, finalEpisode).toJson()
+                                Log.d(name, "load: Episodio (temporada $finalSeason) encontrado: Título: $epTitle, Número: $finalEpisode, Enlace: $episodeLink")
                                 episodes.add(
                                     newEpisode(
                                         data = episodeDataJson
                                     ) {
                                         this.name = epTitle
-                                        this.season = seasonNumber
-                                        this.episode = epNumber
+                                        this.season = finalSeason
+                                        this.episode = finalEpisode
                                     }
                                 )
                             } else {
-                                Log.w(name, "load: Episodio incompleto o nulo encontrado en temporada $seasonNumber. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                                Log.w(name, "load: Episodio incompleto o nulo encontrado en temporada $finalSeason. Título: $epTitle, Número: $finalEpisode, Enlace: $episodeLink")
                             }
                         }
                     }
@@ -290,22 +318,34 @@ class PlushdProvider : MainAPI() {
                         if (epElement != null) {
                             val episodeLink = epElement.attr("href")?.trim()
                             val epTitle = epElement.selectFirst("h2")?.text()?.trim()
-                            val epNumber = Regex("""E(\d+)""").find(epTitle ?: "")?.groupValues?.get(1)?.toIntOrNull()
 
-                            if (episodeLink != null && episodeLink.isNotBlank() && epNumber != null) {
-                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $epNumber", fixUrl(episodeLink), 1, epNumber).toJson()
-                                Log.d(name, "load: Episodio (sin temporada explícita, asumido Temporada 1) encontrado: Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                            val urlRegex = Regex("""/season/(\d+)/episode/(\d+)""")
+                            val urlMatch = urlRegex.find(episodeLink ?: "")
+                            val seasonNumberFromUrl = urlMatch?.groupValues?.get(1)?.toIntOrNull()
+                            val episodeNumberFromUrl = urlMatch?.groupValues?.get(2)?.toIntOrNull()
+
+                            val titleRegex = Regex("""(?:S(\d+))?\s*(?:E(\d+))?""")
+                            val titleMatch = titleRegex.find(epTitle ?: "")
+                            val seasonNumberFromTitle = titleMatch?.groupValues?.get(1)?.toIntOrNull()
+                            val episodeNumberFromTitle = titleMatch?.groupValues?.get(2)?.toIntOrNull()
+
+                            val finalSeason = seasonNumberFromUrl ?: seasonNumberFromTitle ?: 1
+                            val finalEpisode = episodeNumberFromUrl ?: episodeNumberFromTitle
+
+                            if (episodeLink != null && episodeLink.isNotBlank() && finalEpisode != null) {
+                                val episodeDataJson = EpisodeLoadData(epTitle ?: "Episodio $finalEpisode", fixUrl(episodeLink), finalSeason, finalEpisode).toJson()
+                                Log.d(name, "load: Episodio (sin temporada explícita, asumido Temporada 1) encontrado: Título: $epTitle, Número: $finalEpisode, Enlace: $episodeLink")
                                 episodes.add(
                                     newEpisode(
                                         data = episodeDataJson
                                     ) {
                                         this.name = epTitle
-                                        this.season = 1
-                                        this.episode = epNumber
+                                        this.season = finalSeason
+                                        this.episode = finalEpisode
                                     }
                                 )
                             } else {
-                                Log.w(name, "load: Episodio (sin temporada explícita) incompleto o nulo encontrado. Título: $epTitle, Número: $epNumber, Enlace: $episodeLink")
+                                Log.w(name, "load: Episodio (sin temporada explícita) incompleto o nulo encontrado. Título: $epTitle, Número: $finalEpisode, Enlace: $episodeLink")
                             }
                         }
                     }
@@ -356,9 +396,40 @@ class PlushdProvider : MainAPI() {
         }
 
         val document = customGet(targetUrl)
-        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tama??o: ${document.html().length}")
+        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
 
         var linksFound = false
+
+        // 1. Parsear los data-server (para otros reproductores)
+        val serverOptions = document.select("ul.subselect li[data-server]")
+        Log.d(name, "loadLinks: Encontrados ${serverOptions.size} elementos de servidor.")
+
+        for (serverOption in serverOptions) {
+            val dataServerId = serverOption.attr("data-server")?.trim()
+            val currentServerName = serverOption.selectFirst("span")?.text()?.trim() // Variable local para serverName
+
+            if (dataServerId != null && dataServerId.isNotBlank()) {
+                try {
+                    val decodedBytes = Base64.decode(dataServerId, Base64.DEFAULT)
+                    val decodedServerUrl = String(decodedBytes)
+                    Log.d(name, "loadLinks: Servidor: '$currentServerName', Data-server decodificado: '$decodedServerUrl'")
+
+                    val extractorLoaded = loadExtractor(decodedServerUrl, targetUrl, subtitleCallback, callback)
+                    if (extractorLoaded) {
+                        linksFound = true
+                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para data-server: $decodedServerUrl")
+                    } else {
+                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-server: $decodedServerUrl.")
+                    }
+                } catch (e: Exception) {
+                    Log.e(name, "loadLinks: Error al decodificar Base64 o procesar servidor: '$dataServerId' ($currentServerName). Error: ${e.message}")
+                    e.printStackTrace()
+                }
+            } else {
+                Log.w(name, "loadLinks: Opción de servidor sin data-server ID válido. ID: $dataServerId, Nombre: $currentServerName")
+            }
+        }
+
 
         // Regex para capturar el contenido dentro de jwplayer("...").setup({...});
         val jwPlayerSetupRegex = Regex("""jwplayer\(\s*['"](?:[^"']+)['"]\s*\)\.setup\(\s*(\{[\s\S]*?\}\s*)\);""")
@@ -366,10 +437,6 @@ class PlushdProvider : MainAPI() {
 
         for (script in scriptElements) {
             val scriptContent = script.html()
-
-            // LOG DE DEPURACIÓN: Imprime el contenido de cada script para análisis
-            // Se trunca a los primeros 1000 caracteres para evitar logs excesivamente largos.
-            // Si necesitas ver más, ajusta el valor '1000'.
             Log.d(name, "loadLinks: Contenido de script encontrado (primeros ${scriptContent.length.coerceAtMost(1000)} chars): ${scriptContent.take(1000)}")
 
             val match = jwPlayerSetupRegex.find(scriptContent)
@@ -378,44 +445,39 @@ class PlushdProvider : MainAPI() {
                 val setupConfigJsonString = match.groupValues[1]
                 Log.d(name, "loadLinks: Encontrada configuración de JW Player: $setupConfigJsonString")
 
-                // Ahora necesitamos parsear este JSON. Jsoup no lo hace, así que usamos un regex más específico.
-                // Regex para 'file'
-                val fileRegex = Regex("""file\s*:\s*['"](https?:\/\/[^"']+\.m3u8[^"']*)['"]""")
+                val fileRegex = Regex("""file\s*:\s*['"](https?:\/\/[^"']+\.(?:m3u8|mp4)[^"']*)['"]""")
                 val fileMatch = fileRegex.find(setupConfigJsonString)
-                val m3u8Url = fileMatch?.groupValues?.get(1)
+                val mediaUrl = fileMatch?.groupValues?.get(1)
 
-                if (m3u8Url != null) {
-                    Log.d(name, "loadLinks: Encontrado Master M3U8 URL en JW Player setup: $m3u8Url")
+                if (mediaUrl != null) {
+                    Log.d(name, "loadLinks: Encontrado Media URL (M3U8/MP4) en JW Player setup: $mediaUrl")
+                    val linkType = if (mediaUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO // **** CORRECCIÓN: ExtractorLinkType.MP4 ****
                     callback(
                         ExtractorLink(
                             this.name,
-                            "Pelisplus M3U8",
-                            m3u8Url,
-                            targetUrl, // Referer
-                            Qualities.Unknown.value, // O podrías intentar extraer la calidad del nombre del archivo si es posible
+                            "Pelisplus (Principal)", // **** CORRECCIÓN: Se cambió a "Pelisplus (Principal)" ****
+                            mediaUrl,
+                            targetUrl,
+                            Qualities.Unknown.value,
                             headers = mapOf("Referer" to targetUrl),
-                            type = ExtractorLinkType.M3U8
+                            type = linkType
                         )
                     )
                     linksFound = true
                 } else {
-                    Log.w(name, "loadLinks: No se encontró URL de M3U8 en la configuración de JW Player 'file'.")
+                    Log.w(name, "loadLinks: No se encontró URL de M3U8/MP4 en la configuración de JW Player 'file'.")
                 }
 
-                // Regex para 'tracks' (subtítulos)
                 val tracksRegex = Regex("""tracks\s*:\s*(\[[\s\S]*?\])""")
                 val tracksMatch = tracksRegex.find(setupConfigJsonString)
                 val tracksJsonString = tracksMatch?.groupValues?.get(1)
 
                 if (tracksJsonString != null) {
                     Log.d(name, "loadLinks: Encontrados subtítulos en JW Player setup: $tracksJsonString")
-                    // Aquí, necesitas parsear el array JSON de subtítulos.
-                    // Esto es más complejo con regex, pero para un solo VTT simple, podríamos intentar:
-                    // Se ha mejorado ligeramente el regex para capturar el label y el file con más robustez.
                     val vttFileRegex = Regex("""\{[^}]*?file\s*:\s*['"](https?:\/\/[^"']+\.vtt[^"']*)['"][^}]*?(?:,\s*label\s*:\s*['"]([^"']+)['"])?[^}]*?\}""")
                     vttFileRegex.findAll(tracksJsonString).forEach { vttMatch ->
                         val vttUrl = vttMatch.groupValues[1]
-                        val vttLabel = vttMatch.groupValues.getOrNull(2) ?: "Unknown" // Si no hay label, usa "Unknown"
+                        val vttLabel = vttMatch.groupValues.getOrNull(2) ?: "Unknown"
                         Log.d(name, "loadLinks: Subtítulo VTT encontrado: $vttLabel - $vttUrl")
                         subtitleCallback(SubtitleFile(vttLabel, vttUrl))
                         linksFound = true
@@ -426,41 +488,23 @@ class PlushdProvider : MainAPI() {
             }
         }
 
-        // Considera el iframe principal como un fallback, aunque JW Player es más probable
         val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
         if (iframeSrc != null && iframeSrc.startsWith("http")) {
             Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
-            val extractorResult = safeApiCall { loadExtractor(iframeSrc, targetUrl, subtitleCallback, callback) }
-            if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
-                linksFound = true
-            } else {
-                Log.w(name, "loadLinks: loadExtractor no encontró enlaces o falló para el iframe principal: $iframeSrc")
+            try {
+                val extractorLoaded = loadExtractor(iframeSrc, targetUrl, subtitleCallback, callback)
+                if (extractorLoaded) {
+                    linksFound = true
+                    Log.d(name, "loadLinks: loadExtractor tuvo éxito para iframe: $iframeSrc")
+                } else {
+                    Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el iframe principal: $iframeSrc")
+                }
+            } catch (e: Exception) {
+                Log.e(name, "loadLinks: Error al cargar extractor para iframe: $iframeSrc. Error: ${e.message}")
             }
         } else {
             Log.i(name, "loadLinks: No se encontró iframe principal válido o no es HTTP. iframeSrc: $iframeSrc")
         }
-
-        // La sección de data-server es para otros reproductores, no directamente para HLS de JW Player
-        // La mantendremos comentada por ahora, ya que la prioridad es el JW Player.
-        /*
-        document.select("ul.subselect li[data-server]").forEach { serverOption ->
-            val dataServerId = serverOption.attr("data-server")?.trim()
-            val serverName = serverOption.selectFirst("span")?.text()?.trim()
-
-            if (dataServerId != null && dataServerId.isNotBlank()) {
-                try {
-                    val decodedServerId = String(Base64.decode(dataServerId, Base64.DEFAULT))
-                    Log.d(name, "loadLinks: Data-server decodificado: '$decodedServerId' ($serverName)")
-                    // Este es el punto donde se necesitaría una llamada AJAX
-                    // para obtener la URL real del extractor si decodedServerId no es una URL directa.
-                } catch (e: Exception) {
-                    Log.e(name, "loadLinks: Error al decodificar Base64 para data-server ID: '$dataServerId'. Error: ${e.message}")
-                }
-            } else {
-                Log.i(name, "loadLinks: Opción de servidor sin data-server ID válido. ID: $dataServerId, Nombre: $serverName")
-            }
-        }
-        */
 
         Log.d(name, "loadLinks: Proceso de carga de enlaces finalizado. Links encontrados: $linksFound")
         return linksFound
