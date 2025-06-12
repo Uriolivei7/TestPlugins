@@ -200,36 +200,47 @@ class PlushdProvider : MainAPI() {
         val document = customGet(url)
         Log.d(name, "load: Documento HTML de carga de detalles descargado. Tamaño: ${document.html().length}")
 
-        // **Ajustes basados en el HTML proporcionado y suposiciones comunes**
-        // Título: Buscamos un <h1> dentro de un div con clase "heading" o un <h1> con ID "movie-title" o "series-title"
-        // Si el h2 del slider es el más preciso, podríamos probar: h2[itemprop="name"] o h1#Title
-        // A menudo, el título principal está en un <h1> que no es parte de un slider principal.
-        // Prueba con un selector más específico si es posible.
-        val title = document.selectFirst("h1.Title, div.heading > h1, h2[itemprop=\"name\"]")?.text()?.trim()
+        // --- Ajustes de selectores basados en el HTML proporcionado ---
+        // Título: Priorizamos h1.slugh1 para películas, luego h2 dentro de home_slider_content.
+        val title = document.selectFirst("h1.slugh1, div.home_slider_content h2")?.text()?.trim()
 
-        // Póster: Generalmente es una <img>. Priorizar `data-src` por lazyload.
-        // Asumiendo que hay una imagen principal para el póster.
-        val poster = document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("data-src")?.trim()
-            ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("src")?.trim()
+        // Póster: Si la imagen está en un background-image de div.bg, extraemos de ahí.
+        // Si no, buscamos un img con data-src o src.
+        val poster = document.selectFirst("div.bg")?.attr("style")?.let { style ->
+            Regex("""url\("?([^")]*)"?\)""").find(style)?.groupValues?.get(1)
+        } ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("data-src")?.trim()
+        ?: document.selectFirst("div.image-single img, div.poster-single img, img.single-poster")?.attr("src")?.trim()
 
-        // Año: Manteniendo los selectores que tenías, son una buena primera suposición.
-        val year = document.selectFirst("div.heading span.year, span.Date, span.year-info")?.text()?.trim()?.toIntOrNull()
+        // Año: Lo buscamos en el enlace dentro de div.genres.rating
+        val year = document.selectFirst("div.genres.rating a[href*=\"/year/\"]")?.text()?.trim()?.toIntOrNull()
 
-        // Plot/Descripción: Basado en tu imagen, `p.scroll` es un candidato.
-        val plot = document.selectFirst("p.scroll, div.description-single p, div.description > p")?.text()?.trim()
+        // Plot/Descripción: div.description p o p.scroll
+        val plot = document.selectFirst("div.description p, p.scroll")?.text()?.trim()
 
-        // Géneros: Tu selector `div.genres a` es correcto según la imagen.
-        val genres = document.select("div.genres a, div.genres-single a, div.meta-data a[href*='/genero/']")?.mapNotNull { it.text()?.trim() }
+        // Géneros: Correcto con div.genres a
+        val genres = document.select("div.genres a")?.mapNotNull { it.text()?.trim() }
 
-        // Rating: Manteniendo los selectores que tenías.
-        val rating = document.selectFirst("div.rating-single, div.rating-imdb span.rating")?.text()?.trim()?.toFloatOrNull()?.times(100)?.toInt()
+        // Rating: Extraemos el texto después de "Rating:" en div.genres.rating
+        val ratingText = document.selectFirst("div.genres.rating span:contains(Rating)")?.text()?.trim()
+        val rating = ratingText?.let {
+            // Extraer solo el número después de "Rating:"
+            val value = Regex("""Rating:\s*([\d.]+)""").find(it)?.groupValues?.get(1)
+            value?.toFloatOrNull()?.times(100)?.toInt()
+        }
 
-        // Runtime: Manteniendo los selectores que tenías.
-        val runtime = document.selectFirst("div.meta-data > span:contains(min), span.Duration")?.text()?.replace(" min", "")?.trim()?.toIntOrNull()
+        // Runtime: Extraemos el texto después de "Duración:" en div.genres.rating
+        val runtimeText = document.selectFirst("div.genres.rating span:contains(Duración)")?.text()?.trim()
+        val runtime = runtimeText?.let {
+            // Extraer solo los números y luego parsear a minutos.
+            val hours = Regex("""(\d+)\s*hora(?:s)?""").find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val minutes = Regex("""(\d+)\s*minuto(?:s)?""").find(it)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            (hours * 60) + minutes
+        }
 
+        // Determinar el tipo (Movie o TvSeries)
         val type = if (url.contains("/serie/") || document.select("div.season.main").isNotEmpty()) TvType.TvSeries else TvType.Movie
 
-        Log.d(name, "load: Título detectado: $title, Tipo: $type, Póster: $poster, Año: $year")
+        Log.d(name, "load: Título detectado: $title, Tipo: $type, Póster: $poster, Año: $year, Plot: $plot, Géneros: $genres, Rating: $rating, Duración: $runtime")
 
         if (title == null) {
             Log.e(name, "load: ERROR: Título no encontrado para URL: $url")
@@ -246,17 +257,18 @@ class PlushdProvider : MainAPI() {
                 this.posterUrl = poster ?: ""
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres // Asigna géneros a tags
+                this.tags = genres ?: arrayListOf() // Asegúrate de que no sea null
                 this.rating = rating
                 this.duration = runtime
             }
         } else {
             val episodes = ArrayList<Episode>()
-            // CORRECCIÓN: Ajustado h3#seasonTitle a h3#seasonTitleChange
+            // Selector para div.season.main que contiene las temporadas
             val seasonElements = document.select("div.season.main")
 
             if (seasonElements.isNotEmpty()) {
                 seasonElements.forEach { seasonDiv ->
+                    // CORRECCIÓN: Confirmado h3#seasonTitleChange
                     val seasonNumber = seasonDiv.selectFirst("h3#seasonTitleChange")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
                     Log.d(name, "load: Procesando Temporada: $seasonNumber")
 
@@ -315,10 +327,10 @@ class PlushdProvider : MainAPI() {
                 episodes.sortedWith(compareBy({it.season}, {it.episode}))
             ) {
                 this.posterUrl = poster ?: ""
-                this.backgroundPosterUrl = poster ?: ""
+                this.backgroundPosterUrl = poster ?: "" // Usar el mismo póster para el fondo si no hay uno específico
                 this.year = year
                 this.plot = plot ?: ""
-                this.tags = genres
+                this.tags = genres ?: arrayListOf() // Asegúrate de que no sea null
                 this.rating = rating
                 this.duration = runtime
             }
@@ -349,16 +361,17 @@ class PlushdProvider : MainAPI() {
         }
 
         val document = customGet(targetUrl)
-        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tama??o: ${document.html().length}")
+        Log.d(name, "loadLinks: Documento HTML de enlaces descargado. Tamaño: ${document.html().length}")
 
         var linksFound = false
 
         // Selector para el iframe principal del reproductor
-        // Sigue siendo importante verificar este con la página real.
         val iframeSrc = document.selectFirst("div#play iframe")?.attr("src")?.trim()
         if (iframeSrc != null && iframeSrc.startsWith("http")) {
             Log.d(name, "loadLinks: Encontrado posible iframe principal: $iframeSrc. Intentando cargar con extractores genéricos.")
             val extractorResult = safeApiCall { loadExtractor(iframeSrc, targetUrl, subtitleCallback, callback) }
+            // Corrección: El resultado de safeApiCall es Resource.Success o Resource.Failure.
+            // Para verificar si se encontraron enlaces, revisamos si el resultado es Success y su valor es true.
             if (extractorResult is com.lagradost.cloudstream3.mvvm.Resource.Success && extractorResult.value == true) {
                 linksFound = true
             } else {
@@ -369,7 +382,6 @@ class PlushdProvider : MainAPI() {
         }
 
         // Búsqueda de iframes en las opciones de servidor (si existen, p. ej. debajo del reproductor)
-        // Manteniendo este selector.
         document.select("ul.subselect li[data-server]").forEach { serverOption ->
             val dataServerId = serverOption.attr("data-server")?.trim()
             val serverName = serverOption.selectFirst("span")?.text()?.trim()
