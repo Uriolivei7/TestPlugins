@@ -108,7 +108,9 @@ class PlushdProvider : MainAPI() {
 
         val urls = listOf(
             Pair("Últimas Películas Agregadas", "$mainUrl/peliculas${if (page > 1) "/$page" else ""}"),
-            Pair("Series Recientes", "$mainUrl/series${if (page > 1) "/$page" else ""}")
+            Pair("Series Recientes", "$mainUrl/series${if (page > 1) "/$page" else ""}"),
+            Pair("Animes Recientes", "$mainUrl/animes${if (page > 1) "/$page" else ""}"),
+            Pair("Doramas Recientes", "$mainUrl/doramas${if (page > 1) "/$page" else ""}")
         )
 
         val homePageLists = urls.customApmap { (listName, url) ->
@@ -116,6 +118,8 @@ class PlushdProvider : MainAPI() {
             val tvType = when (listName) {
                 "Últimas Películas Agregadas" -> TvType.Movie
                 "Series Recientes" -> TvType.TvSeries
+                "Animes Recientes" -> TvType.Anime
+                "Doramas Recientes" -> TvType.AsianDrama
                 else -> TvType.Movie
             }
             val doc = customGet(url)
@@ -496,39 +500,32 @@ class PlushdProvider : MainAPI() {
             val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim() // Este es el Base64 que sale en el HTML
             if (!dataTrEncoded.isNullOrBlank()) {
                 try {
-                    val decodedBytes = Base64.decode(dataTrEncoded, Base64.DEFAULT)
-                    val decodedDataTr = String(decodedBytes) // Este es el valor decodificado, EJ: "p27Cnl2x83deJm4iDvZbFhTMVqqfyAXw9oTecjg7vP+apbYR6tA="
+                    // No necesitas decodificar el Base64 aquí para la petición,
+                    // el token se usa directamente en la URL o se pasa tal cual.
+                    // Pero sí necesitas el valor real para el URL, que es lo que obtenemos
+                    // después de la decodificación.
+
+                    val decodedDataTr = String(Base64.decode(dataTrEncoded, Base64.DEFAULT))
                     Log.d(name, "loadLinks: Encontrado y decodificado data-tr del reproductor principal: '$decodedDataTr'")
 
-                    // **CORRECCIÓN AQUÍ:** PASAR EL VALOR DECODIFICADO AL POSTDATA
-                    val apiUrl = "https://ww3.pelisplus.to/player/option/get/"
-                    val postData = mapOf("data" to decodedDataTr) // Usar el dataTr *DECODIFICADO* aquí
+                    // **NUEVO: Construir la URL del video directamente**
+                    // Basado en el log de network, la URL es algo como:
+                    // https://ww3.pelisplus.to/master.m3u8?t=pr_DZX2VpLMZTQ88jD...
+                    // La parte 'pr_DZX2VpLMZTQ88jD...' es el data-tr decodificado.
+                    val videoUrl = "https://ww3.pelisplus.to/master.m3u8?t=$decodedDataTr" // Ajusta esta URL si el prefijo/sufijo cambia
+                    Log.d(name, "loadLinks: Intentando cargar video desde URL: $videoUrl")
 
-                    val apiResponse = app.post(apiUrl, data = postData).text
-                    Log.d(name, "loadLinks: Respuesta de la API: $apiResponse")
-
-                    // Parsear la respuesta JSON
-                    val gson = Gson()
-                    val jsonResponse = gson.fromJson(apiResponse, JsonObject::class.java)
-                    val embedUrl = jsonResponse.get("embed_url")?.asString
-
-                    if (embedUrl != null) {
-                        Log.d(name, "loadLinks: Encontrada embed_url: $embedUrl")
-
-                        // Usar loadExtractor con la embed_url
-                        val extractorLoaded = loadExtractor(embedUrl, targetUrl, subtitleCallback, callback)
-                        if (extractorLoaded) {
-                            linksFound = true
-                            Log.d(name, "loadLinks: loadExtractor tuvo éxito para la embed_url: $embedUrl")
-                        } else {
-                            Log.w(name, "loadLinks: loadExtractor no encontró enlaces para la embed_url: $embedUrl.")
-                        }
+                    // **Usar loadExtractor con la URL del video**
+                    val extractorLoaded = loadExtractor(videoUrl, targetUrl, subtitleCallback, callback)
+                    if (extractorLoaded) {
+                        linksFound = true
+                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para la URL de video: $videoUrl")
                     } else {
-                        Log.w(name, "loadLinks: No se encontró 'embed_url' en la respuesta de la API.")
+                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para la URL de video: $videoUrl.")
                     }
 
                 } catch (e: Exception) {
-                    Log.e(name, "loadLinks: Error al decodificar Base64, hacer petición a la API o procesar la respuesta. Error: ${e.message}")
+                    Log.e(name, "loadLinks: Error al procesar data-tr o cargar video. Error: ${e.message}")
                     e.printStackTrace()
                 }
             } else {

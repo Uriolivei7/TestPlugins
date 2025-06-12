@@ -41,6 +41,7 @@ class SoloLatinoProvider : MainAPI() {
             Pair("Series", "$mainUrl/series"),
             Pair("Animes", "$mainUrl/animes"),
             Pair("Cartoons", "$mainUrl/genre_series/toons"),
+            Pair("K-dramas", "$mainUrl/genre_series/kdramas")
         )
 
         val homePageLists = urls.apmap { (name, url) ->
