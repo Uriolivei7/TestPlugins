@@ -8,6 +8,8 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType // Asegúrate de que e
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.google.gson.Gson // Añade esta línea
+import com.google.gson.JsonObject // Asegúrate de que esta línea esté presente
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -488,26 +490,45 @@ class PlushdProvider : MainAPI() {
             }
         }
 
-        // 3. Buscar el data-tr en el reproductor principal (confirmado por la imagen)
+        // 3. Buscar el data-tr en el reproductor principal
         val playerTrDiv = document.selectFirst("div#player-tr[data-tr]") // Selecciona el div con id "player-tr" y atributo "data-tr"
         if (playerTrDiv != null) {
-            val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim()
+            val dataTrEncoded = playerTrDiv.attr("data-tr")?.trim() // Este es el Base64 que sale en el HTML
             if (!dataTrEncoded.isNullOrBlank()) {
                 try {
                     val decodedBytes = Base64.decode(dataTrEncoded, Base64.DEFAULT)
-                    val decodedPlayerUrl = String(decodedBytes)
-                    Log.d(name, "loadLinks: Encontrado y decodificado data-tr del reproductor principal: '$decodedPlayerUrl'")
+                    val decodedDataTr = String(decodedBytes) // Este es el valor decodificado, EJ: "p27Cnl2x83deJm4iDvZbFhTMVqqfyAXw9oTecjg7vP+apbYR6tA="
+                    Log.d(name, "loadLinks: Encontrado y decodificado data-tr del reproductor principal: '$decodedDataTr'")
 
-                    // El decodedPlayerUrl debería ser la URL real del video o de un extractor
-                    val extractorLoaded = loadExtractor(decodedPlayerUrl, targetUrl, subtitleCallback, callback)
-                    if (extractorLoaded) {
-                        linksFound = true
-                        Log.d(name, "loadLinks: loadExtractor tuvo éxito para el data-tr principal: $decodedPlayerUrl")
+                    // **CORRECCIÓN AQUÍ:** PASAR EL VALOR DECODIFICADO AL POSTDATA
+                    val apiUrl = "https://ww3.pelisplus.to/player/option/get/"
+                    val postData = mapOf("data" to decodedDataTr) // Usar el dataTr *DECODIFICADO* aquí
+
+                    val apiResponse = app.post(apiUrl, data = postData).text
+                    Log.d(name, "loadLinks: Respuesta de la API: $apiResponse")
+
+                    // Parsear la respuesta JSON
+                    val gson = Gson()
+                    val jsonResponse = gson.fromJson(apiResponse, JsonObject::class.java)
+                    val embedUrl = jsonResponse.get("embed_url")?.asString
+
+                    if (embedUrl != null) {
+                        Log.d(name, "loadLinks: Encontrada embed_url: $embedUrl")
+
+                        // Usar loadExtractor con la embed_url
+                        val extractorLoaded = loadExtractor(embedUrl, targetUrl, subtitleCallback, callback)
+                        if (extractorLoaded) {
+                            linksFound = true
+                            Log.d(name, "loadLinks: loadExtractor tuvo éxito para la embed_url: $embedUrl")
+                        } else {
+                            Log.w(name, "loadLinks: loadExtractor no encontró enlaces para la embed_url: $embedUrl.")
+                        }
                     } else {
-                        Log.w(name, "loadLinks: loadExtractor no encontró enlaces para el data-tr principal: $decodedPlayerUrl.")
+                        Log.w(name, "loadLinks: No se encontró 'embed_url' en la respuesta de la API.")
                     }
+
                 } catch (e: Exception) {
-                    Log.e(name, "loadLinks: Error al decodificar Base64 o procesar data-tr: '$dataTrEncoded'. Error: ${e.message}")
+                    Log.e(name, "loadLinks: Error al decodificar Base64, hacer petición a la API o procesar la respuesta. Error: ${e.message}")
                     e.printStackTrace()
                 }
             } else {
