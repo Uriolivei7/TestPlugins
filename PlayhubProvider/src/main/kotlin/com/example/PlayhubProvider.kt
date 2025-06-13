@@ -1,4 +1,4 @@
-package com.stormunblessed
+package com.example
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
@@ -6,7 +6,8 @@ import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 
-class PlayhubProvider:MainAPI() {
+class PlayhubProvider : MainAPI() {
+
     override var mainUrl = "https://playhublite.com"
     override var name = "Playhub"
     override var lang = "es"
