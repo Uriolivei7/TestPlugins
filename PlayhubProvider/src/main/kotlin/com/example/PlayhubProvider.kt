@@ -270,17 +270,14 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("overview"       ) var overview      : String? = null,
         @JsonProperty("still_path"     ) var stillPath     : String? = null
     )
-    // --- FIN DATA CLASSES para Carga de Detalles ---
 
     // Sobrescribe la función para cargar detalles de películas/series
     override suspend fun load(url: String): LoadResponse? {
-        // Asegúrate de que 'id' se extraiga correctamente, sin importar si es movie o series
         val initialTypeFromUrl = if (url.contains("/movies/")) TvType.Movie else TvType.TvSeries
-        val id = url.substringAfterLast("/") // Extrae el ID después de la última barra
-
+        val id = url.substringAfterLast("/")
         if (id.isBlank()) {
             Log.e("PlayHubLite", "load: ID no pudo ser extraído de la URL: $url")
-            return null // No podemos continuar sin un ID válido
+            return null
         }
 
         var apiDetailUrl = if (initialTypeFromUrl == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
@@ -288,31 +285,17 @@ class PlayhubProvider : MainAPI() {
 
         val res = try {
             var apiResponse = app.get(apiDetailUrl, headers = playhubHeaders)
-            Log.d("PlayHubLite", "load: Código de estado de detalles (intento 1): ${apiResponse.code}")
-
-            // Si la respuesta es 404 y el tipo asumido es incorrecto,
-            // podríamos intentar el otro tipo. Esto es un parche si la API es inconsistente.
             if (apiResponse.code == 404) {
-                Log.w("PlayHubLite", "load: Recibido 404 para ${initialTypeFromUrl} ID $id. Intentando el tipo opuesto.")
                 val alternateType = if (initialTypeFromUrl == TvType.Movie) TvType.TvSeries else TvType.Movie
-                apiDetailUrl = if (alternateType == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id" // Actualiza la URL para el intento alternativo
-                Log.d("PlayHubLite", "load: Intentando con la URL alternativa: $apiDetailUrl")
-                apiResponse = app.get(apiDetailUrl, headers = playhubHeaders) // Vuelve a intentar la solicitud
-                Log.d("PlayHubLite", "load: Código de estado de detalles (intento 2, ${alternateType}): ${apiResponse.code}")
-
-                if (apiResponse.code == 200) {
-                    Log.d("PlayHubLite", "load: La URL alternativa funcionó. Ajustando tipo a $alternateType.")
-                    apiResponse.parsed<PlayhubLoadMain>() // Parsear la respuesta de la URL alternativa
-                } else {
-                    throw Exception("Ambas URLs de detalles fallaron. Último código: ${apiResponse.code}")
-                }
+                apiDetailUrl = if (alternateType == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
+                apiResponse = app.get(apiDetailUrl, headers = playhubHeaders)
+                if (apiResponse.code == 200) apiResponse.parsed<PlayhubLoadMain>() else throw Exception("Ambas URLs fallaron")
             } else {
                 apiResponse.parsed<PlayhubLoadMain>()
             }
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "load: ERROR al obtener o parsear detalles de $apiDetailUrl: ${e.message}", e)
-            Log.e("PlayHubLite", "load: Cuerpo de respuesta (si disponible): ${e.printStackTrace()}")
-            return null // Fallo al cargar los detalles
+            Log.e("PlayHubLite", "load: ERROR al obtener o parsear detalles: ${e.message}", e)
+            return null
         }
 
         val title = res.title ?: res.originalTitle ?: res.name ?: res.originalName ?: ""
@@ -323,16 +306,8 @@ class PlayhubProvider : MainAPI() {
         val episodes = ArrayList<Episode>()
         val recs = ArrayList<SearchResponse>()
 
-        Log.d("PlayHubLite", "load: Título: $title, Plot: ${plot.take(100)}...")
-
-        // Determinación final del TvType basado en los datos obtenidos de la API
-        val actualType = if (!res.firstAirDate.isNullOrEmpty()) { // Si tiene firstAirDate, es una serie
-            TvType.TvSeries
-        } else { // De lo contrario, es una película
-            TvType.Movie
-        }
+        val actualType = if (!res.firstAirDate.isNullOrEmpty()) TvType.TvSeries else TvType.Movie
         Log.d("PlayHubLite", "load: Tipo de contenido determinado por API: $actualType")
-
 
         if (actualType == TvType.TvSeries) {
             Log.d("PlayHubLite", "load: Procesando temporadas para series.")
@@ -346,7 +321,6 @@ class PlayhubProvider : MainAPI() {
                     val seasonres = try {
                         val seasonApiResponse = app.get(seasonApiUrl, headers = playhubHeaders)
                         Log.d("PlayHubLite", "load: Código de estado de temporada $seasonNum: ${seasonApiResponse.code}")
-                        Log.d("PlayHubLite", "load: Cuerpo de temporada $seasonNum (primeros 500 chars): ${seasonApiResponse.text.take(500)}")
                         seasonApiResponse.parsed<SeasonsInfo>()
                     } catch (e: Exception) {
                         Log.e("PlayHubLite", "load: ERROR al obtener o parsear temporada $seasonApiUrl: ${e.message}", e)
@@ -354,90 +328,57 @@ class PlayhubProvider : MainAPI() {
                     }
 
                     if (seasonres == null || seasonres.episodes.isNullOrEmpty()) {
-                        Log.w("PlayHubLite", "load: No se encontraron episodios para la temporada $seasonNum en $seasonApiUrl.")
-                        return@apmap // Continúa con la siguiente temporada si no hay episodios o la respuesta es nula
+                        Log.w("PlayHubLite", "load: No se encontraron episodios para la temporada $seasonNum.")
+                        return@apmap
                     }
 
                     Log.d("PlayHubLite", "load: Temporada $seasonNum obtenida. Procesando ${seasonres.episodes?.size} episodios.")
-
                     seasonres.episodes?.apmap { ep ->
                         val eptitle = ep.name
                         val epthumb = getImageUrl(ep.stillPath)
                         val epPlot = ep.overview
                         val epNum = ep.episodeNumber
                         val airDate = ep.airDate
-
-                        // IMPORTANTE: La URL de 'data' para loadLinks para un episodio debe ser la URL de la API que devuelve las FUENTES
-                        // Si la API es http://v3.playhublite.com/api/sources/{serieId}_s{seasonNumber}_e{episodeNumber}
-                        val episodeSourceDataUrl = "${playhubAPI}sources/${seriesID}_s${seasonNum}_e${epNum}"
+                        // Ajusta esta URL según la API real (usa el endpoint que genera el .m3u8)
+                        val episodeSourceDataUrl = "https://playhublite.com/api/stream/${seriesID}_s${seasonNum}_e${epNum}" // Placeholder
                         Log.d("PlayHubLite", "load: Añadiendo episodio S${seasonNum}E${epNum}: $eptitle con dataUrl para loadLinks: $episodeSourceDataUrl")
 
-                        episodes.add(
-                            newEpisode(episodeSourceDataUrl) {
-                                this.name = eptitle
-                                this.season = seasonNum
-                                this.episode = epNum
-                                this.posterUrl = fixUrlNull(epthumb)
-                                this.description = epPlot
-                                addDate(airDate)
-                            })
+                        episodes.add(newEpisode(episodeSourceDataUrl) {
+                            this.name = eptitle
+                            this.season = seasonNum
+                            this.episode = epNum
+                            this.posterUrl = fixUrlNull(epthumb)
+                            this.description = epPlot
+                            addDate(airDate)
+                        })
                     }
-                } else {
-                    Log.w("PlayHubLite", "load: Serie ID ($seriesID) o número de temporada ($seasonNum) nulo en mainInfo para serie: $mainInfo")
                 }
             }
         }
 
-        // Procesamiento de recomendaciones (para películas y series)
         res.recommendations?.map {
-            // Usa 'title' para películas y 'name' para series en recomendaciones
             val rectitle = it.title ?: it.name ?: ""
             val recid = it.id
             val recposter = getImageUrl(it.posterPath)
-
-            // Intenta determinar el tipo de la recomendación de forma más robusta
-            // Si la recomendación tiene 'name' pero no 'title', es probable que sea una serie.
-            // Si tiene 'title' (o ambos), y es probable que sea una película por el contexto del API.
             val recType = if (it.name != null && it.title == null) TvType.TvSeries else TvType.Movie
             val recUrl = if (recType == TvType.Movie) "$mainUrl/movies/$recid" else "$mainUrl/series/$recid"
-
-            recs.add(
-                when(recType) {
-                    TvType.Movie -> newMovieSearchResponse(rectitle, recUrl, TvType.Movie) { this.posterUrl = recposter }
-                    TvType.TvSeries -> newTvSeriesSearchResponse(rectitle, recUrl, TvType.TvSeries) { this.posterUrl = recposter }
-                    else -> throw IllegalStateException("Unsupported TvType for recommendation: $recType") // Esto no debería ocurrir
-                }
-            )
+            recs.add(if (recType == TvType.Movie) newMovieSearchResponse(rectitle, recUrl, TvType.Movie) { this.posterUrl = recposter }
+            else newTvSeriesSearchResponse(rectitle, recUrl, TvType.TvSeries) { this.posterUrl = recposter })
         }
 
-
-        return when (actualType) { // Usar 'actualType' aquí
-            TvType.TvSeries -> {
-                newTvSeriesLoadResponse(
-                    title,
-                    url, // url original de la página (e.g. playhublite.com/series/ID)
-                    actualType, // Usa el actualType
-                    episodes
-                ) {
-                    this.posterUrl = poster
-                    this.backgroundPosterUrl = backposter
-                    this.plot = plot
-                    this.tags = tags
-                    this.recommendations = recs
-                }
+        return when (actualType) {
+            TvType.TvSeries -> newTvSeriesLoadResponse(title, url, actualType, episodes) {
+                this.posterUrl = poster
+                this.backgroundPosterUrl = backposter
+                this.plot = plot
+                this.tags = tags
+                this.recommendations = recs
             }
             TvType.Movie -> {
-                // IMPORTANTE: La URL de 'data' para loadLinks para una película debe ser la URL de la API que devuelve las FUENTES
-                // Si la API es http://v3.playhublite.com/api/sources/{movieId}
-                val movieSourceDataUrl = "${playhubAPI}sources/${id}" // Usa el ID de la película
+                // Ajusta esta URL según la API real (usa el endpoint que genera el .m3u8)
+                val movieSourceDataUrl = "https://playhublite.com/api/stream/$id" // Placeholder
                 Log.d("PlayHubLite", "load: URL de datos de fuente para película: $movieSourceDataUrl")
-
-                newMovieLoadResponse(
-                    title,
-                    url, // url original de la página (e.g. playhublite.com/movies/ID)
-                    actualType, // Usa el actualType
-                    movieSourceDataUrl // Pasa la URL de la API de fuentes para la película
-                ) {
+                newMovieLoadResponse(title, url, actualType, movieSourceDataUrl) {
                     this.posterUrl = poster
                     this.plot = plot
                     this.backgroundPosterUrl = backposter
@@ -445,7 +386,7 @@ class PlayhubProvider : MainAPI() {
                     this.recommendations = recs
                 }
             }
-            else -> null // Devolver null si el tipo no es compatible
+            else -> null
         }
     }
 
@@ -493,123 +434,70 @@ class PlayhubProvider : MainAPI() {
         }
     }
 
-    // Sobrescribe la función para cargar los enlaces de reproducción
-    override suspend fun loadLinks(
-        data: String, // ¡Esta 'data' DEBE ser la URL de la API de fuentes!
-        isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ): Boolean {
-        // 1. Logging inicial para depuración
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         Log.d("PlayHubLite", "loadLinks - Data de entrada (API de Fuentes): $data")
 
-        // 2. Validación de la URL de entrada
         if (data.isBlank()) {
-            Log.e("PlayHubLite", "loadLinks: La URL de datos de fuentes está vacía. No se puede cargar enlaces.")
+            Log.e("PlayHubLite", "loadLinks: La URL de datos de fuentes está vacía.")
             return false
         }
 
-        // 3. Solicitud a la API de fuentes para obtener los datos encriptados
-        val rr = try {
-            val apiResponse = app.get(data, headers = playhubHeaders)
+        val response = try {
+            val apiResponse = app.get(data, headers = playhubHeaders, allowRedirects = true)
             Log.d("PlayHubLite", "loadLinks: Código de estado de la API de fuentes: ${apiResponse.code}")
             Log.d("PlayHubLite", "loadLinks: Cuerpo de la API de fuentes (primeros 500 chars): ${apiResponse.text.take(500)}")
-
-            // Verificar si la respuesta es exitosa. Si no es 200, podría ser un problema.
-            if (apiResponse.code !in 200..299) {
-                Log.e("PlayHubLite", "loadLinks: API de fuentes devolvió un código de estado ${apiResponse.code}. Cuerpo: ${apiResponse.text}")
-                return false
-            }
-            apiResponse.parsed<DataBase>() // Intenta parsear la respuesta como DataBase
+            apiResponse
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: Error al obtener o parsear BaseDatos de la API de fuentes $data: ${e.message}", e)
-            Log.e("PlayHubLite", "loadLinks: Posiblemente la URL de fuentes ($data) es incorrecta o la API no responde.")
+            Log.e("PlayHubLite", "loadLinks: Error al obtener la API de fuentes $data: ${e.message}", e)
             return false
         }
 
-        // 4. Obtener la cadena Base64 encriptada del campo 'data'
-        val rawDataBase64 = rr.data
-        if (rawDataBase64.isNullOrEmpty()) {
-            Log.w("PlayHubLite", "loadLinks: Campo 'data' en BaseDatos vacío o nulo. No hay enlaces para procesar.")
+        if (response.code !in 200..299) {
+            Log.e("PlayHubLite", "loadLinks: API de fuentes devolvió un código de estado ${response.code}. Cuerpo: ${response.text}")
             return false
         }
 
-        Log.d("PlayHubLite", "loadLinks: Raw Base64 de la BD recibidos (primeros 200 chars): ${rawDataBase64.take(200)}")
-
-        // 5. Aplicar las sustituciones y luego decodificar Base64
-        // Estas sustituciones son CRÍTICAS y deben coincidir EXACTAMENTE con el esquema de ofuscación de Playhub.
-        // Asegúrate de que `?.` no rompa la cadena si `rawDataBase64` no es nulo aquí, mejor usar `rawDataBase64.replace(...)`
-        val datafix = rawDataBase64
-            .replace("#", "A")
-            .replace("!", "B")
-            .replace("%", "N")
-            .replace("&", "i")
-            .replace("/", "l")
-            .replace("*", "L")
-            .replace("((", "j") // ¡Cuidado con dobles paréntesis, verifica si son literales!
-            .replace("[]", "=") // ¡Cuidado con corchetes vacíos, verifica si son literales!
-
-        if (datafix.isBlank()) { // Usar isBlank para verificar si está vacío o solo espacios en blanco
-            Log.e("PlayHubLite", "loadLinks: datafix está vacío después de las sustituciones. Esto indica un problema con el formato original o las sustituciones.")
-            return false
-        }
-        Log.d("PlayHubLite", "loadLinks: datafix después de sustituciones (primeros 200 chars): ${datafix.take(200)}")
-
-        val dadatec = try {
-            // Usando Android Base64 directamente, ya que lo tienes importado y es confiable.
-            String(Base64.decode(datafix, Base64.DEFAULT), UTF_8)
-        } catch (e: IllegalArgumentException) {
-            Log.e("PlayHubLite", "loadLinks: Error al decodificar Base64 para datafix: $datafix, error: ${e.message}", e)
-            return false
-        } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: Error inesperado al decodificar Base64: ${e.message}", e)
-            return false
-        }
-
-        if (dadatec.isBlank()) {
-            Log.e("PlayHubLite", "loadLinks: Cadena decodificada (dadatec) está vacía. Esto es un problema de Base64 o datafix.")
-            return false
-        }
-        Log.d("PlayHubLite", "loadLinks: JSON de servidores decodificado (primeros 500 chars): ${dadatec.take(500)}")
-
-        // 6. Parsear el JSON decodificado a una lista de ServersInfo
-        val jsonServers = tryParseJson<ArrayList<ServersInfo>>(dadatec)
-        if (jsonServers.isNullOrEmpty()) {
-            Log.w("PlayHubLite", "loadLinks: tryParseJson devolvió una lista vacía o nula. El JSON decodificado no coincide con ServersInfo.")
-            Log.w("PlayHubLite", "loadLinks: JSON decodificado que intentó parsear: $dadatec")
-            return false
-        }
-        Log.d("PlayHubLite", "loadLinks: Se encontraron ${jsonServers.size} servidores en el JSON.")
-
-        // 7. Procesar cada servidor encontrado
-        jsonServers.apmap { serverInfo ->
-            val originalLink = serverInfo.url
-            if (originalLink.isNullOrBlank()) {
-                Log.w("PlayHubLite", "loadLinks: Enlace original de servidor vacío o nulo para serverInfo: $serverInfo")
-                return@apmap // Salta a la siguiente iteración si el enlace es nulo o vacío
+        // Suponemos que la respuesta es un enlace .m3u8 o redirige a uno
+        val link = response.text.trim()
+        if (link.isNotBlank() && link.endsWith(".m3u8")) {
+            Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 detectado: $link")
+            callback.invoke(
+                newExtractorLink(
+                    source = name,
+                    name = name,
+                    url = link,
+                    type = ExtractorLinkType.M3U8 // Tipo específico para HLS
+                ).apply {
+                    this.referer = "https://tpz6t.com/" // Ajusta según el referer real
+                    this.quality = Qualities.Unknown.value
+                    this.headers = playhubHeaders // Usa los headers definidos en tu clase
+                }
+            )
+            return true
+        } else {
+            // Si no es .m3u8 directamente, busca el token y construye la URL
+            val tokenMatch = Regex("t=([^&]+)").find(response.text)
+            if (tokenMatch != null) {
+                val token = tokenMatch.groupValues[1]
+                val baseUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/8ga80911jrjl_x/master.m3u8?t=$token" // Ajusta el path y fr según el contenido
+                Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 construido con token: $baseUrl")
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = baseUrl,
+                        type = ExtractorLinkType.M3U8
+                    ).apply {
+                        this.referer = "https://tpz6t.com/"
+                        this.quality = Qualities.Unknown.value
+                        this.headers = playhubHeaders
+                    }
+                )
+                return true
             }
-            Log.d("PlayHubLite", "loadLinks: Procesando servidor: ${serverInfo.server}, Enlace original: $originalLink")
-
-            var linkToExtract = originalLink // Usa el enlace original si no hay desencriptación AES
-
-            // 9. Aplicar reemplazos específicos para transformar el enlace de la API en un enlace de reproductor
-            // Estos reemplazos son específicos de cómo PlayhublLite maneja sus embeds o redirecciona los enlaces.
-            linkToExtract = linkToExtract
-                .replace(Regex("(https|http):.*\\/api\\/source\\/"), "https://embedsito.com/v/")
-                .replace(Regex("https://sbrity.com|https://sblanh.com"), "https://watchsb.com")
-            // Añade más reemplazos si son necesarios, por ejemplo, para otros dominios de embeds
-            // .replace("otro_dominio_feo.com", "otro_dominio_limpio.com")
-
-            Log.d("PlayHubLite", "loadLinks: Enlace final a pasar al extractor: $linkToExtract")
-
-            // 10. Pasar el enlace final al extractor de Cloudstream3
-            if (linkToExtract.isNotBlank()) {
-
-                loadExtractor(linkToExtract, mainUrl, subtitleCallback, callback)
-            } else {
-                Log.w("PlayHubLite", "loadLinks: Enlace de extractor vacío después de transformaciones para serverInfo: $serverInfo")
-            }
+            Log.w("PlayHubLite", "loadLinks: No se encontró un enlace .m3u8 válido en la respuesta: $link")
+            return false
         }
-        return true // Indica que la operación de carga de enlaces se ha completado (no necesariamente que se hayan encontrado enlaces válidos)
     }
+
 }
