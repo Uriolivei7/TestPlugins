@@ -1,11 +1,13 @@
-package com.stormunblessed
+package com.example
 
 import android.util.Base64
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.getQualityFromName
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URL
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 
 class CablevisionHdProvider : MainAPI() {
 
@@ -350,14 +352,16 @@ class CablevisionHdProvider : MainAPI() {
                     val extractedurl = decodeBase64UntilUnchanged(hash)
                     if (extractedurl.isNotBlank()) {
                         callback(
-                                ExtractorLink(
-                                        it.text() ?: getHostUrl(extractedurl),
-                                        it.text() ?: getHostUrl(extractedurl),
-                                        extractedurl,
-                                        "${getBaseUrl(extractedurl)}/",
-                                        getQualityFromName(""),
-                                        extractedurl.contains("m3u8")
-                                )
+                            newExtractorLink(
+                                it.text() ?: getHostUrl(extractedurl),
+                                it.text() ?: getHostUrl(extractedurl),
+                                extractedurl,
+                                // CAMBIO AQUÍ: Usar ExtractorLinkType.M3U8 si contiene "m3u8", sino ExtractorLinkType.VIDEO
+                                if (extractedurl.contains("m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                            ) {
+                                referer = "${getBaseUrl(extractedurl)}/"
+                                quality = getQualityFromName("")
+                            }
                         )
                     }
                 }
