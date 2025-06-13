@@ -4,8 +4,9 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import android.util.Log // Importar Log para depuración
-import com.fasterxml.jackson.databind.JsonNode // Importar JsonNode
+import android.util.Log
+import com.fasterxml.jackson.databind.JsonNode
+import java.util.regex.Pattern
 
 class PlushdProvider : MainAPI() {
     override var mainUrl = "https://ww3.pelisplus.to"
@@ -18,7 +19,7 @@ class PlushdProvider : MainAPI() {
         TvType.Movie,
         TvType.TvSeries,
         TvType.Anime,
-        TvType.AsianDrama
+        TvType.AsianDrama,
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
@@ -89,12 +90,13 @@ class PlushdProvider : MainAPI() {
             if (!script.isNullOrEmpty()) {
                 var jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
 
-                // Limpieza del JSON para manejar caracteres y posibles cortes
+                // Limpieza del JSON para manejar cortes y caracteres
                 jsonscript = jsonscript.replace("\\/", "/").replace("\\\"", "\"")
                     .replace(Regex("(?<!\\\\)\"[^\"]*$"), "") // Elimina cadenas no cerradas al final
+                    .replace(Regex(",\\s*\\}"), "}") // Corrige objetos truncados
                     .trim()
 
-                // Depuración: Imprimir el JSON limpio
+                // Depuración
                 Log.d("PlushdProvider", "seasonsJson recuperado y limpiado: $jsonscript")
 
                 try {
@@ -104,7 +106,6 @@ class PlushdProvider : MainAPI() {
                         if (seasonNode.isArray) {
                             seasonNode.forEach { episodeNode ->
                                 try {
-                                    // Intenta parsear cada episodio individualmente
                                     val info = parseJson<MainTemporadaElement>(episodeNode.toString())
                                     val epTitle = info.title?.takeIf { it.isNotBlank() } ?: "Episodio sin título"
                                     val seasonNum = info.season ?: -1
@@ -133,7 +134,7 @@ class PlushdProvider : MainAPI() {
                     }
                 } catch (e: Exception) {
                     Log.e("PlushdProvider", "Error general al parsear seasonsJson: $jsonscript", e)
-                    // Continúa aunque falle el parsing completo, usando los episodios ya añadidos
+                    // Continúa con los episodios ya procesados
                 }
             }
         }
