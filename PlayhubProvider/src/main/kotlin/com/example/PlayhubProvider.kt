@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -17,10 +17,9 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
-// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class PlayhubProvider : MainAPI() {
     override var mainUrl = "https://playhublite.com"
-    override var name = "PlayHub" // Nombre más amigable para el usuario
+    override var name = "PlayHubLite"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -36,64 +35,98 @@ class PlayhubProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        val doc = app.get(mainUrl).document // Obtener el documento de la página principal
 
-        // Iterar a través de las secciones de "Estrenos", "Top del día", etc.
-        doc.select("div.px-2").forEach { section -> // div.px-2 parece ser el contenedor de cada sección
-            val sectionTitle = section.selectFirst("span.text-white.text-2xl.font-bold")?.text()
-            if (sectionTitle != null && sectionTitle.isNotBlank()) {
-                val homeItems = section.select("div.swiper-wrapper div.swiper-slide").mapNotNull { slide ->
-                    // *** ESTA ES LA PARTE CLAVE: NECESITAMOS LA ESTRUCTURA INTERNA DE swiper-slide ***
-                    // Asumo que la estructura es similar a la que tenías para búsqueda/categorías
-                    val link = slide.selectFirst("a")?.attr("href") // Asumo que hay un <a> directo
-                    val title = slide.selectFirst("div.info h2")?.text() // Asumo que hay un div.info h2
-                    val img = slide.selectFirst("img")?.attr("data-src") ?: slide.selectFirst("img")?.attr("src") // Asumo que hay un <img>
+        // === USANDO LAS URLs ESPECÍFICAS DE CATEGORÍAS (como /movies, /series, /animes) ===
+        val urls = listOf(
+            Pair("Películas", "$mainUrl/movies"), // Ajustado a /movies según tu ejemplo
+            Pair("Series", "$mainUrl/series"),
+        )
 
-                    if (title != null && link != null) {
-                        newMovieSearchResponse(
-                            title,
-                            fixUrl(link)
-                        ) {
-                            // Determinar el tipo (Movie/TvSeries) puede ser más complejo aquí
-                            // Sin el HTML interno del slide, lo dejo en TvType.Movie por defecto
-                            this.type = TvType.Movie // O podrías inferirlo del link (ej. si contiene /series/)
-                            this.posterUrl = img
-                        }
-                    } else null
-                }
-                if (homeItems.isNotEmpty()) {
-                    items.add(HomePageList(sectionTitle, homeItems))
+        val homePageLists = urls.apmap { (name, url) ->
+            Log.d("PlayHubLite", "getMainPage: Intentando obtener la categoría '$name' de URL: $url")
+            val tvType = when (name) {
+                "Películas" -> TvType.Movie
+                "Series" -> TvType.TvSeries
+                else -> TvType.Others
+            }
+
+            val doc = try {
+                app.get(url).document
+            } catch (e: Exception) {
+                Log.e("PlayHubLite", "getMainPage: ERROR al obtener el documento de $url para '$name': ${e.message}", e)
+                return@apmap null // Continuar con la siguiente URL si hay un error
+            }
+            Log.d("PlayHubLite", "getMainPage: Documento obtenido para '$name'. Longitud: ${doc.html().length}")
+
+            // Selector para los elementos de la lista en PlayHubLite
+            // => CRÍTICO: Este selector debe coincidir con la estructura de /movies, /series, /animes
+            val homeItems = doc.select("div.peliculas-content div.item-pelicula").mapNotNull { itemElement ->
+                val title = itemElement.selectFirst("div.info h2")?.text()
+                val link = itemElement.selectFirst("a")?.attr("href")
+                val img = itemElement.selectFirst("img")?.attr("data-src") ?: itemElement.selectFirst("img")?.attr("src")
+
+                if (title != null && link != null) {
+                    Log.d("PlayHubLite", "getMainPage: Categoría '$name' - Item encontrado: Título='$title', Link='$link', Img='$img'")
+                    newMovieSearchResponse(
+                        title,
+                        fixUrl(link)
+                    ) {
+                        this.type = tvType
+                        this.posterUrl = img
+                    }
+                } else {
+                    Log.w("PlayHubLite", "getMainPage: Categoría '$name' - Item en elemento no válido (título o link nulo). HTML: ${itemElement.outerHtml()}")
+                    null
                 }
             }
-        }
 
-        // Si aún quieres incluir las secciones /peliculas y /series por separado, puedes mantener la lógica anterior
-        // o si la página principal no lista todo el contenido.
-        // Por ahora, estoy priorizando la extracción de la página principal.
-        // Si no aparecen, podrías volver a la lógica anterior o combinar ambas.
+            if (homeItems.isNotEmpty()) {
+                Log.d("PlayHubLite", "getMainPage: Añadida lista '$name' con ${homeItems.size} items.")
+                HomePageList(name, homeItems)
+            } else {
+                Log.w("PlayHubLite", "getMainPage: La lista '$name' está vacía después de la extracción en $url. Selectores pueden estar incorrectos o la página está vacía.")
+                null // No añadir una lista vacía si no se encontró nada
+            }
+        }.filterNotNull() // Filtra cualquier resultado nulo de apmap
 
+        items.addAll(homePageLists)
+
+        Log.d("PlayHubLite", "getMainPage: Total de HomePageLists finales creadas: ${items.size}")
         return newHomePageResponse(items, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/?s=$query"
-        val doc = app.get(url).document
-        // Selector para los elementos de búsqueda en PlayHubLite
-        return doc.select("div.peliculas-content div.item-pelicula").mapNotNull {
+        val url = "$mainUrl/search?query=$query" // Asumo que la URL de búsqueda es /search?query=
+        Log.d("PlayHubLite", "search: Buscando en URL: $url")
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "search: ERROR al obtener el documento de búsqueda: ${e.message}", e)
+            return emptyList()
+        }
+
+        // Selector para los elementos de búsqueda en PlayHubLite (debería ser consistente con categorías)
+        val searchResults = doc.select("div.peliculas-content div.item-pelicula").mapNotNull {
             val title = it.selectFirst("div.info h2")?.text()
             val link = it.selectFirst("a")?.attr("href")
             val img = it.selectFirst("img")?.attr("data-src") ?: it.selectFirst("img")?.attr("src")
 
             if (title != null && link != null) {
-                newMovieSearchResponse( // Usamos newMovieSearchResponse por defecto, se ajustará en load
+                Log.d("PlayHubLite", "search: Item encontrado: Título='$title', Link='$link', Img='$img'")
+                newMovieSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
                     this.type = TvType.TvSeries // Tipo por defecto para búsqueda, se refina en load
                     this.posterUrl = img
                 }
-            } else null
+            } else {
+                Log.w("PlayHubLite", "search: Item en resultado de búsqueda no válido (título o link nulo). HTML: ${it.outerHtml()}")
+                null
+            }
         }
+        Log.d("PlayHubLite", "search: Total de resultados de búsqueda encontrados: ${searchResults.size}")
+        return searchResults
     }
 
     data class EpisodeLoadData(
@@ -116,33 +149,56 @@ class PlayhubProvider : MainAPI() {
             return null
         }
 
-        val doc = app.get(cleanUrl).document
+        val doc = try {
+            app.get(cleanUrl).document
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "load - ERROR al obtener el documento de detalle: ${e.message}", e)
+            return null
+        }
+        Log.d("PlayHubLite", "load - Documento de detalle obtenido. Longitud: ${doc.html().length}")
+
 
         val tvType = if (cleanUrl.contains("/series/") || doc.select("div.seasons-list").isNotEmpty()) {
             TvType.TvSeries
         } else {
             TvType.Movie
         }
+        Log.d("PlayHubLite", "load - Tipo detectado: $tvType")
 
         val posterDiv = doc.selectFirst("div[style*=\"background-image:\"]")
         val poster = posterDiv?.attr("style")
             ?.let { style -> Regex("""url\('([^']+)'\)""").find(style)?.groupValues?.get(1) }
             ?: ""
+        Log.d("PlayHubLite", "load - Póster URL: $poster")
+
 
         val title = doc.selectFirst("div.movie-info h1")?.text()
             ?: doc.selectFirst("h1.text-white")?.text()
             ?: doc.selectFirst("h3.text-white")?.text()
             ?: ""
+        Log.d("PlayHubLite", "load - Título: $title")
+
 
         val description = doc.selectFirst("div.synopsis p")?.text() ?: ""
+        Log.d("PlayHubLite", "load - Descripción: $description")
+
         val tags = doc.select("div.movie-genres a").map { it.text() }
+        Log.d("PlayHubLite", "load - Géneros/Tags: $tags")
+
 
         val episodes = if (tvType == TvType.TvSeries) {
-            doc.select("div.seasons-list li.season-item").flatMap { seasonElement ->
-                val seasonNumber = seasonElement.selectFirst("a")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
-                Log.d("PlayHubLite", "Procesando temporada: $seasonNumber")
+            Log.d("PlayHubLite", "load - Buscando episodios para serie.")
+            val seasonElements = doc.select("div.seasons-list li.season-item")
+            Log.d("PlayHubLite", "load - Temporadas encontradas: ${seasonElements.size}")
 
-                seasonElement.select("div.episodios ul li").mapNotNull { element ->
+            seasonElements.flatMap { seasonElement ->
+                val seasonNumber = seasonElement.selectFirst("a")?.text()?.replace("Temporada ", "")?.trim()?.toIntOrNull() ?: 1
+                Log.d("PlayHubLite", "load - Procesando temporada: $seasonNumber")
+
+                val episodeElements = seasonElement.select("div.episodios ul li")
+                Log.d("PlayHubLite", "load - Episodios encontrados en temp $seasonNumber: ${episodeElements.size}")
+
+                episodeElements.mapNotNull { element ->
                     val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
                     val epTitle = element.selectFirst("div.info h2")?.text() ?: ""
 
@@ -155,7 +211,7 @@ class PlayhubProvider : MainAPI() {
                     val realimg = element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src")
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                        Log.d("PlayHubLite", "Episodio encontrado: $epTitle, URL: $epurl, Temp: $seasonNumber, Ep: $episodeNumber")
+                        Log.d("PlayHubLite", "load - Episodio válido: $epTitle (T$seasonNumber E$episodeNumber), URL: $epurl")
                         newEpisode(
                             EpisodeLoadData(epTitle, epurl).toJson()
                         ) {
@@ -164,10 +220,15 @@ class PlayhubProvider : MainAPI() {
                             this.episode = episodeNumber
                             this.posterUrl = realimg
                         }
-                    } else null
+                    } else {
+                        Log.w("PlayHubLite", "load - Episodio inválido (título/link nulo) en T$seasonNumber. HTML: ${element.outerHtml()}")
+                        null
+                    }
                 }
             }
         } else listOf()
+        Log.d("PlayHubLite", "load - Total de episodios encontrados: ${episodes.size}")
+
 
         return when (tvType) {
             TvType.TvSeries -> {
@@ -260,32 +321,40 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
-        val doc = app.get(targetUrl).document
+        val doc = try {
+            app.get(targetUrl).document
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "loadLinks - ERROR al obtener el documento para cargar enlaces: ${e.message}", e)
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks - Documento de enlaces obtenido. Longitud: ${doc.html().length}")
 
         val iframeSrc = doc.selectFirst("div.player-frame iframe.metaframe")?.attr("src")
             ?: doc.selectFirst("div.player-frame iframe.player-embed")?.attr("src")
             ?: doc.selectFirst("iframe[src*='streamlare.com']")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
-            Log.d("PlayHubLite", "No se encontró iframe del reproductor con los selectores específicos en PlayHubLite.com.")
+            Log.d("PlayHubLite", "loadLinks - No se encontró iframe del reproductor con los selectores específicos en PlayHubLite.com.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+            Log.d("PlayHubLite", "loadLinks - Buscando Streamlare en scripts. Longitud de scriptContent: ${scriptContent.length}")
 
             val streamlareRegex = """(https?://streamlare\.com/e/[a-zA-Z0-9]+)""".toRegex()
             val streamlareMatches = streamlareRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (streamlareMatches.isNotEmpty()) {
+                Log.d("PlayHubLite", "loadLinks - Encontrados ${streamlareMatches.size} enlaces directos de Streamlare en script.")
                 streamlareMatches.apmap { directUrl ->
-                    Log.d("PlayHubLite", "Encontrado enlace directo de Streamlare en script: $directUrl")
+                    Log.d("PlayHubLite", "loadLinks - Intentando cargar extractor para Streamlare: $directUrl")
                     loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
                 }
                 return true
             }
 
-            Log.d("PlayHubLite", "No se encontraron enlaces de video directos en scripts.")
+            Log.d("PlayHubLite", "loadLinks - No se encontraron enlaces de video directos en scripts ni iframes.")
             return false
         }
 
-        Log.d("PlayHubLite", "Iframe encontrado: $iframeSrc")
+        Log.d("PlayHubLite", "loadLinks - Iframe encontrado: $iframeSrc")
 
         return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
     }
