@@ -2,40 +2,35 @@ package com.example
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.AppUtils // <-- ¡Asegúrate de que esta importación esté presente!
+import com.lagradost.cloudstream3.utils.AppUtils // Importación de AppUtils para parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import android.util.Log
+import android.util.Log // Importación para usar Log.d y Log.e
 
-// Eliminamos las importaciones de Jackson específicas
-// import com.fasterxml.jackson.databind.ObjectMapper
-// import com.fasterxml.jackson.module.kotlin.KotlinModule
-// import com.fasterxml.jackson.module.kotlin.readValue
-
+// Clase principal del proveedor para Playhub
 class PlayhubProvider : MainAPI() {
 
-    override var mainUrl = "https://playhublite.com" // O el nuevo dominio del sitio web, si ha cambiado
-    override var name = "Playhub"
-    override var lang = "es"
-    override val hasQuickSearch = false
-    override val hasMainPage = true
-    override val hasChromecastSupport = true
-    override val hasDownloadSupport = true
-    override val supportedTypes = setOf(
+    // Configuración básica del proveedor
+    override var mainUrl = "https://playhublite.com" // URL principal del sitio web
+    override var name = "Playhub" // Nombre del proveedor
+    override var lang = "es" // Idioma del contenido
+    override val hasQuickSearch = false // No soporta búsqueda rápida
+    override val hasMainPage = true // Tiene página principal
+    override val hasChromecastSupport = true // Soporta Chromecast
+    override val hasDownloadSupport = true // Soporta descargas
+    override val supportedTypes = setOf( // Tipos de contenido soportados
         TvType.Movie,
         TvType.TvSeries,
         TvType.Anime,
         TvType.Cartoon,
     )
 
-    // Eliminamos la inicialización de jacksonMapper aquí
-    // private val jacksonMapper = ObjectMapper().registerModule(KotlinModule())
-
+    // Objeto compañero para constantes y propiedades estáticas
     companion object  {
-        private const val playhubAPI = "http://v3.playhublite.com/api/"
-        private val playhubHeaders = mapOf(
+        private const val playhubAPI = "http://v3.playhublite.com/api/" // URL de la API de Playhub
+        private val playhubHeaders = mapOf( // Cabeceras HTTP para las solicitudes a la API
             "Host" to "v3.playhublite.com",
-            "User-Agent" to USER_AGENT,
+            "User-Agent" to USER_AGENT, // USER_AGENT es una constante global de Cloudstream
             "Accept" to "application/json, text/plain, */*",
             "Accept-Language" to "en-US,en;q=0.5",
             "Authorization" to "Bearer null",
@@ -51,11 +46,13 @@ class PlayhubProvider : MainAPI() {
         )
     }
 
+    // Función para obtener URL de imagen, adaptando si es un path de TMDB
     private fun getImageUrl(link: String?): String? {
         if (link == null) return null
         return if (link.startsWith("/")) "https://image.tmdb.org/t/p/w1280/$link" else link
     }
 
+    // --- DATA CLASSES para la Página Principal (getMainPage) ---
     data class PlayHubMainPageResponse(
         @JsonProperty("current_page") val currentPage: Int? = null,
         @JsonProperty("data") val data: ArrayList<PlayHubMovieData>? = arrayListOf(),
@@ -77,7 +74,9 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("first_air_date") val firstAirDate: String? = null,
         @JsonProperty("last_air_date") val lastAirDate: String? = null
     )
+    // --- FIN DATA CLASSES para la Página Principal ---
 
+    // Sobrescribe la función para obtener la página principal
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
@@ -91,6 +90,7 @@ class PlayhubProvider : MainAPI() {
             Log.d("PlayHubLite", "getMainPage: Código de estado de la respuesta cruda: ${res.code}")
             Log.d("PlayHubLite", "getMainPage: Cuerpo de la respuesta cruda (primeros 500 chars): ${res.text.take(500)}")
 
+            // Usa app.parsed<T>() para parsear el JSON, aprovechando el ObjectMapper interno de Cloudstream
             res.parsed<PlayHubMainPageResponse>()
         } catch (e: Exception) {
             Log.e("PlayHubLite", "getMainPage: ERROR al analizar o obtener JSON de $apiCategoryUrl: ${e.message}", e)
@@ -105,10 +105,13 @@ class PlayhubProvider : MainAPI() {
             val posterPath = info.posterPath
             val poster = getImageUrl(posterPath)
 
+            // Determina el tipo de TV (película o serie) basándose en la fecha de lanzamiento
             val tvType = if (!info.releaseDate.isNullOrEmpty()) TvType.Movie else TvType.TvSeries
 
+            // Construye la URL de los datos para la carga detallada
             val dataUrl = if (tvType == TvType.Movie) "$mainUrl/movies/$id" else "$mainUrl/series/$id"
 
+            // Crea un nuevo objeto SearchResponse para la película/serie
             newMovieSearchResponse(
                 title,
                 dataUrl,
@@ -133,11 +136,11 @@ class PlayhubProvider : MainAPI() {
         return HomePageResponse(items, hasNextPage)
     }
 
+    // --- DATA CLASSES para Búsqueda (search) ---
     data class PlayhubSearchMain (
         @JsonProperty("movies" ) var movies : ArrayList<PlayhubSearchInfo>? = arrayListOf(),
         @JsonProperty("series" ) var series : ArrayList<PlayhubSearchInfo>? = arrayListOf()
     )
-
 
     data class PlayhubSearchInfo (
         @JsonProperty("id"               ) var id             : Int?    = null,
@@ -156,15 +159,20 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("created_at"       ) var createdAt      : String? = null,
         @JsonProperty("updated_at"       ) var updatedAt      : String? = null,
         @JsonProperty("view_count"       ) var viewCount      : Int?    = null,
-        @JsonProperty("original_title" ) var originalTitle : String? = null,
-        @JsonProperty("title"          ) var title         : String? = null,
-        @JsonProperty("release_date"   ) var releaseDate   : String? = null,
-        @JsonProperty("runtime"        ) var runtime       : String? = null,
+        @JsonProperty("original_title"   ) var originalTitle  : String? = null,
+        @JsonProperty("title"            ) var title          : String? = null,
+        @JsonProperty("release_date"     ) var releaseDate    : String? = null,
+        @JsonProperty("runtime"          ) var runtime        : String? = null,
     )
+    // --- FIN DATA CLASSES para Búsqueda ---
+
+    // Sobrescribe la función de búsqueda
     override suspend fun search(query: String): List<SearchResponse>? {
         val url = "${playhubAPI}search?q=$query"
         val search = ArrayList<SearchResponse>()
         val res = app.get(url, headers = playhubHeaders).parsed<PlayhubSearchMain>()
+
+        // Mapea las películas encontradas
         res.movies?.map {
             val title = it.title ?: it.originalTitle ?: ""
             val posterinfo = it.posterPath ?: ""
@@ -177,6 +185,7 @@ class PlayhubProvider : MainAPI() {
                 })
         }
 
+        // Mapea las series encontradas
         res.series?.map {
             val title = it.name ?: it.originalName ?: ""
             val posterinfo = it.posterPath ?: ""
@@ -191,8 +200,7 @@ class PlayhubProvider : MainAPI() {
         return search
     }
 
-
-
+    // --- DATA CLASSES para Carga de Detalles (load) ---
     data class PlayhubLoadMain (
         @JsonProperty("id"              ) var id              : Int?                       = null,
         @JsonProperty("original_title"  ) var originalTitle   : String?                    = null,
@@ -200,7 +208,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("backdrop_path"   ) var backdropPath    : String?                    = null,
         @JsonProperty("logo"            ) var logo            : String?                    = null,
         @JsonProperty("poster_path"     ) var posterPath      : String?                    = null,
-        @JsonProperty("overview"        ) var overview        : String?                    = null,
+        @JsonProperty("overview"        ) var overview        : String?                    = null, // Campo para la trama
         @JsonProperty("release_date"    ) var releaseDate     : String?                    = null,
         @JsonProperty("runtime"         ) var runtime         : String?                    = null,
         @JsonProperty("status"          ) var status          : String?                    = null,
@@ -210,9 +218,9 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("view_count"      ) var viewCount       : Int?                       = null,
         @JsonProperty("recommendations" ) var recommendations : ArrayList<PlayhubRecommendations>? = arrayListOf(),
         @JsonProperty("categories"      ) var categories      : ArrayList<Categories>?      = arrayListOf(),
-        @JsonProperty("seasons"          ) var seasons        : ArrayList<Seasons>?   = arrayListOf(),
-        @JsonProperty("name"             ) var name           : String?               = null,
-        @JsonProperty("original_name"    ) var originalName   : String?               = null,
+        @JsonProperty("seasons"         ) var seasons        : ArrayList<Seasons>?   = arrayListOf(), // Para series
+        @JsonProperty("name"            ) var name           : String?               = null,
+        @JsonProperty("original_name"   ) var originalName   : String?               = null,
         @JsonProperty("episode_run_time" ) var episodeRunTime : String?               = null,
         @JsonProperty("first_air_date"   ) var firstAirDate   : String?               = null,
         @JsonProperty("in_production"    ) var inProduction   : Int?                  = null,
@@ -220,13 +228,11 @@ class PlayhubProvider : MainAPI() {
     )
 
     data class PlayhubRecommendations (
-
         @JsonProperty("id"            ) var id           : Int?    = null,
         @JsonProperty("title"         ) var title        : String? = null,
         @JsonProperty("poster_path"   ) var posterPath   : String? = null,
         @JsonProperty("backdrop_path" ) var backdropPath : String? = null,
-
-        )
+    )
 
     data class Categories (
         @JsonProperty("id"    ) var id    : Int?    = null,
@@ -245,6 +251,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("season_number" ) var seasonNumber : Int?                = null,
         @JsonProperty("episodes"      ) var episodes     : ArrayList<EpisodesInfo>? = arrayListOf()
     )
+
     data class EpisodesInfo (
         @JsonProperty("id"             ) var id            : Int?    = null,
         @JsonProperty("serie_id"       ) var serieId       : String? = null,
@@ -256,13 +263,20 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("overview"       ) var overview      : String? = null,
         @JsonProperty("still_path"     ) var stillPath     : String? = null
     )
+    // --- FIN DATA CLASSES para Carga de Detalles ---
+
+    // Sobrescribe la función para cargar detalles de películas/series
     override suspend fun load(url: String): LoadResponse? {
         val type = if (url.contains("movie")) TvType.Movie else TvType.TvSeries
         val id = url.substringAfter("/movies/").substringAfter("/series/")
         val uuu = if (type == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
+
+        Log.d("PlayHubLite", "load: Solicitando detalles de la API: $uuu") // Nuevo log
         val res = app.get(uuu, headers = playhubHeaders).parsed<PlayhubLoadMain>()
+        Log.d("PlayHubLite", "load: Resumen (overview) recibido: ${res.overview}") // Nuevo log para la trama
+
         val title = res.title ?: res.originalTitle ?: res.name ?: res.originalName ?: ""
-        val plot = res.overview ?: ""
+        val plot = res.overview ?: "" // Obtiene la trama, será "" si es null
         val posterinfo = res.posterPath ?: ""
         val backposterinfo = res.backdropPath ?: ""
         val poster = getImageUrl(posterinfo)
@@ -271,13 +285,14 @@ class PlayhubProvider : MainAPI() {
         val episodes = ArrayList<Episode>()
         val recs = ArrayList<SearchResponse>()
 
+        // Lógica para series (temporadas y episodios)
         if (type == TvType.TvSeries) {
-            // apmap aquí es crucial para las llamadas suspendidas
+            // apmap aquí es crucial para que las llamadas a 'app.get' dentro del bucle se ejecuten de forma asíncrona
             res.seasons?.apmap { mainInfo ->
                 val seasonurl = "${playhubAPI}seasons/${mainInfo.serieId}/${mainInfo.seasonNumber}"
                 val seasonres = app.get(seasonurl, headers = playhubHeaders).parsed<SeasonsInfo>()
                 val seriesID = mainInfo.serieId
-                // apmap aquí es crucial para las llamadas suspendidas
+                // apmap aquí es crucial para las llamadas a 'newEpisode' o procesamiento pesado
                 seasonres.episodes?.apmap { ep ->
                     val eptitle = ep.name
                     val epthumb = getImageUrl(ep.stillPath)
@@ -298,6 +313,7 @@ class PlayhubProvider : MainAPI() {
                 }
             }
         }
+        // Lógica para recomendaciones de películas
         if (type == TvType.Movie)  {
             res.recommendations?.map {
                 val rectitle = it.title ?: ""
@@ -311,14 +327,15 @@ class PlayhubProvider : MainAPI() {
             }
         }
 
+        // Construye y devuelve el objeto LoadResponse
         return when (type) {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(title,
                     url, type, episodes,){
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backposter
-                    this.plot = plot
-                    //this.year = year
+                    this.plot = plot // Asigna la trama
+                    //this.year = year // Si tienes el año, descomenta y asigna
                     this.tags = tags
                     this.recommendations = recs
                 }
@@ -326,28 +343,26 @@ class PlayhubProvider : MainAPI() {
             TvType.Movie -> {
                 newMovieLoadResponse(title, url, type, "${playhubAPI}xxx/$id?s=web"){
                     this.posterUrl = poster
-                    this.plot = plot
+                    this.plot = plot // Asigna la trama
                     this.backgroundPosterUrl = backposter
-                    //this.year = year
+                    //this.year = year // Si tienes el año, descomenta y asigna
                     this.tags = tags
                     this.recommendations = recs
                 }
             }
-            else -> null
+            else -> null // Tipo no soportado
         }
     }
 
-
+    // --- DATA CLASSES para Carga de Enlaces (loadLinks) ---
     data class DataBase (
-
-        @JsonProperty("data" ) var data : String? = null
-
+        @JsonProperty("data" ) var data : String? = null // Contiene los datos Base64
     )
 
     data class ServersInfo (
         @JsonProperty("id"         ) var id        : Int?    = null,
         @JsonProperty("vid"        ) var vid       : String? = null,
-        @JsonProperty("url"        ) var url       : String? = null,
+        @JsonProperty("url"        ) var url       : String? = null, // URL del servidor/extractor
         @JsonProperty("server"     ) var server    : String? = null,
         @JsonProperty("language"   ) var language  : String? = null,
         @JsonProperty("quality"    ) var quality   : String? = null,
@@ -357,24 +372,35 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("updated_at" ) var updatedAt : String? = null,
         @JsonProperty("type"       ) var type      : Int?    = null
     )
+    // --- FIN DATA CLASSES para Carga de Enlaces ---
+
+    // Sobrescribe la función para cargar los enlaces de reproducción
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val rr = app.get(data).parsed<DataBase>()
+        Log.d("PlayHubLite", "loadLinks: Solicitando enlaces desde URL (data): $data") // LOG: URL de la solicitud de enlaces
+        // Añadí headers aquí por si la API de enlaces también los requiere
+        val rr = app.get(data, headers = playhubHeaders).parsed<DataBase>()
+        Log.d("PlayHubLite", "loadLinks: Datos Base64 de la BD recibidos (primeros 200 chars): ${rr.data?.take(200)}") // LOG: Datos Base64
+
         val datafix = rr.data?.replace("#", "A")?.replace("!", "B")?.replace("%", "N")?.replace("&", "i")?.replace("/", "l")?.replace("*", "L")?.replace("+", "s")?.replace("((", "j")?.replace("[]", "=")
         if (!datafix.isNullOrEmpty()) {
-            val dadatec = base64Decode(datafix)
-            // Usamos AppUtils.parseJson explícitamente para evitar "Unresolved reference: parseJson"
-            val json = AppUtils.parseJson<ArrayList<ServersInfo>>(dadatec) // Corregido: Referencia explícita a AppUtils
+            val dadatec = base64Decode(datafix) // Decodifica el Base64
+            Log.d("PlayHubLite", "loadLinks: JSON de servidores decodificado (primeros 500 chars): ${dadatec.take(500)}") // LOG: JSON decodificado
 
-            // Usamos .apmap { } para permitir llamadas a funciones suspendidas (como loadExtractor)
-            // Esto también resolverá "Unresolved reference: it" y "Suspension functions can be called only within coroutine body"
-            json.apmap { serverInfo -> // Corregido: Cambiado 'map' por 'apmap' y nombrado 'it' como 'serverInfo' para claridad
+            // Parsea el JSON decodificado a una lista de ServersInfo
+            val json = AppUtils.parseJson<ArrayList<ServersInfo>>(dadatec)
+
+            // Itera sobre cada servidor usando apmap para manejar funciones suspendidas
+            json.apmap { serverInfo ->
+                // Transforma la URL del servidor para que sea compatible con los extractores
                 val link = serverInfo.url?.replace(Regex("(https|http):.*\\/api\\/source\\/"),"https://embedsito.com/v/")
                     ?.replace(Regex("https://sbrity.com|https://sblanh.com"),"https://watchsb.com") ?: ""
+                Log.d("PlayHubLite", "loadLinks: Enlace final a pasar al extractor: $link") // LOG: Enlace final
+                // Carga el extractor para el enlace
                 loadExtractor(link, subtitleCallback, callback)
             }
         }
