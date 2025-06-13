@@ -268,67 +268,119 @@ class PlayhubProvider : MainAPI() {
     // --- FIN DATA CLASSES para Carga de Detalles ---
 
     // Sobrescribe la función para cargar detalles de películas/series
-    override suspend fun load(url: String): LoadResponse? {
-        val type = if (url.contains("movie")) TvType.Movie else TvType.TvSeries
-        val id = url.substringAfter("/movies/").substringAfter("/series/")
-        val uuu = if (type == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
+    // ... (resto del código)
 
-        Log.d("PlayHubLite", "load: Solicitando detalles de la API: $uuu")
-        val res = app.get(uuu, headers = playhubHeaders).parsed<PlayhubLoadMain>()
-        Log.d("PlayHubLite", "load: Resumen (overview) recibido: ${res.overview}")
+    override suspend fun load(url: String): LoadResponse? {
+        // Asegúrate de que 'id' se extraiga correctamente, sin importar si es movie o series
+        val type = if (url.contains("/movies/")) TvType.Movie else TvType.TvSeries
+        val id = url.substringAfterLast("/") // Extrae el ID después de la última barra
+
+        if (id.isBlank()) {
+            Log.e("PlayHubLite", "load: ID no pudo ser extraído de la URL: $url")
+            return null // No podemos continuar sin un ID válido
+        }
+
+        val apiDetailUrl = if (type == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
+        Log.d("PlayHubLite", "load: Solicitando detalles de la API para ID $id: $apiDetailUrl")
+
+        val res = try {
+            val apiResponse = app.get(apiDetailUrl, headers = playhubHeaders)
+            Log.d("PlayHubLite", "load: Código de estado de detalles: ${apiResponse.code}")
+            Log.d("PlayHubLite", "load: Cuerpo de detalles (primeros 500 chars): ${apiResponse.text.take(500)}")
+            apiResponse.parsed<PlayhubLoadMain>()
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "load: ERROR al obtener o parsear detalles de $apiDetailUrl: ${e.message}", e)
+            return null // Fallo al cargar los detalles
+        }
 
         val title = res.title ?: res.originalTitle ?: res.name ?: res.originalName ?: ""
         val plot = res.overview ?: ""
-        val posterinfo = res.posterPath ?: ""
-        val backposterinfo = res.backdropPath ?: ""
-        val poster = getImageUrl(posterinfo)
-        val backposter = getImageUrl(backposterinfo)
+        val poster = getImageUrl(res.posterPath)
+        val backposter = getImageUrl(res.backdropPath)
         val tags = res.categories?.mapNotNull { it.name }
         val episodes = ArrayList<Episode>()
         val recs = ArrayList<SearchResponse>()
 
+        Log.d("PlayHubLite", "load: Título: $title, Plot: ${plot.take(100)}...")
+
         if (type == TvType.TvSeries) {
+            Log.d("PlayHubLite", "load: Procesando temporadas para series.")
             res.seasons?.apmap { mainInfo ->
-                val seasonurl = "${playhubAPI}seasons/${mainInfo.serieId}/${mainInfo.seasonNumber}"
-                val seasonres = app.get(seasonurl, headers = playhubHeaders).parsed<SeasonsInfo>()
                 val seriesID = mainInfo.serieId
-                seasonres.episodes?.apmap { ep ->
-                    val eptitle = ep.name
-                    val epthumb = getImageUrl(ep.stillPath)
-                    val epPlot = ep.overview
-                    val seasonNum = ep.seasonNumber
-                    val epNum = ep.episodeNumber
-                    val airDate = ep.airDate
-                    val epData = "$mainUrl/series/$seriesID/season/$seasonNum/episode/$epNum"
-                    episodes.add(
-                        newEpisode(epData) {
-                            this.name = eptitle
-                            this.season = seasonNum
-                            this.episode = epNum
-                            this.posterUrl = fixUrlNull(epthumb)
-                            this.description = epPlot
-                            addDate(airDate)
-                        })
+                val seasonNum = mainInfo.seasonNumber
+                if (seriesID != null && seasonNum != null) {
+                    val seasonApiUrl = "${playhubAPI}seasons/$seriesID/$seasonNum"
+                    Log.d("PlayHubLite", "load: Solicitando detalles de temporada: $seasonApiUrl")
+
+                    val seasonres = try {
+                        val seasonApiResponse = app.get(seasonApiUrl, headers = playhubHeaders)
+                        Log.d("PlayHubLite", "load: Código de estado de temporada $seasonNum: ${seasonApiResponse.code}")
+                        Log.d("PlayHubLite", "load: Cuerpo de temporada $seasonNum (primeros 500 chars): ${seasonApiResponse.text.take(500)}")
+                        seasonApiResponse.parsed<SeasonsInfo>()
+                    } catch (e: Exception) {
+                        Log.e("PlayHubLite", "load: ERROR al obtener o parsear temporada $seasonApiUrl: ${e.message}", e)
+                        null
+                    }
+
+                    if (seasonres == null || seasonres.episodes.isNullOrEmpty()) {
+                        Log.w("PlayHubLite", "load: No se encontraron episodios para la temporada $seasonNum en $seasonApiUrl.")
+                        return@apmap // Continúa con la siguiente temporada si no hay episodios o la respuesta es nula
+                    }
+
+                    Log.d("PlayHubLite", "load: Temporada $seasonNum obtenida. Procesando ${seasonres.episodes?.size} episodios.")
+
+                    seasonres.episodes?.apmap { ep ->
+                        val eptitle = ep.name
+                        val epthumb = getImageUrl(ep.stillPath)
+                        val epPlot = ep.overview
+                        val epNum = ep.episodeNumber
+                        val airDate = ep.airDate
+
+                        // IMPORTANTE: La URL de 'data' para loadLinks para un episodio debe ser la URL de la API que devuelve las FUENTES
+                        // Si la API es http://v3.playhublite.com/api/sources/{serieId}_s{seasonNumber}_e{episodeNumber}
+                        val episodeSourceDataUrl = "${playhubAPI}sources/${seriesID}_s${seasonNum}_e${epNum}"
+                        Log.d("PlayHubLite", "load: Añadiendo episodio S${seasonNum}E${epNum}: $eptitle con dataUrl para loadLinks: $episodeSourceDataUrl")
+
+                        episodes.add(
+                            newEpisode(episodeSourceDataUrl) {
+                                this.name = eptitle
+                                this.season = seasonNum
+                                this.episode = epNum
+                                this.posterUrl = fixUrlNull(epthumb)
+                                this.description = epPlot
+                                addDate(airDate)
+                            })
+                    }
+                } else {
+                    Log.w("PlayHubLite", "load: Serie ID ($seriesID) o número de temporada ($seasonNum) nulo en mainInfo para serie: $mainInfo")
                 }
             }
         }
-        if (type == TvType.Movie)  {
-            res.recommendations?.map {
-                val rectitle = it.title ?: ""
-                val recid = it.id
-                val recposterinfo = it.posterPath
-                val recposter = getImageUrl(recposterinfo)
-                recs.add(
-                    newMovieSearchResponse(rectitle, "$mainUrl/movies/$recid", type) {
-                        this.posterUrl = recposter
-                    })
-            }
+
+        // Procesamiento de recomendaciones (para películas y series)
+        res.recommendations?.map {
+            val rectitle = it.title ?: ""
+            val recid = it.id
+            val recposter = getImageUrl(it.posterPath)
+            // Asume que las recomendaciones pueden ser películas o series.
+            // Si la API de recomendaciones siempre devuelve películas, podrías simplificar esto.
+            val recType = if (rectitle.contains("movie", ignoreCase = true) || rectitle.contains("película", ignoreCase = true)) TvType.Movie else TvType.TvSeries
+            recs.add(
+                // Usa newMovieSearchResponse o newTvSeriesSearchResponse según el tipo de recomendación
+                // Aquí usamos newMovieSearchResponse por simplicidad, puedes ajustarlo si necesitas TvSeries en las recomendaciones
+                newMovieSearchResponse(rectitle, "$mainUrl/movies/$recid", recType) {
+                    this.posterUrl = recposter
+                })
         }
 
         return when (type) {
             TvType.TvSeries -> {
-                newTvSeriesLoadResponse(title,
-                    url, type, episodes,){
+                newTvSeriesLoadResponse(
+                    title,
+                    url, // url original de la página (e.g. playhublite.com/series/ID)
+                    TvType.TvSeries,
+                    episodes
+                ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backposter
                     this.plot = plot
@@ -337,7 +389,17 @@ class PlayhubProvider : MainAPI() {
                 }
             }
             TvType.Movie -> {
-                newMovieLoadResponse(title, url, type, "$mainUrl/movies/$id"){
+                // IMPORTANTE: La URL de 'data' para loadLinks para una película debe ser la URL de la API que devuelve las FUENTES
+                // Si la API es http://v3.playhublite.com/api/sources/{movieId}
+                val movieSourceDataUrl = "${playhubAPI}sources/${id}" // Usa el ID de la película
+                Log.d("PlayHubLite", "load: URL de datos de fuente para película: $movieSourceDataUrl")
+
+                newMovieLoadResponse(
+                    title,
+                    url, // url original de la página (e.g. playhublite.com/movies/ID)
+                    TvType.Movie,
+                    movieSourceDataUrl // Pasa la URL de la API de fuentes para la película
+                ) {
                     this.posterUrl = poster
                     this.plot = plot
                     this.backgroundPosterUrl = backposter
@@ -345,7 +407,7 @@ class PlayhubProvider : MainAPI() {
                     this.recommendations = recs
                 }
             }
-            else -> null
+            else -> null // Devolver null si el tipo no es compatible
         }
     }
 
@@ -394,29 +456,114 @@ class PlayhubProvider : MainAPI() {
     }
 
     // Sobrescribe la función para cargar los enlaces de reproducción
+    // ... (resto del código)
+
     override suspend fun loadLinks(
-        data: String,
+        data: String, // ¡Esta 'data' DEBE ser la URL de la API de fuentes!
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("PlayHubLite", "loadLinks - Data de entrada: $data")
+        Log.d("PlayHubLite", "loadLinks - Data de entrada (API de Fuentes): $data")
 
-        val rr = app.get(data, headers = playhubHeaders).parsed<DataBase>()
-        Log.d("PlayHubLite", "loadLinks: Datos Base64 de la BD recibidos (primeros 200 chars): ${rr.data?.take(200)}")
+        if (data.isBlank()) {
+            Log.e("PlayHubLite", "loadLinks: La URL de datos de fuentes está vacía. No se puede cargar enlaces.")
+            return false
+        }
 
-        val datafix = rr.data?.replace("#", "A")?.replace("!", "B")?.replace("%", "N")?.replace("&", "i")?.replace("/", "l")?.replace("*", "L")?.replace("((", "j")?.replace("[]", "=")
-        if (!datafix.isNullOrEmpty()) {
-            val dadatec = base64Decode(datafix) // base64Decode debería resolverse con 'utils.*'
-            Log.d("PlayHubLite", "loadLinks: JSON de servidores decodificado (primeros 500 chars): ${dadatec.take(500)}")
+        val rr = try {
+            val apiResponse = app.get(data, headers = playhubHeaders)
+            Log.d("PlayHubLite", "loadLinks: Código de estado de la API de fuentes: ${apiResponse.code}")
+            Log.d("PlayHubLite", "loadLinks: Cuerpo de la API de fuentes (primeros 500 chars): ${apiResponse.text.take(500)}")
+            apiResponse.parsed<DataBase>()
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "loadLinks: Error al obtener o parsear BaseDatos de la API de fuentes $data: ${e.message}", e)
+            Log.e("PlayHubLite", "loadLinks: Posiblemente la URL de fuentes ($data) es incorrecta o la API no responde.")
+            return false
+        }
 
-            val json = tryParseJson<ArrayList<ServersInfo>>(dadatec) // tryParseJson debería resolverse con 'utils.*'
+        val rawDataBase64 = rr.data
+        if (rawDataBase64.isNullOrEmpty()) {
+            Log.w("PlayHubLite", "loadLinks: Campo 'data' en BaseDatos vacío o nulo. No hay enlaces para procesar.")
+            return false
+        }
 
-            json?.apmap { serverInfo -> // apmap debería resolverse con 'utils.*'
-                val link = serverInfo.url?.replace(Regex("(https|http):.*\\/api\\/source\\/"),"https://embedsito.com/v/")
-                    ?.replace(Regex("https://sbrity.com|https://sblanh.com"),"https://watchsb.com") ?: ""
-                Log.d("PlayHubLite", "loadLinks: Enlace final a pasar al extractor: $link")
-                loadExtractor(link, subtitleCallback, callback) // loadExtractor debería resolverse con 'cloudstream3.*'
+        Log.d("PlayHubLite", "loadLinks: Raw Base64 de la BD recibidos (primeros 200 chars): ${rawDataBase64.take(200)}")
+
+        // Aplica las transformaciones si son necesarias. Revisa si 'datafix' es el problema.
+        val datafix = rawDataBase64.replace("#", "A")
+            ?.replace("!", "B")
+            ?.replace("%", "N")
+            ?.replace("&", "i")
+            ?.replace("/", "l")
+            ?.replace("*", "L")
+            ?.replace("((", "j")
+            ?.replace("[]", "=")
+
+        if (datafix.isNullOrEmpty()) {
+            Log.e("PlayHubLite", "loadLinks: datafix está vacío después de las sustituciones. Esto indica un problema con el formato original.")
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: datafix después de sustituciones: ${datafix.take(200)}")
+
+
+        val dadatec = try {
+            // Asumiendo que base64Decode de cloudstream3.utils.AppUtils.kt es lo que necesitas
+            // Si esto falla, podrías intentar android.util.Base64.decode como en tu función decryptLink
+            String(Base64.decode(datafix, Base64.DEFAULT), UTF_8) // Usando Android Base64 directamente
+        } catch (e: IllegalArgumentException) {
+            Log.e("PlayHubLite", "loadLinks: Error al decodificar Base64 para datafix: $datafix, error: ${e.message}", e)
+            return false
+        } catch (e: Exception) {
+            Log.e("PlayHubLite", "loadLinks: Error inesperado al decodificar Base64: ${e.message}", e)
+            return false
+        }
+
+        if (dadatec.isBlank()) {
+            Log.e("PlayHubLite", "loadLinks: Cadena decodificada (dadatec) está vacía. Esto es un problema de Base64 o datafix.")
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: JSON de servidores decodificado (primeros 500 chars): ${dadatec.take(500)}")
+
+        val jsonServers = tryParseJson<ArrayList<ServersInfo>>(dadatec)
+        if (jsonServers.isNullOrEmpty()) {
+            Log.w("PlayHubLite", "loadLinks: tryParseJson devolvió una lista vacía o nula. El JSON decodificado no coincide con ServersInfo.")
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: Se encontraron ${jsonServers.size} servidores en el JSON.")
+
+        jsonServers.apmap { serverInfo ->
+            val originalLink = serverInfo.url
+            if (originalLink.isNullOrBlank()) {
+                Log.w("PlayHubLite", "loadLinks: Enlace original de servidor vacío o nulo para serverInfo: $serverInfo")
+                return@apmap // Salta a la siguiente iteración
+            }
+            Log.d("PlayHubLite", "loadLinks: Enlace original de servidor: $originalLink")
+
+            // Aquí es donde necesitas aplicar la lógica de desencriptación si es necesaria
+            // Si la API de Playhublite encripta el 'url' dentro de ServersInfo, usa tu función decryptLink
+            // Ejemplo (descomenta y ajusta la clave si aplica):
+            // val decryptedLink = decryptLink(originalLink, "TU_CLAVE_SECRETA_AES_16_BYTES")
+            // if (decryptedLink.isNullOrBlank()) {
+            //     Log.e("PlayHubLite", "loadLinks: Fallo al desencriptar el enlace: $originalLink")
+            //     return@apmap
+            // }
+            // var linkToExtract = decryptedLink
+            var linkToExtract = originalLink // Si no hay encriptación, usa el original
+
+            // Aplica tus reemplazos específicos para transformar el enlace de la API en un enlace de reproductor
+            linkToExtract = linkToExtract
+                .replace(Regex("(https|http):.*\\/api\\/source\\/"),"https://embedsito.com/v/")
+                .replace(Regex("https://sbrity.com|https://sblanh.com"),"https://watchsb.com")
+
+            Log.d("PlayHubLite", "loadLinks: Enlace final a pasar al extractor: $linkToExtract")
+
+            if (linkToExtract.isNotBlank()) {
+                // `loadExtractor` es el método de Cloudstream3 que intenta extraer enlaces de streaming
+                // de una URL dada.
+                loadExtractor(linkToExtract, mainUrl, subtitleCallback, callback)
+            } else {
+                Log.w("PlayHubLite", "loadLinks: Enlace de extractor vacío después de transformaciones para serverInfo: $serverInfo")
             }
         }
         return true
