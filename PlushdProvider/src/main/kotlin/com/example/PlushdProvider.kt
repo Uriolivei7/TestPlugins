@@ -64,13 +64,13 @@ class PlushdProvider :MainAPI() {
         }
     }
 
-    class MainTemporada(elements: Map<String, List<MainTemporadaElement>>) : HashMap<String, List<MainTemporadaElement>>(elements)
     data class MainTemporadaElement (
         val title: String? = null,
         val image: String? = null,
         val season: Int? = null,
         val episode: Int? = null
     )
+
     override suspend fun load(url: String): LoadResponse? {
         val doc = app.get(url).document
         val tvType = if (url.contains("pelicula")) TvType.Movie else TvType.TvSeries
@@ -79,42 +79,53 @@ class PlushdProvider :MainAPI() {
         val poster = backimage.replace("original", "w500")
         val description = doc.selectFirst("div.description")!!.text()
         val tags = doc.select("div.home__slider .genres:contains(Generos) a").map { it.text() }
-        val epi = ArrayList<Episode>()
+
+        // Aquí usaremos una lista plana de todos los episodios, como se hacía originalmente
+        val allEpisodes = ArrayList<Episode>()
+
         if (tvType == TvType.TvSeries) {
             val script = doc.select("script").firstOrNull { it.html().contains("seasonsJson = ") }?.html()
             if(!script.isNullOrEmpty()){
                 val jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
-                val json = parseJson<MainTemporada>(jsonscript)
-                json.values.map { list ->
-                    list.map { info ->
-                        val epTitle = info.title
-                        val seasonNum = info.season
-                        val epNum = info.episode
-                        val img = info.image
-                        val realimg = if (img == null) null else if (img.isEmpty() == true) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
-                        val epurl = "$url/season/$seasonNum/episode/$epNum"
-                        epi.add(
-                            Episode(
-                                epurl,
-                                epTitle,
-                                seasonNum,
-                                epNum,
-                                realimg,
-                            ))
+
+                val jsonResultMap = parseJson<Map<String, MainTemporadaElement>>(jsonscript)
+
+                jsonResultMap.values.forEach { info ->
+                    val epTitle = info.title
+                    val seasonNum = info.season
+                    val epNum = info.episode
+                    val img = info.image
+
+                    val realimg = if (img.isNullOrBlank()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
+
+                    if (epTitle != null && seasonNum != null && epNum != null) {
+                        val episode = Episode(
+                            data = "$url/season/$seasonNum/episode/$epNum",
+                            name = epTitle,
+                            season = seasonNum,
+                            episode = epNum,
+                            posterUrl = realimg
+                        )
+                        allEpisodes.add(episode) // Agregamos a la lista plana
                     }
                 }
             }
         }
 
+        // Ya NO necesitamos seasonsMap ni seasonsDataList si tu SeasonData es la que me has dado
+
         return when(tvType)
         {
             TvType.TvSeries -> {
-                newTvSeriesLoadResponse(title,
-                    url, tvType, epi,){
+                // Modificación CLAVE aquí: Pasar 'allEpisodes' directamente al constructor
+                // Si esta es tu versión de Cloudstream, 'newTvSeriesLoadResponse' espera todos los episodios
+                // y se encargará internamente de agruparlos por temporada para la UI.
+                newTvSeriesLoadResponse(title, url, tvType, allEpisodes) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
                     this.tags = tags
+                    // this.seasons = seasonsDataList // << ¡Eliminar esta línea! No aplica con tu SeasonData
                 }
             }
             TvType.Movie -> {
