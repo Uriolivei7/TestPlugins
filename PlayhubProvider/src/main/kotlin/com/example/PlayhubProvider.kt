@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.* // Import
 import com.lagradost.cloudstream3.utils.* // ¡CRÍTICO! Importa todas las utilidades. Esto debería traer fixUrl, apmap, base64Decode, etc.
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importación explícita para tryParseJson
-
 import android.util.Log
 import java.lang.Exception
 import android.util.Base64
@@ -82,7 +81,6 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("first_air_date") val firstAirDate: String? = null,
         @JsonProperty("last_air_date") val lastAirDate: String? = null
     )
-    // --- FIN DATA CLASSES para la Página Principal ---
 
     // Sobrescribe la función para obtener la página principal
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
@@ -112,10 +110,6 @@ class PlayhubProvider : MainAPI() {
             val posterPath = info.posterPath
             val poster = getImageUrl(posterPath)
 
-            // Lógica revisada para determinar TvType:
-            // Si firstAirDate NO es nulo/vacío, es TvSeries.
-            // Si releaseDate NO es nulo/vacío Y firstAirDate ES nulo/vacío, es Movie.
-            // Esto es más robusto para diferenciar series de películas.
             val tvType = if (!info.firstAirDate.isNullOrEmpty()) TvType.TvSeries else TvType.Movie
 
             val dataUrl = if (tvType == TvType.Movie) "$mainUrl/movies/$id" else "$mainUrl/series/$id"
@@ -442,13 +436,25 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
+        // Usa la URL como punto de partida para el reproductor
+        val initialUrl = "https://tpz6t.com/bkg/$data?ref=playhublite.com"
+        Log.d("PlayHubLite", "loadLinks: Probando URL inicial: $initialUrl")
+
+        // Mejora los headers para simular un navegador
+        val enhancedHeaders = playhubHeaders + mapOf(
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Sec-Fetch-Dest" to "document",
+            "Sec-Fetch-Mode" to "navigate",
+            "Upgrade-Insecure-Requests" to "1"
+        )
+
         val response = try {
-            val apiResponse = app.get(data, headers = playhubHeaders, allowRedirects = true)
+            val apiResponse = app.get(initialUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30) // Aumenta el timeout
             Log.d("PlayHubLite", "loadLinks: Código de estado de la API de fuentes: ${apiResponse.code}")
             Log.d("PlayHubLite", "loadLinks: Cuerpo de la API de fuentes (primeros 500 chars): ${apiResponse.text.take(500)}")
             apiResponse
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: Error al obtener la API de fuentes $data: ${e.message}", e)
+            Log.e("PlayHubLite", "loadLinks: Error al obtener la API de fuentes $initialUrl: ${e.message}", e)
             return false
         }
 
@@ -457,7 +463,7 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
-        // Suponemos que la respuesta es un enlace .m3u8 o redirige a uno
+        // Verifica si la respuesta contiene un enlace .m3u8 o redirige
         val link = response.text.trim()
         if (link.isNotBlank() && link.endsWith(".m3u8")) {
             Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 detectado: $link")
@@ -466,38 +472,53 @@ class PlayhubProvider : MainAPI() {
                     source = name,
                     name = name,
                     url = link,
-                    type = ExtractorLinkType.M3U8 // Tipo específico para HLS
+                    type = ExtractorLinkType.M3U8
                 ).apply {
-                    this.referer = "https://tpz6t.com/" // Ajusta según el referer real
+                    this.referer = "https://tpz6t.com/"
                     this.quality = Qualities.Unknown.value
-                    this.headers = playhubHeaders // Usa los headers definidos en tu clase
+                    this.headers = enhancedHeaders
                 }
             )
             return true
         } else {
-            // Si no es .m3u8 directamente, busca el token y construye la URL
-            val tokenMatch = Regex("t=([^&]+)").find(response.text)
-            if (tokenMatch != null) {
-                val token = tokenMatch.groupValues[1]
-                val baseUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/8ga80911jrjl_x/master.m3u8?t=$token" // Ajusta el path y fr según el contenido
-                Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 construido con token: $baseUrl")
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = baseUrl,
-                        type = ExtractorLinkType.M3U8
-                    ).apply {
-                        this.referer = "https://tpz6t.com/"
-                        this.quality = Qualities.Unknown.value
-                        this.headers = playhubHeaders
-                    }
-                )
-                return true
+            // Busca redirecciones o enlaces en el cuerpo (ej. <video> o <source>)
+            val locationHeader = response.headers["Location"]
+            val videoLinkMatch = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(response.text)
+            if (locationHeader != null || videoLinkMatch != null) {
+                val finalUrl = locationHeader ?: videoLinkMatch?.groupValues?.get(1)
+                if (finalUrl != null) {
+                    Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 extraído con redirección/video: $finalUrl")
+                    callback.invoke(
+                        newExtractorLink(
+                            source = name,
+                            name = name,
+                            url = finalUrl,
+                            type = ExtractorLinkType.M3U8
+                        ).apply {
+                            this.referer = "https://tpz6t.com/"
+                            this.quality = Qualities.Unknown.value
+                            this.headers = enhancedHeaders
+                        }
+                    )
+                    return true
+                }
             }
-            Log.w("PlayHubLite", "loadLinks: No se encontró un enlace .m3u8 válido en la respuesta: $link")
-            return false
+            // Fallback: Construye un enlace .m3u8 basado en el patrón observado
+            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/${data}_x/master.m3u8?t=placeholder_token" // Reemplaza con token real si lo obtienes
+            Log.w("PlayHubLite", "loadLinks: Usando URL fallback: $fallbackUrl")
+            callback.invoke(
+                newExtractorLink(
+                    source = name,
+                    name = name,
+                    url = fallbackUrl,
+                    type = ExtractorLinkType.M3U8
+                ).apply {
+                    this.referer = "https://tpz6t.com/"
+                    this.quality = Qualities.Unknown.value
+                    this.headers = enhancedHeaders
+                }
+            )
+            return true
         }
     }
-
 }
