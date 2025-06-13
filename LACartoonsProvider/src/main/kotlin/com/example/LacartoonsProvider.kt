@@ -5,7 +5,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Document
 
-class LACartoonsProvider:MainAPI() {
+class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
     override var name = "LACartoons"
     override var lang = "es"

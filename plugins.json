@@ -63,23 +63,21 @@
     "fileSize": 15000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlayhubProvider.cs3",
-    "status": 0,
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
+    "status": 1,
     "version": 1,
     "apiVersion": 4,
-    "name": "PlayHub",
-    "internalName": "PlayhubProvider",
+    "name": "LACartoons",
+    "internalName": "LacartoonsProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para playhublite.com",
+    "description": "Plugin para www.lacartoons.com",
     "tvTypes": [
       "TvSeries",
-      "Movie",
-      "Anime",
       "Cartoon"
     ],
-    "iconUrl": "https://playhublite.com/favicon.ico",
+    "iconUrl": "https://img.icons8.com/?size=100&id=u9L7LAQFgNF2&format=png",
     "language": "es",
     "fileSize": 38000
   }

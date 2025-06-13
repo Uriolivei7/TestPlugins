@@ -85,21 +85,23 @@ class PlushdProvider :MainAPI() {
         if (tvType == TvType.TvSeries) {
             val script = doc.select("script").firstOrNull { it.html().contains("seasonsJson = ") }?.html()
             if(!script.isNullOrEmpty()){
-                val jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
+                var jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
 
-                // <<< MODIFICACIÓN CLAVE AQUÍ >>>
-                // El JSON ahora es un Map donde cada valor es una LISTA de MainTemporadaElement
+                // <<< MODIFICACIÓN CLAVE AQUÍ: LIMPIAR LOS CARACTERES DE ESCAPE >>>
+                // Reemplazamos "\\/" con "/" para que Jackson no tenga problemas.
+                // También agregamos un replace para \\" por " si hay comillas escapadas en los títulos
+                jsonscript = jsonscript.replace("\\/", "/").replace("\\\"", "\"")
+
                 val jsonResultMap = parseJson<Map<String, List<MainTemporadaElement>>>(jsonscript)
 
-                // Iterar sobre los valores del mapa (que son Listas de MainTemporadaElement)
-                jsonResultMap.values.forEach { seasonEpisodeList -> // Cada 'seasonEpisodeList' es List<MainTemporadaElement>
-                    seasonEpisodeList.forEach { info -> // Iterar sobre cada episodio dentro de esa lista
+                jsonResultMap.values.forEach { seasonEpisodeList ->
+                    seasonEpisodeList.forEach { info ->
                         val epTitle = info.title
                         val seasonNum = info.season
                         val epNum = info.episode
                         val img = info.image
 
-                        val realimg = if (img.isNullOrBlank()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
+                        val realimg = if (img.isNullOrBlank()) null else "https://image.tmdb.org/t/p/w342${img}" // Ya no necesitamos replace aquí, se hizo antes
 
                         if (epTitle != null && seasonNum != null && epNum != null) {
                             val episode = Episode(
