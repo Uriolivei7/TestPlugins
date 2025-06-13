@@ -64,9 +64,9 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlayhubProvider.cs3",
-    "status": 0,
+    "status": 1,
     "version": 1,
-    "apiVersion": 3,
+    "apiVersion": 4,
     "name": "PlayHub",
     "internalName": "PlayhubProvider",
     "authors": [
@@ -81,6 +81,6 @@
     ],
     "iconUrl": "https://playhublite.com/favicon.ico",
     "language": "es",
-    "fileSize": 26000
+    "fileSize": 35000
   }
 ]

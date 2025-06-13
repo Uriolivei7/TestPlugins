@@ -7,7 +7,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 
 class PlushdProvider :MainAPI() {
     override var mainUrl = "https://ww3.pelisplus.to"
-    override var name = "Pelisplus4K"
+    override var name = "PlusHD"
     override var lang = "es"
     override val hasMainPage = true
     override val hasChromecastSupport = true
