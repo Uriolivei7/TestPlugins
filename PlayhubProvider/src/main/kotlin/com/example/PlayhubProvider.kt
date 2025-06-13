@@ -1,7 +1,7 @@
 package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.* // Importa TODO de cloudstream3
+import com.lagradost.cloudstream3.* // Import
 import com.lagradost.cloudstream3.utils.* // ¡CRÍTICO! Importa todas las utilidades. Esto debería traer fixUrl, apmap, base64Decode, etc.
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importación explícita para tryParseJson
 
