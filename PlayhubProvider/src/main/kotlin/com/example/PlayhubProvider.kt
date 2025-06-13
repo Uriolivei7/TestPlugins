@@ -271,12 +271,12 @@ class PlayhubProvider : MainAPI() {
         val id = url.substringAfter("/movies/").substringAfter("/series/")
         val uuu = if (type == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
 
-        Log.d("PlayHubLite", "load: Solicitando detalles de la API: $uuu") // Nuevo log
+        Log.d("PlayHubLite", "load: Solicitando detalles de la API: $uuu")
         val res = app.get(uuu, headers = playhubHeaders).parsed<PlayhubLoadMain>()
-        Log.d("PlayHubLite", "load: Resumen (overview) recibido: ${res.overview}") // Nuevo log para la trama
+        Log.d("PlayHubLite", "load: Resumen (overview) recibido: ${res.overview}")
 
         val title = res.title ?: res.originalTitle ?: res.name ?: res.originalName ?: ""
-        val plot = res.overview ?: "" // Obtiene la trama, será "" si es null
+        val plot = res.overview ?: ""
         val posterinfo = res.posterPath ?: ""
         val backposterinfo = res.backdropPath ?: ""
         val poster = getImageUrl(posterinfo)
@@ -285,14 +285,11 @@ class PlayhubProvider : MainAPI() {
         val episodes = ArrayList<Episode>()
         val recs = ArrayList<SearchResponse>()
 
-        // Lógica para series (temporadas y episodios)
         if (type == TvType.TvSeries) {
-            // apmap aquí es crucial para que las llamadas a 'app.get' dentro del bucle se ejecuten de forma asíncrona
             res.seasons?.apmap { mainInfo ->
                 val seasonurl = "${playhubAPI}seasons/${mainInfo.serieId}/${mainInfo.seasonNumber}"
                 val seasonres = app.get(seasonurl, headers = playhubHeaders).parsed<SeasonsInfo>()
                 val seriesID = mainInfo.serieId
-                // apmap aquí es crucial para las llamadas a 'newEpisode' o procesamiento pesado
                 seasonres.episodes?.apmap { ep ->
                     val eptitle = ep.name
                     val epthumb = getImageUrl(ep.stillPath)
@@ -300,7 +297,8 @@ class PlayhubProvider : MainAPI() {
                     val seasonNum = ep.seasonNumber
                     val epNum = ep.episodeNumber
                     val airDate = ep.airDate
-                    val epData = "${playhubAPI}xxx/$seriesID-$seasonNum-$epNum?s=web"
+                    // CAMBIO AQUI: La URL de datos para el episodio ahora es la URL de la página web del episodio
+                    val epData = "$mainUrl/series/$seriesID/season/$seasonNum/episode/$epNum" // Ajusta esta URL si el formato es diferente
                     episodes.add(
                         newEpisode(epData) {
                             this.name = eptitle
@@ -313,7 +311,6 @@ class PlayhubProvider : MainAPI() {
                 }
             }
         }
-        // Lógica para recomendaciones de películas
         if (type == TvType.Movie)  {
             res.recommendations?.map {
                 val rectitle = it.title ?: ""
@@ -327,30 +324,28 @@ class PlayhubProvider : MainAPI() {
             }
         }
 
-        // Construye y devuelve el objeto LoadResponse
         return when (type) {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(title,
                     url, type, episodes,){
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backposter
-                    this.plot = plot // Asigna la trama
-                    //this.year = year // Si tienes el año, descomenta y asigna
+                    this.plot = plot
                     this.tags = tags
                     this.recommendations = recs
                 }
             }
             TvType.Movie -> {
-                newMovieLoadResponse(title, url, type, "${playhubAPI}xxx/$id?s=web"){
+                // CAMBIO AQUI: La URL de datos para la película ahora es la URL de la página web de la película
+                newMovieLoadResponse(title, url, type, "$mainUrl/movies/$id"){ // Ajusta esta URL si el formato es diferente
                     this.posterUrl = poster
-                    this.plot = plot // Asigna la trama
+                    this.plot = plot
                     this.backgroundPosterUrl = backposter
-                    //this.year = year // Si tienes el año, descomenta y asigna
                     this.tags = tags
                     this.recommendations = recs
                 }
             }
-            else -> null // Tipo no soportado
+            else -> null
         }
     }
 

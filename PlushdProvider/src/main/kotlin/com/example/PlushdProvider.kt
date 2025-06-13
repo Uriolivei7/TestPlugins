@@ -15,8 +15,8 @@ class PlushdProvider :MainAPI() {
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
-        TvType.AsianDrama,
         TvType.Anime,
+        TvType.AsianDrama
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
@@ -24,8 +24,8 @@ class PlushdProvider :MainAPI() {
         val urls = listOf(
             Pair("Peliculas", "$mainUrl/peliculas"),
             Pair("Series", "$mainUrl/series"),
-            Pair("Doramas", "$mainUrl/doramas"),
             Pair("Animes", "$mainUrl/animes"),
+            Pair("Doramas", "$mainUrl/doramas")
         )
 
         urls.apmap { (name, url) ->
