@@ -436,30 +436,49 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
-        // Usa la URL como punto de partida para el reproductor
-        val initialUrl = "https://tpz6t.com/bkg/$data?ref=playhublite.com"
-        Log.d("PlayHubLite", "loadLinks: Probando URL inicial: $initialUrl")
+        // Prueba ambas URLs: con el identificador y con file_id
+        val identifierUrl = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
+        val fileIdUrl = "https://tpz6t.com/bkg/file/46146551?ref=playhublite.com" // URL tentativa con file_id
+        Log.d("PlayHubLite", "loadLinks: Probando URLs iniciales: $identifierUrl, $fileIdUrl")
 
-        // Mejora los headers para simular un navegador
+        // Cabeceras mejoradas con las cookies obtenidas
         val enhancedHeaders = playhubHeaders + mapOf(
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Sec-Fetch-Dest" to "document",
             "Sec-Fetch-Mode" to "navigate",
-            "Upgrade-Insecure-Requests" to "1"
+            "Upgrade-Insecure-Requests" to "1",
+            "Origin" to "https://tpz6t.com",
+            "Referer" to "https://tpz6t.com/",
+            "X-Application-Key" to "ypvrgnttsmn6piLiktV5u4tf74610w",
+            "Cookie" to "aff=84338; file_id=46146551; ref_url=playhublite.com" // Cookies obtenidas
         )
 
-        val response = try {
-            val apiResponse = app.get(initialUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30) // Aumenta el timeout
-            Log.d("PlayHubLite", "loadLinks: Código de estado de la API de fuentes: ${apiResponse.code}")
-            Log.d("PlayHubLite", "loadLinks: Cuerpo de la API de fuentes (primeros 500 chars): ${apiResponse.text.take(500)}")
+        // Prueba primero con el identificador
+        var response = try {
+            val apiResponse = app.get(identifierUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
+            Log.d("PlayHubLite", "loadLinks: Código de estado (identificador): ${apiResponse.code}")
+            Log.d("PlayHubLite", "loadLinks: Cuerpo (primeros 500 chars): ${apiResponse.text.take(500)}")
             apiResponse
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: Error al obtener la API de fuentes $initialUrl: ${e.message}", e)
-            return false
+            Log.e("PlayHubLite", "loadLinks: Error con identificador $identifierUrl: ${e.message}", e)
+            null
         }
 
-        if (response.code !in 200..299) {
-            Log.e("PlayHubLite", "loadLinks: API de fuentes devolvió un código de estado ${response.code}. Cuerpo: ${response.text}")
+        // Si falla, prueba con file_id
+        if (response == null || response.code !in 200..299) {
+            response = try {
+                val apiResponse = app.get(fileIdUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
+                Log.d("PlayHubLite", "loadLinks: Código de estado (file_id): ${apiResponse.code}")
+                Log.d("PlayHubLite", "loadLinks: Cuerpo (primeros 500 chars): ${apiResponse.text.take(500)}")
+                apiResponse
+            } catch (e: Exception) {
+                Log.e("PlayHubLite", "loadLinks: Error con file_id $fileIdUrl: ${e.message}", e)
+                null
+            }
+        }
+
+        if (response == null || response.code !in 200..299) {
+            Log.e("PlayHubLite", "loadLinks: Ambas URLs fallaron. Código: ${response?.code}. Cuerpo: ${response?.text}")
             return false
         }
 
@@ -481,30 +500,55 @@ class PlayhubProvider : MainAPI() {
             )
             return true
         } else {
-            // Busca redirecciones o enlaces en el cuerpo (ej. <video> o <source>)
+            // Busca redirecciones o el src del iframe
             val locationHeader = response.headers["Location"]
-            val videoLinkMatch = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(response.text)
-            if (locationHeader != null || videoLinkMatch != null) {
-                val finalUrl = locationHeader ?: videoLinkMatch?.groupValues?.get(1)
+            val iframeSrcMatch = Regex("src=['\"](https?://[^'\"]+)['\"]").find(response.text)
+            if (locationHeader != null || iframeSrcMatch != null) {
+                val finalUrl = locationHeader ?: iframeSrcMatch?.groupValues?.get(1)
                 if (finalUrl != null) {
-                    Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 extraído con redirección/video: $finalUrl")
-                    callback.invoke(
-                        newExtractorLink(
-                            source = name,
-                            name = name,
-                            url = finalUrl,
-                            type = ExtractorLinkType.M3U8
-                        ).apply {
-                            this.referer = "https://tpz6t.com/"
-                            this.quality = Qualities.Unknown.value
-                            this.headers = enhancedHeaders
-                        }
-                    )
-                    return true
+                    Log.d("PlayHubLite", "loadLinks: Enlace extraído con redirección/iframe: $finalUrl")
+                    // Solicitud adicional al src
+                    val iframeResponse = app.get(finalUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
+                    val m3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(iframeResponse.text)?.groupValues?.get(1)
+                    if (m3u8Link != null) {
+                        Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 encontrado en iframe: $m3u8Link")
+                        callback.invoke(
+                            newExtractorLink(
+                                source = name,
+                                name = name,
+                                url = m3u8Link,
+                                type = ExtractorLinkType.M3U8
+                            ).apply {
+                                this.referer = finalUrl
+                                this.quality = Qualities.Unknown.value
+                                this.headers = enhancedHeaders
+                            }
+                        )
+                        return true
+                    }
                 }
             }
-            // Fallback: Construye un enlace .m3u8 basado en el patrón observado
-            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/${data}_x/master.m3u8?t=placeholder_token" // Reemplaza con token real si lo obtienes
+            // Intenta una solicitud directa a mxafthohnoyh.com
+            val mxafthResponse = app.get("https://mxafthohnoyh.com/", headers = enhancedHeaders, allowRedirects = true, timeout = 30)
+            val mxafthM3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(mxafthResponse.text)?.groupValues?.get(1)
+            if (mxafthM3u8Link != null) {
+                Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 encontrado en mxafthohnoyh.com: $mxafthM3u8Link")
+                callback.invoke(
+                    newExtractorLink(
+                        source = name,
+                        name = name,
+                        url = mxafthM3u8Link,
+                        type = ExtractorLinkType.M3U8
+                    ).apply {
+                        this.referer = "https://mxafthohnoyh.com/"
+                        this.quality = Qualities.Unknown.value
+                        this.headers = enhancedHeaders
+                    }
+                )
+                return true
+            }
+            // Fallback basado en el patrón observado
+            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/46146551_x/master.m3u8?t=placeholder_token" // Usamos file_id
             Log.w("PlayHubLite", "loadLinks: Usando URL fallback: $fallbackUrl")
             callback.invoke(
                 newExtractorLink(
