@@ -7,7 +7,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import android.util.Log // Importar Log para depuración
 import com.fasterxml.jackson.databind.JsonNode // Importar JsonNode
 
-class PlushdProvider :MainAPI() {
+class PlushdProvider : MainAPI() {
     override var mainUrl = "https://ww3.pelisplus.to"
     override var name = "PlusHD"
     override var lang = "es"
@@ -66,7 +66,7 @@ class PlushdProvider :MainAPI() {
         }
     }
 
-    data class MainTemporadaElement (
+    data class MainTemporadaElement(
         val title: String? = null,
         val image: String? = null,
         val season: Int? = null,
@@ -86,34 +86,34 @@ class PlushdProvider :MainAPI() {
 
         if (tvType == TvType.TvSeries) {
             val script = doc.select("script").firstOrNull { it.html().contains("seasonsJson = ") }?.html()
-            if(!script.isNullOrEmpty()){
+            if (!script.isNullOrEmpty()) {
                 var jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
 
-                // <<< Mantener la limpieza de caracteres de escape, es una buena práctica >>>
+                // Limpieza del JSON para manejar caracteres y posibles cortes
                 jsonscript = jsonscript.replace("\\/", "/").replace("\\\"", "\"")
+                    .replace(Regex("(?<!\\\\)\"[^\"]*$"), "") // Elimina cadenas no cerradas al final
+                    .trim()
 
-                // <<< Paso de depuración: Imprimir el JSON para verificar su formato exacto >>>
+                // Depuración: Imprimir el JSON limpio
                 Log.d("PlushdProvider", "seasonsJson recuperado y limpiado: $jsonscript")
 
                 try {
-                    // Intento de parseo flexible usando JsonNode primero
                     val jsonNodeMap = parseJson<Map<String, JsonNode>>(jsonscript)
 
                     jsonNodeMap.forEach { (seasonKey, seasonNode) ->
                         if (seasonNode.isArray) {
                             seasonNode.forEach { episodeNode ->
                                 try {
-                                    // Intenta convertir cada JsonNode individualmente a MainTemporadaElement
+                                    // Intenta parsear cada episodio individualmente
                                     val info = parseJson<MainTemporadaElement>(episodeNode.toString())
-
-                                    val epTitle = info.title
-                                    val seasonNum = info.season
-                                    val epNum = info.episode
+                                    val epTitle = info.title?.takeIf { it.isNotBlank() } ?: "Episodio sin título"
+                                    val seasonNum = info.season ?: -1
+                                    val epNum = info.episode ?: -1
                                     val img = info.image
 
                                     val realimg = if (img.isNullOrBlank()) null else "https://image.tmdb.org/t/p/w342${img}"
 
-                                    if (epTitle != null && seasonNum != null && epNum != null) {
+                                    if (seasonNum >= 0 && epNum >= 0) {
                                         val episode = Episode(
                                             data = "$url/season/$seasonNum/episode/$epNum",
                                             name = epTitle,
@@ -124,21 +124,21 @@ class PlushdProvider :MainAPI() {
                                         allEpisodes.add(episode)
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("PlushdProvider", "Error al parsear episodio individual: ${episodeNode.toString()}", e)
+                                    Log.w("PlushdProvider", "Error al parsear episodio en season $seasonKey: ${episodeNode.toString()}", e)
                                 }
                             }
                         } else {
-                            Log.e("PlushdProvider", "seasonNode no es un array para la clave $seasonKey: $seasonNode")
+                            Log.w("PlushdProvider", "seasonNode no es un array para la clave $seasonKey: $seasonNode")
                         }
                     }
                 } catch (e: Exception) {
                     Log.e("PlushdProvider", "Error general al parsear seasonsJson: $jsonscript", e)
+                    // Continúa aunque falle el parsing completo, usando los episodios ya añadidos
                 }
             }
         }
 
-        return when(tvType)
-        {
+        return when (tvType) {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(title, url, tvType, allEpisodes) {
                     this.posterUrl = poster
@@ -148,7 +148,7 @@ class PlushdProvider :MainAPI() {
                 }
             }
             TvType.Movie -> {
-                newMovieLoadResponse(title, url, tvType, url){
+                newMovieLoadResponse(title, url, tvType, url) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
@@ -178,5 +178,4 @@ class PlushdProvider :MainAPI() {
         }
         return true
     }
-
 }
