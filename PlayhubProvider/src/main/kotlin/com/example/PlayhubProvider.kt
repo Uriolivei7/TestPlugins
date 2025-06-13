@@ -492,14 +492,16 @@ class PlayhubProvider : MainAPI() {
         // Se usa targetUrl como referer en loadExtractor
         return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
     }
+
+    fun String.toSlug(): String {
+        return this.lowercase()
+            .replace("[^a-z0-9\\s-]".toRegex(), "") // Elimina caracteres especiales
+            .replace("\\s+".toRegex(), "-") // Reemplaza espacios con guiones
+            .replace("-+".toRegex(), "-") // Reemplaza múltiples guiones con uno solo
+            .replace("^-|-$".toRegex(), "") // Elimina guiones al inicio o final
+    }
 }
 
 // Función de extensión para convertir una cadena a un slug
 // Necesitas añadir esto al final de tu archivo .kt o en un archivo de utilidad si tienes uno.
-fun String.toSlug(): String {
-    return this.lowercase()
-        .replace("[^a-z0-9\\s-]".toRegex(), "") // Elimina caracteres especiales
-        .replace("\\s+".toRegex(), "-") // Reemplaza espacios con guiones
-        .replace("-+".toRegex(), "-") // Reemplaza múltiples guiones con uno solo
-        .replace("^-|-$".toRegex(), "") // Elimina guiones al inicio o final
-}
+
