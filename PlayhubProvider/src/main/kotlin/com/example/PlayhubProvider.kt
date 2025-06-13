@@ -436,24 +436,39 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
-        // Prueba ambas URLs: con el identificador y con file_id
+        // URLs a probar
         val identifierUrl = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
-        val fileIdUrl = "https://tpz6t.com/bkg/file/46146551?ref=playhublite.com" // URL tentativa con file_id
+        val fileIdUrl = "https://tpz6t.com/bkg/file/46146551?ref=playhublite.com"
         Log.d("PlayHubLite", "loadLinks: Probando URLs iniciales: $identifierUrl, $fileIdUrl")
 
-        // Cabeceras mejoradas con las cookies obtenidas
-        val enhancedHeaders = playhubHeaders + mapOf(
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Sec-Fetch-Dest" to "document",
-            "Sec-Fetch-Mode" to "navigate",
-            "Upgrade-Insecure-Requests" to "1",
+        // Cabeceras replicadas del navegador
+        val baseHeaders = playhubHeaders + mapOf(
+            "Accept" to "*/*",
+            "Accept-Encoding" to "gzip, deflate, br, zstd",
+            "Accept-Language" to "es-ES,es;q=0.5",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "same-origin",
+            "Sec-Gpc" to "1",
             "Origin" to "https://tpz6t.com",
-            "Referer" to "https://tpz6t.com/",
+            "Referer" to "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com",
             "X-Application-Key" to "ypvrgnttsmn6piLiktV5u4tf74610w",
-            "Cookie" to "aff=84338; file_id=46146551; ref_url=playhublite.com" // Cookies obtenidas
+            "Cookie" to "file_id=46146551; aff=84338; ref_url=playhublite.com; oAID=0801cce...; oAIDs=17498492...; prefetchCha...=true; syncedCo...=true; cf_clearance=4W0b8HD2L...; cf_nextLing=es; sso-rw=eyJhbGciOiJIUzI1Ni...; stblid=2d551924-f4...", // Cookies actualizadas
+            "Sec-Ch-Ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "Sec-Ch-Ua-Mobile" to "?0",
+            "Sec-Ch-Ua-Platform" to "\"Windows\"",
+            "DNT" to "1",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
         )
 
-        // Prueba primero con el identificador
+        // Intenta capturar cookies dinámicas
+        val initialResponse = app.get("https://tpz6t.com/", headers = baseHeaders, allowRedirects = true, timeout = 30)
+        val cookies = initialResponse.headers["Set-Cookie"]?.split(";")?.mapNotNull { it.split("=").getOrNull(0)?.let { it to it.split("=").getOrNull(1) } }?.toMap() ?: emptyMap()
+        val updatedCookies = "file_id=46146551; aff=84338; ref_url=playhublite.com; oAID=0801cce...; oAIDs=17498492...; prefetchCha...=true; syncedCo...=true; cf_clearance=4W0b8HD2L...; cf_nextLing=es; sso-rw=eyJhbGciOiJIUzI1Ni...; stblid=2d551924-f4..." +
+                (cookies["__cfduid"]?.let { "; __cfduid=$it" } ?: "")
+        val enhancedHeaders = baseHeaders + mapOf("Cookie" to updatedCookies)
+
+        // Prueba con el identificador
         var response = try {
             val apiResponse = app.get(identifierUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
             Log.d("PlayHubLite", "loadLinks: Código de estado (identificador): ${apiResponse.code}")
@@ -493,7 +508,7 @@ class PlayhubProvider : MainAPI() {
                     url = link,
                     type = ExtractorLinkType.M3U8
                 ).apply {
-                    this.referer = "https://tpz6t.com/"
+                    this.referer = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
                     this.quality = Qualities.Unknown.value
                     this.headers = enhancedHeaders
                 }
@@ -507,7 +522,6 @@ class PlayhubProvider : MainAPI() {
                 val finalUrl = locationHeader ?: iframeSrcMatch?.groupValues?.get(1)
                 if (finalUrl != null) {
                     Log.d("PlayHubLite", "loadLinks: Enlace extraído con redirección/iframe: $finalUrl")
-                    // Solicitud adicional al src
                     val iframeResponse = app.get(finalUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
                     val m3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(iframeResponse.text)?.groupValues?.get(1)
                     if (m3u8Link != null) {
@@ -528,7 +542,7 @@ class PlayhubProvider : MainAPI() {
                     }
                 }
             }
-            // Intenta una solicitud directa a mxafthohnoyh.com
+            // Intenta mxafthohnoyh.com como fallback
             val mxafthResponse = app.get("https://mxafthohnoyh.com/", headers = enhancedHeaders, allowRedirects = true, timeout = 30)
             val mxafthM3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(mxafthResponse.text)?.groupValues?.get(1)
             if (mxafthM3u8Link != null) {
@@ -547,8 +561,8 @@ class PlayhubProvider : MainAPI() {
                 )
                 return true
             }
-            // Fallback basado en el patrón observado
-            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/46146551_x/master.m3u8?t=placeholder_token" // Usamos file_id
+            // Fallback final
+            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/46146551_x/master.m3u8?t=placeholder_token"
             Log.w("PlayHubLite", "loadLinks: Usando URL fallback: $fallbackUrl")
             callback.invoke(
                 newExtractorLink(
@@ -557,7 +571,7 @@ class PlayhubProvider : MainAPI() {
                     url = fallbackUrl,
                     type = ExtractorLinkType.M3U8
                 ).apply {
-                    this.referer = "https://tpz6t.com/"
+                    this.referer = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
                     this.quality = Qualities.Unknown.value
                     this.headers = enhancedHeaders
                 }
@@ -565,4 +579,5 @@ class PlayhubProvider : MainAPI() {
             return true
         }
     }
+
 }
