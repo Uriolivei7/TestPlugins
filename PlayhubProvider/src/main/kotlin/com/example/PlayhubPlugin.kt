@@ -11,7 +11,7 @@ import com.lagradost.cloudstream3.MainAPI // Necesario para registrar MainAPI
  * Aquí es donde registrarás todos tus proveedores (MainAPI).
  */
 @CloudstreamPlugin
-class SoloLatinoPlugin : Plugin() {
+class PlayhubPlugin : Plugin() {
     /**
      * Aquí debes registrar todos tus proveedores (MainAPI).
      *
@@ -24,7 +24,7 @@ class SoloLatinoPlugin : Plugin() {
 
         // Registra tu SoloLatinoProvider.
         // Asegúrate de que SoloLatinoProvider no tenga la anotación @CloudstreamPlugin.
-        registerMainAPI(SoloLatinoProvider())
+        registerMainAPI(PlayhubProvider())
 
         // Si tuvieras otros proveedores, los registrarías aquí también:
         // registerMainAPI(OtroProveedor())
