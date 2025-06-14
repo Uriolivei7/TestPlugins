@@ -64,7 +64,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/RetrotveProvider.cs3",
-    "status": 0,
+    "status": 1,
     "version": 1,
     "apiVersion": 4,
     "name": "RetroTVE",
