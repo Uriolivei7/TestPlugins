@@ -14,10 +14,8 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
         mavenCentral()
-        // También asegúrate de que el repositorio de la librería de CloudStream esté aquí (jitpack)
-        maven("https://jitpack.io")
+        maven { url = uri("https://jitpack.io") }
     }
 }
 rootProject.name = "TestPlugins" // O "TestPlugins" si así se llama tu carpeta raíz

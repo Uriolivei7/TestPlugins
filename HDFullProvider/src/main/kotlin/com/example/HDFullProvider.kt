@@ -7,12 +7,8 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import org.json.JSONObject
-import java.time.LocalDate
-import java.util.Calendar
-import kotlin.reflect.jvm.internal.impl.load.kotlin.JvmType
 
-class HDFullProvider : MainAPI() {
+class HdfullProvider : MainAPI() {
     override var mainUrl = "https://hd-full.sbs"
     override var name = "HDFull"
     override var lang = "es"
