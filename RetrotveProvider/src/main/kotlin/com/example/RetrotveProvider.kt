@@ -164,7 +164,14 @@ class RetrotveProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         println("RetroTVE: Cargando enlaces para: $data")
-        val doc = app.get(data).document
+
+        // --- CAMBIO CLAVE AQUÍ: Añadir User-Agent a la petición principal ---
+        val doc = app.get(data, headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
+        )).document
+        // --- FIN DEL CAMBIO ---
 
         var foundLinks = false
 
@@ -215,7 +222,14 @@ class RetrotveProvider : MainAPI() {
                 println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullTrembedUrl")
 
                 val embedPageDoc = try {
-                    app.get(fullTrembedUrl).document
+                    // --- REPETIR CAMBIO AQUÍ para las peticiones de embedPageDoc con Referer y User-Agent ---
+                    app.get(fullTrembedUrl, headers = mapOf(
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                        "Referer" to data, // El referer es importante aquí, apuntando a la URL de la serie/película
+                        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                        "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
+                    )).document
+                    // --- FIN DEL CAMBIO ---
                 } catch (e: Exception) {
                     println("RetroTVE: Error al obtener la página de trembed $fullTrembedUrl: ${e.message}")
                     return@forEach // Continúa al siguiente iframe en caso de error
