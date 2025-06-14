@@ -158,25 +158,16 @@ class RetrotveProvider : MainAPI() {
     ): Boolean {
         println("RetroTVE: Cargando enlaces para: $data")
 
-        // CABECERAS COMPLETAS BASADAS EN TU CAPTURA DEL NAVEGADOR
-        // Estas cabeceras son para la petición inicial a la página del episodio en retrotve.com
+        // CABECERAS SIMPLIFICADAS PARA LA PETICIÓN PRINCIPAL
         val headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Accept" to "*/*",
-            "Accept-Encoding" to "gzip, deflate, br, zstd",
-            "Accept-Language" to "es-ES,es;q=0.9",
-            "Origin" to "https://retrotve.com",
-            "Priority" to "u=1, i",
-            "Referer" to "https://retrotve.com/", // Referer a la raíz del sitio es común para peticiones iniciales
-            "Sec-Ch-Ua" to "\"Google Chrome\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
-            "Sec-Ch-Ua-Mobile" to "?0",
-            "Sec-Ch-Ua-Platform" to "\"Windows\"",
-            "Sec-Fetch-Dest" to "empty",
-            "Sec-Fetch-Mode" to "cors",
-            "Sec-Fetch-Site" to "cross-site"
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", // Volvemos a un User-Agent más genérico pero aún de Chrome
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7", // Volvemos al Accept para HTML
+            "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8",
+            "Referer" to "https://retrotve.com/", // Referer a la raíz
+            // Eliminamos las cabeceras Client Hints y Sec-Fetch-* que podrían ser problemáticas.
+            // "Origin", "Priority", "Accept-Encoding" tampoco son estrictamente necesarios para la primera petición HTML
         )
 
-        // Realizar la petición con todas las cabeceras copiadas del navegador
         val doc = app.get(data, headers = headers).document
 
         var foundLinks = false
@@ -229,12 +220,11 @@ class RetrotveProvider : MainAPI() {
             sortedPlayerEmbedUrls.forEach { fullTrembedUrl ->
                 println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullTrembedUrl")
 
+                // Las cabeceras para las páginas trembed pueden ser más básicas
                 val embedPageDoc = try {
-                    // Para la petición a los iframes intermedios (trembed=0, 1, 2),
-                    // el Referer debe ser la URL de la página principal del episodio (data).
                     app.get(fullTrembedUrl, headers = mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", // Puedes usar el mismo User-Agent de arriba si quieres
-                        "Referer" to data, // Aquí 'data' es la URL del episodio original
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                        "Referer" to data,
                         "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                         "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
                     )).document
@@ -243,14 +233,12 @@ class RetrotveProvider : MainAPI() {
                     return@forEach
                 }
 
-                // Buscar el iframe de VK.com
                 val vkIframe = embedPageDoc.selectFirst("iframe[src*=\"vk.com/video_ext.php\"]")
                 val vkSrc = vkIframe?.attr("src")
 
                 if (!vkSrc.isNullOrBlank()) {
                     val decodedVkSrc = decodeHtml(vkSrc)
                     println("RetroTVE: Encontrado URL de VK.com: $vkSrc, Decodificado: $decodedVkSrc")
-                    // El referer para VK.com será la URL de la página trembed (fullTrembedUrl)
                     if (loadExtractor(decodedVkSrc, fullTrembedUrl, subtitleCallback, callback)) {
                         foundLinks = true
                         return@outerLoop
@@ -260,7 +248,6 @@ class RetrotveProvider : MainAPI() {
                 } else {
                     println("RetroTVE: No se encontró iframe de VK.com en $fullTrembedUrl. Buscando otros extractores o scripts...")
 
-                    // Buscar otros extractores directamente en la página embed
                     val senvidIframe = embedPageDoc.selectFirst("iframe[src*=\"senvid.net/embed-\"]")
                     val senvidSrc = senvidIframe?.attr("src")
                     if (!senvidSrc.isNullOrBlank()) {
@@ -287,7 +274,6 @@ class RetrotveProvider : MainAPI() {
                         }
                     }
 
-                    // Lógica de respaldo para scripts con HLS/MP4 o para pasar la URL trembed a loadExtractor si no se encontró un iframe de extractor conocido
                     val scriptContent = embedPageDoc.select("script:contains(eval)").text()
                     if (scriptContent.isNotBlank()) {
                         println("RetroTVE: Script con 'eval' encontrado, se requiere análisis de JS para extraer URLs.")
