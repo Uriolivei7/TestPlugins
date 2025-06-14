@@ -2,14 +2,11 @@ package com.example
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.loadExtractor // Asegúrate de que esta importación esté presente
 import org.jsoup.nodes.Document
-// import android.util.Log // Comentado si sigue dando error
+// import android.util.Log // Comentado si sigue dando error, para usar println
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.net.URLEncoder
-
-// IMPORTS QUE DEBEN SER CORRECTAS SEGÚN LOS STUBS Y LA PRÁCTICA COMÚN
-// import com.lagradost.cloudstream3.extractors.Qualities // ¡COMENTADO! Ya no la necesitamos.
 import com.lagradost.cloudstream3.utils.AppUtils // Para tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLinkType // Para ExtractorLinkType.M3U8
 
@@ -24,8 +21,9 @@ class LacartoonsProvider:MainAPI() {
         TvType.Cartoon,
         TvType.TvSeries
     )
+    override val usesWebView = true // ¡IMPORTANTE! Habilita el uso de WebView para este plugin
 
-    // Función auxiliar para URL encoding
+    // Función auxiliar para URL encoding (no necesaria directamente con loadExtractor, pero la dejamos por si acaso)
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
     private fun Document.toSearchResult():List<SearchResponse>{
@@ -89,87 +87,20 @@ class LacartoonsProvider:MainAPI() {
         val iframeSrc = doc.selectFirst(".serie-video-informacion iframe")?.attr("src")
 
         if (iframeSrc == null) {
-            println("${name}: No iframe found for episode: $data")
+            println("${name}: No se encontró iframe para el episodio: $data")
             return false
         }
 
-        val videoId = iframeSrc.substringAfterLast("#", "").trim()
-        if (videoId.isBlank()) {
-            println("${name}: Could not extract video ID from iframe src: $iframeSrc")
-            return false
-        }
+        val embedUrl = iframeSrc
 
-        // ¡ATENCIÓN A ESTOS CAMBIOS!
-        // El parámetro 'r' en la URL de la API debe ser la URL COMPLETA del iframe embed.
-        // El 'Referer' y 'Origin' en los headers deben ser el dominio de lacartoons.com
-        val apiUrl = "https://cubembed.rpmvid.com/api/v1/video?id=$videoId&w=1280&h=800&r=${encode(iframeSrc)}"
+        println("${name}: Intentando cargar extractor para la URL: $embedUrl")
 
-        val headers = mapOf(
-            "Referer" to data, // Referer es la página de lacartoons
-            "Accept" to "*/*",
-            "Accept-Language" to "es,en-US;q=0.7,en;q=0.3",
-            "Origin" to "https://www.lacartoons.com", // Origin es la página de lacartoons
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        return loadExtractor(
+            embedUrl,
+            data, // 'data' es la URL de la página del episodio de Lacartoons, servirá como Referer para el WebView
+            subtitleCallback,
+            callback
         )
-
-        try {
-            val apiResponse = app.get(apiUrl, headers = headers)
-
-            println("${name}: API Request URL: $apiUrl")
-            println("${name}: API Response Status Code: ${apiResponse.code}")
-            println("${name}: API Response Body: ${apiResponse.text}")
-
-            if (apiResponse.code == 200) {
-                val responseJson = AppUtils.tryParseJson<CubembedApiResponse>(apiResponse.text)
-
-                if (responseJson != null) {
-                    val videoUrl = responseJson.videoUrl
-                    val qualityStr = responseJson.quality
-
-                    if (!videoUrl.isNullOrBlank()) {
-                        println("${name}: Successfully extracted video URL: $videoUrl")
-
-                        val quality = when (qualityStr?.lowercase()) {
-                            "360p" -> 360
-                            "480p" -> 480
-                            "720p" -> 720
-                            "1080p" -> 1080
-                            "2160p" -> 2160
-                            else -> 0
-                        }
-
-                        callback(
-                            ExtractorLink(
-                                source = this.name,
-                                name = qualityStr ?: "Normal",
-                                url = videoUrl,
-                                referer = videoUrl, // Referer para el stream es la URL del video mismo
-                                quality = quality,
-                                type = ExtractorLinkType.M3U8
-                            )
-                        )
-                        return true
-                    } else {
-                        println("${name}: Video URL is null or blank in API response for ID: $videoId. Response: ${apiResponse.text}")
-                    }
-                } else {
-                    println("${name}: Failed to parse API response JSON for ID: $videoId. Raw response: ${apiResponse.text}")
-                }
-            } else {
-                println("${name}: API Request failed for $apiUrl with status: ${apiResponse.code}, body: ${apiResponse.text}")
-            }
-        } catch (e: Exception) {
-            println("${name}: Error fetching video from Cubembed API: ${e.message}")
-            e.printStackTrace()
-        }
-
-        return false
     }
 
-    data class CubembedApiResponse(
-        @JsonProperty("file")
-        val videoUrl: String?,
-        @JsonProperty("quality")
-        val quality: String? = null
-    )
 }
