@@ -4,8 +4,9 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Document
-// import android.util.Log // <--- Comentamos esta línea si sigue dando error, y usaremos println o algo similar para depuración.
+// import android.util.Log // Comentado si sigue dando error
 import com.fasterxml.jackson.annotation.JsonProperty
+import java.net.URLEncoder
 
 // IMPORTS QUE DEBEN SER CORRECTAS SEGÚN LOS STUBS Y LA PRÁCTICA COMÚN
 // import com.lagradost.cloudstream3.extractors.Qualities // ¡COMENTADO! Ya no la necesitamos.
@@ -23,6 +24,9 @@ class LacartoonsProvider:MainAPI() {
         TvType.Cartoon,
         TvType.TvSeries
     )
+
+    // Función auxiliar para URL encoding
+    private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
     private fun Document.toSearchResult():List<SearchResponse>{
         return this.select(".categorias .conjuntos-series a").map {
@@ -85,78 +89,65 @@ class LacartoonsProvider:MainAPI() {
         val iframeSrc = doc.selectFirst(".serie-video-informacion iframe")?.attr("src")
 
         if (iframeSrc == null) {
-            // Reemplazamos Log.w con println para depuración si Log no funciona
             println("${name}: No iframe found for episode: $data")
             return false
         }
 
-        val videoId = iframeSrc.substringAfterLast("#", "").trim()
-        if (videoId.isBlank()) {
-            println("${name}: Could not extract video ID from iframe src: $iframeSrc")
+        // Modificamos la URL del iframe para quitar el #ourng, ya que es un hash que el servidor no procesa
+        val embedUrl = iframeSrc.substringBeforeLast("#")
+        if (embedUrl.isBlank()) {
+            println("${name}: Could not extract embed URL from iframe src: $iframeSrc")
             return false
         }
 
-        val apiUrl = "https://cubembed.rpmvid.com/api/v1/video?id=$videoId&w=1280&h=800&r=$data"
-
-        val headers = mapOf(
-            "Referer" to data,
-            "Accept" to "*/*",
+        val embedHeaders = mapOf(
+            "Referer" to data, // El referer es la página de lacartoons.com
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language" to "es,en-US;q=0.7,en;q=0.3",
-            "Origin" to "https://cubembed.rpmvid.com",
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            "Upgrade-Insecure-Requests" to "1"
         )
 
         try {
-            val apiResponse = app.get(apiUrl, headers = headers)
+            // Hacemos una solicitud GET al iframe para obtener su contenido HTML
+            val embedDoc = app.get(embedUrl, headers = embedHeaders).document
 
-            println("${name}: API Request URL: $apiUrl")
-            println("${name}: API Response Status Code: ${apiResponse.code}")
-            println("${name}: API Response Body: ${apiResponse.text}")
+            // Buscamos la URL del video directamente en el HTML del iframe
+            // Basado en image_902d18.png, buscamos la etiqueta <source> dentro de <video>
+            val videoSourceElement = embedDoc.selectFirst("video source[type=application/x-mpegurl]")
+            val videoUrl = videoSourceElement?.attr("src")
 
-            if (apiResponse.code == 200) {
-                // Usamos AppUtils.tryParseJson, confirmado por el stub de AppUtils
-                val responseJson = AppUtils.tryParseJson<CubembedApiResponse>(apiResponse.text)
+            if (!videoUrl.isNullOrBlank()) {
+                println("${name}: Successfully extracted video URL from embed: $videoUrl")
 
-                if (responseJson != null) {
-                    val videoUrl = responseJson.videoUrl
-                    val qualityStr = responseJson.quality
+                // Aquí podemos intentar determinar la calidad basándonos en la URL o el nombre
+                // Si la URL no contiene la calidad, puedes estimarla o dejarla como 0 (Unknown)
+                // Por ahora, asumimos una calidad Unknown o podrías intentar parsearla del nombre si lo hubiera
+                val quality = 0 // Qualities.Unknown.value
 
-                    if (!videoUrl.isNullOrBlank()) {
-                        println("${name}: Successfully extracted video URL: $videoUrl")
+                // Si la URL del video tiene un 'quality' en su path, puedes intentar extraerlo.
+                // Ejemplo: videoUrl.substringAfterLast("/").substringBefore(".").substringAfter("-")
+                // En image_902d18.png se ve /hls/Ux8FO9u1ACyyq56m2odA/db/85vbcYxc/1u1ddo/tt/master.m3u8
+                // No parece tener la calidad en el nombre de archivo directo.
 
-                        // ¡CAMBIO CLAVE AQUÍ! Asignamos valores numéricos directos para la calidad
-                        val quality = when (qualityStr?.lowercase()) {
-                            "360p" -> 360
-                            "480p" -> 480
-                            "720p" -> 720
-                            "1080p" -> 1080
-                            "2160p" -> 2160
-                            else -> 0 // Calidad desconocida
-                        }
-
-                        callback(
-                            ExtractorLink(
-                                source = this.name,
-                                name = qualityStr ?: "Normal",
-                                url = videoUrl,
-                                referer = videoUrl,
-                                quality = quality, // Usamos el valor numérico directo
-                                type = ExtractorLinkType.M3U8
-                            )
-                        )
-                        return true
-                    } else {
-                        println("${name}: Video URL is null or blank in API response for ID: $videoId. Response: ${apiResponse.text}")
-                    }
-                } else {
-                    println("${name}: Failed to parse API response JSON for ID: $videoId. Raw response: ${apiResponse.text}")
-                }
+                callback(
+                    ExtractorLink(
+                        source = this.name,
+                        name = "Cubembed (direct)", // Cambiamos el nombre para reflejar que es directo
+                        url = videoUrl,
+                        referer = embedUrl, // El referer para el stream es la URL del embed
+                        quality = quality,
+                        type = ExtractorLinkType.M3U8 // Confirmado por image_902d18.png
+                    )
+                )
+                return true
             } else {
-                println("${name}: API Request failed for $apiUrl with status: ${apiResponse.code}, body: ${apiResponse.text}")
+                println("${name}: Could not find video source in embed HTML for URL: $embedUrl")
             }
+
         } catch (e: Exception) {
-            println("${name}: Error fetching video from Cubembed API: ${e.message}")
-            e.printStackTrace() // Para imprimir el stack trace completo si hay un error
+            println("${name}: Error fetching embed content or extracting video: ${e.message}")
+            e.printStackTrace()
         }
 
         return false
