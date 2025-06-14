@@ -160,29 +160,42 @@ class RetrotveProvider : MainAPI() {
         println("RetroTVE: Cargando enlaces para: $data")
         val doc = app.get(data).document
 
-        // Seleccionar los iframes principales de reproductor.
-        // Priorizamos la opción "Current" si existe, luego las demás.
         val playerIframes = mutableListOf<org.jsoup.nodes.Element>()
-        val currentIframe = doc.selectFirst(".TPlayerTb.Current iframe")
-        if (currentIframe != null) {
-            playerIframes.add(currentIframe) // Añadir la opción 'Current' primero
+
+        // Depuración: Mostrar todos los iframes trembed encontrados
+        doc.select(".TPlayerCn iframe, .TPlayerTb iframe").forEachIndexed { index, iframe ->
+            val src = iframe.attr("src")
+            if (!src.isNullOrBlank()) {
+                println("RetroTVE: Encontrado iframe de reproductor principal [${index}]: $src")
+            }
         }
-        // Añadir las demás opciones, excluyendo la 'Current' para no duplicar
+
+        // 1. Intentar encontrar el iframe con trembed=1 primero
+        val trembed1Iframe = doc.selectFirst("iframe[src*=\"trembed=1\"]") // Busca cualquier iframe que contenga "trembed=1" en su src
+        if (trembed1Iframe != null) {
+            playerIframes.add(trembed1Iframe)
+            println("RetroTVE: Priorizando trembed=1 iframe: ${trembed1Iframe.attr("src")}")
+        }
+
+        // 2. Luego, añadir los demás iframes, asegurándose de no duplicar
         doc.select(".TPlayerCn iframe, .TPlayerTb iframe").forEach { iframe ->
-            if (iframe != currentIframe) { // Evitar duplicar si 'currentIframe' ya fue añadido
+            val iframeSrc = iframe.attr("src")
+            // Añadir solo si no es trembed=1 (ya lo añadimos) Y no es nulo/vacío
+            if (!iframeSrc.isNullOrBlank() && !iframeSrc.contains("trembed=1")) {
                 playerIframes.add(iframe)
             }
         }
 
+        // Si trembed=1 no se encontró en el paso 1, y no hay otros iframes.
         if (playerIframes.isEmpty()) {
             println("RetroTVE: No se encontraron iframes de reproductor principal para $data")
             return false
         }
 
         var foundLinks = false
-        // Usamos forEach con un label para poder simular un "break" para el bucle externo
+        // Usamos run outerLoop para poder "break" del bucle forEach con return@outerLoop
         run outerLoop@{
-            for (iframe in playerIframes) {
+            playerIframes.forEach { iframe ->
                 val iframeSrc = iframe.attr("src")
                 if (!iframeSrc.isNullOrBlank()) {
                     val fullIframeUrl = if (iframeSrc.startsWith("/")) {
@@ -196,7 +209,7 @@ class RetrotveProvider : MainAPI() {
                         app.get(fullIframeUrl).document
                     } catch (e: Exception) {
                         println("RetroTVE: Error al obtener la página de trembed $fullIframeUrl: ${e.message}")
-                        continue // Si falla una, intenta la siguiente
+                        return@forEach // Continúa al siguiente iframe en caso de error
                     }
 
                     // Buscar el iframe de VK.com
@@ -205,16 +218,17 @@ class RetrotveProvider : MainAPI() {
 
                     if (!vkSrc.isNullOrBlank()) {
                         println("RetroTVE: Encontrado URL de VK.com: $vkSrc")
-                        // El referer para VK.com será la URL de la página trembed (fullIframeUrl)
                         if (loadExtractor(vkSrc, fullIframeUrl, subtitleCallback, callback)) {
                             foundLinks = true
-                            return@outerLoop // Salir del bucle run outerLoop
+                            return@outerLoop // Salir del bucle run outerLoop al encontrar enlaces
                         } else {
                             println("RetroTVE: loadExtractor no pudo resolver el video de VK.com: $vkSrc")
                         }
                     } else {
                         println("RetroTVE: No se encontró iframe de VK.com en $fullIframeUrl. Buscando scripts (respaldo)...")
-                        // Lógica de respaldo anterior por si acaso algún trembed es diferente
+                        // Aquí es donde necesitamos añadir la lógica para otros extractores si es necesario,
+                        // o confiar en que loadExtractor los detecte a partir de la URL del script si no es HLS/MP4 directo.
+
                         val scriptContent = embedPageDoc.select("script:contains(eval)").text()
                         if (scriptContent.isNotBlank()) {
                             println("RetroTVE: Script con 'eval' encontrado, se requiere análisis de JS para extraer URLs.")
@@ -226,6 +240,17 @@ class RetrotveProvider : MainAPI() {
                                         foundLinks = true
                                         return@outerLoop // Salir del bucle run outerLoop
                                     }
+                                }
+                            } else {
+                                // Si no hay HLS/MP4 directo en scripts, pero hay un script con eval,
+                                // podría ser una URL de extractor que loadExtractor puede manejar
+                                // si se la pasamos directamente.
+                                // Podríamos intentar pasar la URL del iframe trembed a loadExtractor
+                                // si el script con eval es un obfuscador para un iframe de extractor.
+                                println("RetroTVE: No HLS/MP4 directo en script con 'eval'. Intentando con loadExtractor la URL de embedPageDoc.")
+                                if (loadExtractor(fullIframeUrl, data, subtitleCallback, callback)) { // Usamos 'data' como referer principal
+                                    foundLinks = true
+                                    return@outerLoop
                                 }
                             }
                         }
@@ -242,4 +267,5 @@ class RetrotveProvider : MainAPI() {
         }
         return foundLinks
     }
+
 }
