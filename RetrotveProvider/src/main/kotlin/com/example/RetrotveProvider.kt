@@ -48,14 +48,17 @@ class RetrotveProvider : MainAPI() {
                 TvType.Movie
             }
 
+            val posterUrl = fixUrl(img)
+
             if (type == TvType.TvSeries) {
                 newTvSeriesSearchResponse(title, fixUrl(href)) {
-                    this.posterUrl = fixUrl(img)
+                    this.posterUrl = posterUrl
                     this.year = year
                 }
             } else {
+                // CAMBIO AQUÍ: Usamos el constructor con lambda para newMovieSearchResponse
                 newMovieSearchResponse(title, fixUrl(href)) {
-                    this.posterUrl = fixUrl(img)
+                    this.posterUrl = posterUrl // Asignación dentro del lambda
                     this.year = year
                 }
             }
@@ -160,112 +163,111 @@ class RetrotveProvider : MainAPI() {
         println("RetroTVE: Cargando enlaces para: $data")
         val doc = app.get(data).document
 
-        val playerIframes = mutableListOf<org.jsoup.nodes.Element>()
+        var foundLinks = false
 
-        // Depuración: Mostrar todos los iframes trembed encontrados
-        doc.select(".TPlayerCn iframe, .TPlayerTb iframe").forEachIndexed { index, iframe ->
-            val src = iframe.attr("src")
-            if (!src.isNullOrBlank()) {
-                println("RetroTVE: Encontrado iframe de reproductor principal [${index}]: $src")
-            }
-        }
+        // Capturar todos los iframes de reproductor que tienen un src con "trembed="
+        val allTrembedIframes = doc.select("div[class*=\"TPlayerTb\"] iframe[src*=\"trembed=\"]")
+            .mapNotNull { it.attr("src") } // Obtener solo las URLs
+            .distinct() // Eliminar URLs duplicadas
+            .sortedWith(compareBy {
+                // Ordenar para que trembed=1 sea primero, luego trembed=2, y el resto después.
+                val trembedNum = Regex("""trembed=(\d+)""").find(it)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                when (trembedNum) {
+                    1 -> 0 // Máxima prioridad
+                    2 -> 1 // Segunda prioridad
+                    0 -> 99 // Última prioridad si no es 1 o 2
+                    else -> trembedNum ?: 100 // Otras trembed en su orden numérico, o 100 si no se puede parsear
+                }
+            })
 
-        // 1. Intentar encontrar el iframe con trembed=1 primero
-        val trembed1Iframe = doc.selectFirst("iframe[src*=\"trembed=1\"]") // Busca cualquier iframe que contenga "trembed=1" en su src
-        if (trembed1Iframe != null) {
-            playerIframes.add(trembed1Iframe)
-            println("RetroTVE: Priorizando trembed=1 iframe: ${trembed1Iframe.attr("src")}")
-        }
-
-        // 2. Luego, añadir los demás iframes, asegurándose de no duplicar
-        doc.select(".TPlayerCn iframe, .TPlayerTb iframe").forEach { iframe ->
-            val iframeSrc = iframe.attr("src")
-            // Añadir solo si no es trembed=1 (ya lo añadimos) Y no es nulo/vacío
-            if (!iframeSrc.isNullOrBlank() && !iframeSrc.contains("trembed=1")) {
-                playerIframes.add(iframe)
-            }
-        }
-
-        // Si trembed=1 no se encontró en el paso 1, y no hay otros iframes.
-        if (playerIframes.isEmpty()) {
-            println("RetroTVE: No se encontraron iframes de reproductor principal para $data")
+        if (allTrembedIframes.isEmpty()) {
+            println("RetroTVE: No se encontraron iframes de reproductor principal con 'trembed=' en $data")
             return false
         }
 
-        var foundLinks = false
+        println("RetroTVE: Opciones de trembed encontradas y ordenadas: $allTrembedIframes")
+
         // Usamos run outerLoop para poder "break" del bucle forEach con return@outerLoop
         run outerLoop@{
-            playerIframes.forEach { iframe ->
-                val iframeSrc = iframe.attr("src")
-                if (!iframeSrc.isNullOrBlank()) {
-                    val fullIframeUrl = if (iframeSrc.startsWith("/")) {
-                        mainUrl + iframeSrc
+            for (fullTrembedUrl in allTrembedIframes) { // Iterar sobre las URLs ya ordenadas
+                println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullTrembedUrl")
+
+                val embedPageDoc = try {
+                    app.get(fullTrembedUrl).document
+                } catch (e: Exception) {
+                    println("RetroTVE: Error al obtener la página de trembed $fullTrembedUrl: ${e.message}")
+                    continue // Continúa al siguiente iframe en caso de error
+                }
+
+                // Buscar el iframe de VK.com
+                val vkIframe = embedPageDoc.selectFirst("iframe[src*=\"vk.com/video_ext.php\"]")
+                val vkSrc = vkIframe?.attr("src")
+
+                if (!vkSrc.isNullOrBlank()) {
+                    println("RetroTVE: Encontrado URL de VK.com: $vkSrc")
+                    if (loadExtractor(vkSrc, fullTrembedUrl, subtitleCallback, callback)) {
+                        foundLinks = true
+                        return@outerLoop // Salir del bucle run outerLoop al encontrar enlaces
                     } else {
-                        iframeSrc
+                        println("RetroTVE: loadExtractor no pudo resolver el video de VK.com: $vkSrc")
                     }
-                    println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullIframeUrl")
+                } else {
+                    println("RetroTVE: No se encontró iframe de VK.com en $fullTrembedUrl. Buscando otros extractores o scripts...")
 
-                    val embedPageDoc = try {
-                        app.get(fullIframeUrl).document
-                    } catch (e: Exception) {
-                        println("RetroTVE: Error al obtener la página de trembed $fullIframeUrl: ${e.message}")
-                        return@forEach // Continúa al siguiente iframe en caso de error
-                    }
-
-                    // Buscar el iframe de VK.com
-                    val vkIframe = embedPageDoc.selectFirst("iframe[src*=\"vk.com/video_ext.php\"]")
-                    val vkSrc = vkIframe?.attr("src")
-
-                    if (!vkSrc.isNullOrBlank()) {
-                        println("RetroTVE: Encontrado URL de VK.com: $vkSrc")
-                        if (loadExtractor(vkSrc, fullIframeUrl, subtitleCallback, callback)) {
+                    // Buscar SEnvid
+                    val senvidIframe = embedPageDoc.selectFirst("iframe[src*=\"senvid.net/embed-\"], iframe[src*=\"senvid.com/embed-\"]")
+                    val senvidSrc = senvidIframe?.attr("src")
+                    if (!senvidSrc.isNullOrBlank()) {
+                        println("RetroTVE: Encontrado URL de SEnvid: $senvidSrc")
+                        if (loadExtractor(senvidSrc, fullTrembedUrl, subtitleCallback, callback)) {
                             foundLinks = true
-                            return@outerLoop // Salir del bucle run outerLoop al encontrar enlaces
+                            return@outerLoop
                         } else {
-                            println("RetroTVE: loadExtractor no pudo resolver el video de VK.com: $vkSrc")
+                            println("RetroTVE: loadExtractor no pudo resolver el video de SEnvid: $senvidSrc")
                         }
-                    } else {
-                        println("RetroTVE: No se encontró iframe de VK.com en $fullIframeUrl. Buscando scripts (respaldo)...")
-                        // Aquí es donde necesitamos añadir la lógica para otros extractores si es necesario,
-                        // o confiar en que loadExtractor los detecte a partir de la URL del script si no es HLS/MP4 directo.
+                    }
 
-                        val scriptContent = embedPageDoc.select("script:contains(eval)").text()
-                        if (scriptContent.isNotBlank()) {
-                            println("RetroTVE: Script con 'eval' encontrado, se requiere análisis de JS para extraer URLs.")
-                            val hlsMatches = Regex("""(http[s]?://[^"']*\.m3u8[^"']*)""").findAll(scriptContent).map { it.value }.toList()
-                            if (hlsMatches.isNotEmpty()) {
-                                hlsMatches.forEach { hlsUrl ->
-                                    println("RetroTVE: Encontrado HLS URL en script (respaldo): $hlsUrl")
-                                    if (loadExtractor(hlsUrl, fullIframeUrl, subtitleCallback, callback)) {
-                                        foundLinks = true
-                                        return@outerLoop // Salir del bucle run outerLoop
-                                    }
-                                }
-                            } else {
-                                // Si no hay HLS/MP4 directo en scripts, pero hay un script con eval,
-                                // podría ser una URL de extractor que loadExtractor puede manejar
-                                // si se la pasamos directamente.
-                                // Podríamos intentar pasar la URL del iframe trembed a loadExtractor
-                                // si el script con eval es un obfuscador para un iframe de extractor.
-                                println("RetroTVE: No HLS/MP4 directo en script con 'eval'. Intentando con loadExtractor la URL de embedPageDoc.")
-                                if (loadExtractor(fullIframeUrl, data, subtitleCallback, callback)) { // Usamos 'data' como referer principal
+                    // Buscar YourUpload
+                    val yourUploadIframe = embedPageDoc.selectFirst("iframe[src*=\"yourupload.com/embed/\"]")
+                    val yourUploadSrc = yourUploadIframe?.attr("src")
+                    if (!yourUploadSrc.isNullOrBlank()) {
+                        println("RetroTVE: Encontrado URL de YourUpload: $yourUploadSrc")
+                        if (loadExtractor(yourUploadSrc, fullTrembedUrl, subtitleCallback, callback)) {
+                            foundLinks = true
+                            return@outerLoop
+                        } else {
+                            println("RetroTVE: loadExtractor no pudo resolver el video de YourUpload: $yourUploadSrc")
+                        }
+                    }
+
+                    // Lógica de respaldo para scripts con HLS/MP4 o para pasar la URL trembed a loadExtractor si no se encontró un iframe de extractor conocido
+                    val scriptContent = embedPageDoc.select("script:contains(eval)").text()
+                    if (scriptContent.isNotBlank()) {
+                        println("RetroTVE: Script con 'eval' encontrado, se requiere análisis de JS para extraer URLs.")
+                        val hlsMatches = Regex("""(http[s]?://[^"']*\.m3u8[^"']*)""").findAll(scriptContent).map { it.value }.toList()
+                        if (hlsMatches.isNotEmpty()) {
+                            hlsMatches.forEach { hlsUrl ->
+                                println("RetroTVE: Encontrado HLS URL en script (respaldo): $hlsUrl")
+                                if (loadExtractor(hlsUrl, fullTrembedUrl, subtitleCallback, callback)) {
                                     foundLinks = true
                                     return@outerLoop
                                 }
                             }
+                        } else {
+                            println("RetroTVE: No HLS/MP4 directo en script con 'eval'. Intentando con loadExtractor la URL de embedPageDoc.")
+                            if (loadExtractor(fullTrembedUrl, data, subtitleCallback, callback)) {
+                                foundLinks = true
+                                return@outerLoop
+                            }
                         }
                     }
-                } else {
-                    println("RetroTVE: iframe src estaba vacío o nulo para un iframe encontrado.")
                 }
             }
         }
-
 
         if (!foundLinks) {
             println("RetroTVE: No se pudieron extraer enlaces de video de ningún iframe en $data")
         }
         return foundLinks
     }
-
 }
