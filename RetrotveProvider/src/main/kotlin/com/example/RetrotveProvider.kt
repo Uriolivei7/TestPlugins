@@ -178,58 +178,38 @@ class RetrotveProvider : MainAPI() {
 
         var foundLinks = false
 
-        println("RetroTVE DEBUG: Contenido completo de .TPlayerTb:")
-        val tPlayerTbDiv = doc.selectFirst("div.TPlayerTb")
-        if (tPlayerTbDiv != null) {
-            println(tPlayerTbDiv.outerHtml())
+        println("RetroTVE DEBUG: Contenido completo de .TPlayerTb (solo el primero):")
+        val tPlayerTbDivs = doc.select("div.TPlayerTb") // Selecciona TODOS los div con esa clase
+        if (tPlayerTbDivs.isNotEmpty()) {
+            tPlayerTbDivs.forEach { div ->
+                println(div.outerHtml()) // Imprime el HTML de cada uno para depuración
+            }
         } else {
             println("RetroTVE DEBUG: No se encontró div.TPlayerTb")
         }
 
-        val playerEmbedIframes = doc.select(".TPlayerTb iframe")
+        val playerEmbedIframes = doc.select("div.TPlayerTb iframe") // Selector más específico
 
         println("RetroTVE: Número de iframes '.TPlayerTb iframe' encontrados: ${playerEmbedIframes.size}")
 
         val playerEmbedUrls = mutableListOf<String>()
 
-        if (playerEmbedIframes.isNotEmpty()) {
-            val firstIframeSrc = playerEmbedIframes.first()?.attr("src")
-            if (!firstIframeSrc.isNullOrBlank()) {
-                val decodedFirstIframeSrc = decodeHtml(firstIframeSrc)
-                println("RetroTVE: Primer iframe encontrado y decodificado: $decodedFirstIframeSrc")
-
-                // Extraer trid y trtype de la primera URL de iframe
-                val tridMatch = Regex("""trid=(\d+)""").find(decodedFirstIframeSrc)
-                val trtypeMatch = Regex("""trtype=(\d+)""").find(decodedFirstIframeSrc)
-
-                val trid = tridMatch?.groupValues?.getOrNull(1)
-                val trtype = trtypeMatch?.groupValues?.getOrNull(1)
-
-                if (trid != null && trtype != null) {
-                    println("RetroTVE: Extraídos trid=$trid, trtype=$trtype")
-                    // Construir las URLs para trembed=0, 1 y 2
-                    for (i in 0..2) { // Iterar para trembed=0, trembed=1, trembed=2
-                        val constructedUrl = "$mainUrl/?trembed=$i&trid=$trid&trtype=$trtype"
-                        playerEmbedUrls.add(constructedUrl)
-                        println("RetroTVE: Añadida URL construida: $constructedUrl")
-                    }
-                } else {
-                    println("RetroTVE: No se pudieron extraer trid o trtype del primer iframe.")
-                    // Si no se pueden extraer, al menos añadir el iframe que sí se encontró.
-                    playerEmbedUrls.add(decodedFirstIframeSrc)
-                }
+        playerEmbedIframes.forEach { iframe ->
+            val iframeSrc = iframe.attr("src")
+            if (!iframeSrc.isNullOrBlank()) {
+                val decodedSrc = decodeHtml(iframeSrc)
+                playerEmbedUrls.add(decodedSrc)
+                println("RetroTVE: Encontrado iframe de reproductor principal (crudo): $iframeSrc, Decodificado: $decodedSrc")
             }
-        } else {
-            println("RetroTVE: No se encontró ningún iframe inicial para extraer trid/trtype.")
         }
 
-
+        // Ordenar las URLs para intentar trembed=1, luego trembed=2, y finalmente trembed=0
         val sortedPlayerEmbedUrls = playerEmbedUrls.sortedWith(compareBy { url ->
             when {
-                url.contains("trembed=1") -> 0 // Máxima prioridad (si existe)
-                url.contains("trembed=2") -> 1 // Segunda prioridad (si existe)
-                url.contains("trembed=0") -> 2 // Tercera prioridad (si existe)
-                else -> 3 // Cualquier otra URL trembed o si trid/trtype no se encontraron
+                url.contains("trembed=1") -> 0 // Máxima prioridad
+                url.contains("trembed=2") -> 1 // Segunda prioridad
+                url.contains("trembed=0") -> 2 // Tercera prioridad
+                else -> 3 // Cualquier otra URL
             }
         })
 
@@ -243,9 +223,11 @@ class RetrotveProvider : MainAPI() {
                 println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullTrembedUrl")
 
                 val embedPageDoc = try {
+                    // Para la petición a los iframes intermedios (trembed=0, 1, 2),
+                    // el Referer debe ser la URL de la página principal del episodio (data).
                     app.get(fullTrembedUrl, headers = mapOf(
                         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                        "Referer" to data,
+                        "Referer" to data, // Aquí 'data' es la URL del episodio original
                         "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                         "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
                     )).document
@@ -260,6 +242,7 @@ class RetrotveProvider : MainAPI() {
                 if (!vkSrc.isNullOrBlank()) {
                     val decodedVkSrc = decodeHtml(vkSrc)
                     println("RetroTVE: Encontrado URL de VK.com: $vkSrc, Decodificado: $decodedVkSrc")
+                    // El referer para VK.com será la URL de la página trembed (fullTrembedUrl)
                     if (loadExtractor(decodedVkSrc, fullTrembedUrl, subtitleCallback, callback)) {
                         foundLinks = true
                         return@outerLoop
