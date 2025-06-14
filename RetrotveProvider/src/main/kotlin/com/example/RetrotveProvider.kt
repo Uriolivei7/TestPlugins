@@ -1,20 +1,13 @@
-// Archivo: RetrotveProvider.kt
-
 package com.example
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.AppUtils
-import com.fasterxml.jackson.annotation.JsonProperty
-import java.net.URLEncoder
-import java.net.URI
 import org.jsoup.nodes.Document
-import android.util.Base64
 import org.jsoup.parser.Parser // Importar para decodificar HTML
+import java.net.URLEncoder
 
 class RetrotveProvider : MainAPI() {
     override var mainUrl = "https://retrotve.com"
@@ -165,22 +158,33 @@ class RetrotveProvider : MainAPI() {
     ): Boolean {
         println("RetroTVE: Cargando enlaces para: $data")
 
-        // Mantener User-Agent y Accept-Language
-        val doc = app.get(data, headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-            "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
-        )).document
+        // CABECERAS COMPLETAS BASADAS EN TU CAPTURA DEL NAVEGADOR
+        // Estas cabeceras son para la petición inicial a la página del episodio en retrotve.com
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            "Accept" to "*/*",
+            "Accept-Encoding" to "gzip, deflate, br, zstd",
+            "Accept-Language" to "es-ES,es;q=0.9",
+            "Origin" to "https://retrotve.com",
+            "Priority" to "u=1, i",
+            "Referer" to "https://retrotve.com/", // Referer a la raíz del sitio es común para peticiones iniciales
+            "Sec-Ch-Ua" to "\"Google Chrome\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "Sec-Ch-Ua-Mobile" to "?0",
+            "Sec-Ch-Ua-Platform" to "\"Windows\"",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "cross-site"
+        )
+
+        // Realizar la petición con todas las cabeceras copiadas del navegador
+        val doc = app.get(data, headers = headers).document
 
         var foundLinks = false
 
         // --- INICIO DE DEPURACIÓN ADICIONAL ---
         println("RetroTVE DEBUG: Contenido completo de .TPlayerTb:")
-        val tPlayerTbDiv = doc.selectFirst("div.TPlayerTb") // Selecciona el primer div con esa clase
+        val tPlayerTbDiv = doc.selectFirst("div.TPlayerTb")
         if (tPlayerTbDiv != null) {
-            // Imprime el HTML exterior de ese div
-            // Nota: .html() o .outerHtml() puede ser muy largo, úsalo con precaución en logs reales.
-            // Para depuración, es muy útil.
             println(tPlayerTbDiv.outerHtml())
         } else {
             println("RetroTVE DEBUG: No se encontró div.TPlayerTb")
@@ -189,24 +193,19 @@ class RetrotveProvider : MainAPI() {
 
         val playerEmbedIframes = doc.select(".TPlayerTb iframe")
 
-        // Depuración: Imprimir cuántos iframes se encontraron con el selector
         println("RetroTVE: Número de iframes '.TPlayerTb iframe' encontrados: ${playerEmbedIframes.size}")
 
-        // Depuración: Imprimir todos los src de los iframes encontrados por el selector
         playerEmbedIframes.forEachIndexed { index, element ->
             val debugSrc = element.attr("src")
             println("RetroTVE: Iframe encontrado por selector [${index}]: $debugSrc")
         }
 
-
-        // Lista para almacenar las URLs de los iframes en el orden de prioridad que queremos.
         val playerEmbedUrls = mutableListOf<String>()
 
-        // 1. Recopilar todas las URLs de los iframes presentes en el HTML, decodificando &amp;
         playerEmbedIframes.forEach { iframe ->
             val iframeSrc = iframe.attr("src")
             if (!iframeSrc.isNullOrBlank()) {
-                val decodedSrc = decodeHtml(iframeSrc) // <--- ¡APLICAR DECODIFICACIÓN AQUÍ!
+                val decodedSrc = decodeHtml(iframeSrc)
                 playerEmbedUrls.add(decodedSrc)
                 println("RetroTVE: Encontrado iframe de reproductor principal (crudo): $iframeSrc, Decodificado: $decodedSrc")
             }
@@ -214,10 +213,10 @@ class RetrotveProvider : MainAPI() {
 
         val sortedPlayerEmbedUrls = playerEmbedUrls.sortedWith(compareBy { url ->
             when {
-                url.contains("trembed=1") -> 0 // Máxima prioridad
-                url.contains("trembed=2") -> 1 // Segunda prioridad
-                url.contains("trembed=0") -> 2 // Tercera prioridad
-                else -> 3 // Cualquier otra URL trembed
+                url.contains("trembed=1") -> 0
+                url.contains("trembed=2") -> 1
+                url.contains("trembed=0") -> 2
+                else -> 3
             }
         })
 
@@ -231,10 +230,11 @@ class RetrotveProvider : MainAPI() {
                 println("RetroTVE: Intentando resolver URL del reproductor intermedio: $fullTrembedUrl")
 
                 val embedPageDoc = try {
-                    // Mantener User-Agent y Referer para la página de trembed
+                    // Para la petición a los iframes intermedios (trembed=0, 1, 2),
+                    // el Referer debe ser la URL de la página principal del episodio (data).
                     app.get(fullTrembedUrl, headers = mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                        "Referer" to data,
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", // Puedes usar el mismo User-Agent de arriba si quieres
+                        "Referer" to data, // Aquí 'data' es la URL del episodio original
                         "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                         "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8"
                     )).document
@@ -248,7 +248,7 @@ class RetrotveProvider : MainAPI() {
                 val vkSrc = vkIframe?.attr("src")
 
                 if (!vkSrc.isNullOrBlank()) {
-                    val decodedVkSrc = decodeHtml(vkSrc) // Decodificar también si VK tiene &amp;
+                    val decodedVkSrc = decodeHtml(vkSrc)
                     println("RetroTVE: Encontrado URL de VK.com: $vkSrc, Decodificado: $decodedVkSrc")
                     // El referer para VK.com será la URL de la página trembed (fullTrembedUrl)
                     if (loadExtractor(decodedVkSrc, fullTrembedUrl, subtitleCallback, callback)) {
@@ -264,7 +264,7 @@ class RetrotveProvider : MainAPI() {
                     val senvidIframe = embedPageDoc.selectFirst("iframe[src*=\"senvid.net/embed-\"]")
                     val senvidSrc = senvidIframe?.attr("src")
                     if (!senvidSrc.isNullOrBlank()) {
-                        val decodedSenvidSrc = decodeHtml(senvidSrc) // Decodificar
+                        val decodedSenvidSrc = decodeHtml(senvidSrc)
                         println("RetroTVE: Encontrado URL de SEnvid: $senvidSrc, Decodificado: $decodedSenvidSrc")
                         if (loadExtractor(decodedSenvidSrc, fullTrembedUrl, subtitleCallback, callback)) {
                             foundLinks = true
@@ -277,7 +277,7 @@ class RetrotveProvider : MainAPI() {
                     val yourUploadIframe = embedPageDoc.selectFirst("iframe[src*=\"yourupload.com/embed/\"]")
                     val yourUploadSrc = yourUploadIframe?.attr("src")
                     if (!yourUploadSrc.isNullOrBlank()) {
-                        val decodedYourUploadSrc = decodeHtml(yourUploadSrc) // Decodificar
+                        val decodedYourUploadSrc = decodeHtml(yourUploadSrc)
                         println("RetroTVE: Encontrado URL de YourUpload: $yourUploadSrc, Decodificado: $decodedYourUploadSrc")
                         if (loadExtractor(decodedYourUploadSrc, fullTrembedUrl, subtitleCallback, callback)) {
                             foundLinks = true
@@ -294,7 +294,7 @@ class RetrotveProvider : MainAPI() {
                         val hlsMatches = Regex("""(http[s]?://[^"']*\.m3u8[^"']*)""").findAll(scriptContent).map { it.value }.toList()
                         if (hlsMatches.isNotEmpty()) {
                             hlsMatches.forEach { hlsUrl ->
-                                val decodedHlsUrl = decodeHtml(hlsUrl) // Decodificar
+                                val decodedHlsUrl = decodeHtml(hlsUrl)
                                 println("RetroTVE: Encontrado HLS URL en script (respaldo): $hlsUrl, Decodificado: $decodedHlsUrl")
                                 if (loadExtractor(decodedHlsUrl, fullTrembedUrl, subtitleCallback, callback)) {
                                     foundLinks = true
@@ -303,7 +303,6 @@ class RetrotveProvider : MainAPI() {
                             }
                         } else {
                             println("RetroTVE: No HLS/MP4 directo en script con 'eval'. Intentando con loadExtractor la URL de embedPageDoc.")
-                            // Intentar decodificar fullTrembedUrl también, por si acaso
                             val decodedFullTrembedUrl = decodeHtml(fullTrembedUrl)
                             if (loadExtractor(decodedFullTrembedUrl, data, subtitleCallback, callback)) {
                                 foundLinks = true
