@@ -160,6 +160,7 @@ class RetrotveProvider : MainAPI() {
         println("RetroTVE: Cargando enlaces para: $data")
         val doc = app.get(data).document
 
+        // Seleccionar todos los iframes principales de reproductor (trembed)
         val playerIframes = doc.select(".TPlayerCn iframe, .TPlayerTb iframe")
 
         if (playerIframes.isEmpty()) {
@@ -185,30 +186,30 @@ class RetrotveProvider : MainAPI() {
                     continue
                 }
 
-                val finalPlayerIframe = embedPageDoc.selectFirst("iframe[src*=\"cubeembed.rpmvid.com\"]")
-                val finalPlayerSrc = finalPlayerIframe?.attr("src")
+                // *** NUEVA LÓGICA: Buscar el iframe de VK.com ***
+                val vkIframe = embedPageDoc.selectFirst("iframe[src*=\"vk.com/video_ext.php\"]")
+                val vkSrc = vkIframe?.attr("src")
 
-                if (!finalPlayerSrc.isNullOrBlank()) {
-                    println("RetroTVE: Encontrado URL de reproductor final: $finalPlayerSrc")
-                    // Eliminado el argumento 'headers' ya que no está en la API stub
-                    // El referer se pasa como segundo argumento aquí:
-                    if (loadExtractor(finalPlayerSrc, "https://retrotve.com/", subtitleCallback, callback)) { // Línea ~197
+                if (!vkSrc.isNullOrBlank()) {
+                    println("RetroTVE: Encontrado URL de VK.com: $vkSrc")
+                    // No necesitamos obtener el HTML de VK.com, loadExtractor ya sabe cómo manejarlo.
+                    // El referer para VK.com será la URL de la página trembed (fullIframeUrl)
+                    if (loadExtractor(vkSrc, fullIframeUrl, subtitleCallback, callback)) {
                         foundLinks = true
                     } else {
-                        println("RetroTVE: loadExtractor no pudo resolver el reproductor final: $finalPlayerSrc")
+                        println("RetroTVE: loadExtractor no pudo resolver el video de VK.com: $vkSrc")
                     }
                 } else {
-                    println("RetroTVE: No se encontró iframe de reproductor final en $fullIframeUrl. Buscando scripts...")
+                    println("RetroTVE: No se encontró iframe de VK.com en $fullIframeUrl. Buscando scripts (respaldo)...")
+                    // Lógica de respaldo anterior por si acaso algún trembed es diferente
                     val scriptContent = embedPageDoc.select("script:contains(eval)").text()
                     if (scriptContent.isNotBlank()) {
                         println("RetroTVE: Script con 'eval' encontrado, se requiere análisis de JS para extraer URLs.")
                         val hlsMatches = Regex("""(http[s]?://[^"']*\.m3u8[^"']*)""").findAll(scriptContent).map { it.value }.toList()
                         if (hlsMatches.isNotEmpty()) {
                             hlsMatches.forEach { hlsUrl ->
-                                println("RetroTVE: Encontrado HLS URL en script: $hlsUrl")
-                                // Eliminado el argumento 'headers' ya que no está en la API stub
-                                // El referer se pasa como segundo argumento aquí:
-                                if (loadExtractor(hlsUrl, fullIframeUrl, subtitleCallback, callback)) { // Línea ~218
+                                println("RetroTVE: Encontrado HLS URL en script (respaldo): $hlsUrl")
+                                if (loadExtractor(hlsUrl, fullIframeUrl, subtitleCallback, callback)) {
                                     foundLinks = true
                                 }
                             }
