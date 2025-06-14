@@ -110,6 +110,10 @@ class LacartoonsProvider:MainAPI() {
                 // Obtener el HTML del iframe
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
+                // *** AÑADIDO: IMPRIME EL HTML COMPLETO DEL IFRAME RECIBIDO ***
+                println("${name}: Contenido HTML del iframe de Cubembed recibido:\n${embedDoc.html()}")
+                // *************************************************************
+
                 // Buscar la etiqueta <source> directamente en el DOM del iframe
                 val sourceElement = embedDoc.selectFirst("source[src*=.m3u8]")
 
