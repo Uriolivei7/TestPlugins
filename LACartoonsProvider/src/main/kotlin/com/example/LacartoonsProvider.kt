@@ -95,7 +95,7 @@ class LacartoonsProvider:MainAPI() {
             return false
         }
 
-        if (iframeSrc.contains("cubembed.rpmvid.com")) {
+        if (iframeSrc.contains("cubeembed.rpmvid.com")) {
             println("${name}: Detectado iframe de cubembed.rpmvid.com, procesando internamente.")
             // --- Lógica del antiguo CubembedExtractor.getUrl() movida aquí ---
             val cubembedUrl = iframeSrc
@@ -107,7 +107,7 @@ class LacartoonsProvider:MainAPI() {
                 return false
             }
 
-            val cubembedMainUrl = "https://cubembed.rpmvid.com" // Definir aquí si no existe como variable de clase
+            val cubembedMainUrl = "https://cubeembed.rpmvid.com" // Definir aquí si no existe como variable de clase
             val apiUrl = "$cubembedMainUrl/api/v1/video?id=$videoId&w=1280&h=800&r=${URLEncoder.encode(cubembedUrl, "UTF-8")}"
 
             val headers = mapOf(
