@@ -96,7 +96,7 @@ class LacartoonsProvider:MainAPI() {
             return false
         }
 
-        val apiUrl = "https://cubembed.rpmvid.com/api/v1/video?id=$videoId&w=1280&h=800&r="
+        val apiUrl = "https://cubembed.rpmvid.com/api/v1/video?id=$videoId&w=1280&h=800&r=$data"
 
         val headers = mapOf(
             "Referer" to data,
