@@ -9,9 +9,9 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.net.URLEncoder
-import java.net.URI
+import java.net.URI // Para resolver URLs relativas
 import org.jsoup.nodes.Document
-import android.util.Base64 // Importa la clase Base64 de Android para decodificación
+import android.util.Base64
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -109,19 +109,16 @@ class LacartoonsProvider:MainAPI() {
             try {
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
+                // Buscar la etiqueta <source> directamente
+                val videoSourceElement = embedDoc.selectFirst("video source[type=application/x-mpegurl]")
                 var m3u8Url: String? = null
-                val scriptElements = embedDoc.select("script")
-                val m3u8Regex = Regex("""(https?://[^"']*\.m3u8[^"']*)""") // Regex para encontrar URLs .m3u8
 
-                // Buscar la URL del M3U8 directamente en el contenido de los scripts
-                for (script in scriptElements) {
-                    val scriptText = script.html() // Obtener el código JS dentro de la etiqueta script
-                    val matchResult = m3u8Regex.find(scriptText)
-                    if (matchResult != null) {
-                        m3u8Url = matchResult.groupValues[1]
-                        println("${name}: ¡Éxito! URL de video M3U8 encontrada en un script: $m3u8Url")
-                        break // Se encontró, no es necesario revisar más scripts
-                    }
+                if (videoSourceElement != null) {
+                    val relativeUrl = videoSourceElement.attr("src")
+                    // Construir la URL absoluta usando el base del iframe
+                    val baseUri = URI(cubembedUrl.substringBeforeLast('/')) // Get "https://cubeembed.rpmvid.com"
+                    m3u8Url = baseUri.resolve(relativeUrl).toString()
+                    println("${name}: ¡Éxito! URL de video M3U8 encontrada en <source>: $m3u8Url")
                 }
 
                 if (!m3u8Url.isNullOrBlank()) {
@@ -129,15 +126,38 @@ class LacartoonsProvider:MainAPI() {
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = m3u8Url,
-                            referer = cubembedUrl, // El referer para el link final suele ser la URL del iframe
-                            quality = 0, // La calidad podría necesitar ser extraída del M3U8 mismo si es posible
+                            url = m3u8Url, // Usar la URL M3U8 absoluta
+                            referer = cubembedUrl, // El referer para el link final debe ser la URL del iframe
+                            quality = 0, // Calidad, puedes ajustarla si puedes extraerla
                             type = ExtractorLinkType.M3U8
                         )
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la fuente de video M3U8 en los scripts del embed de Cubembed para URL: $cubembedUrl")
+                    println("${name}: No se encontró la fuente de video M3U8 en la etiqueta <source> del embed de Cubembed para URL: $cubembedUrl")
+                    // Si no se encuentra en <source>, intenta la búsqueda en scripts como fallback (opcional)
+                    // Este código de fallback es el que tenías en el intento anterior
+                    val scriptElements = embedDoc.select("script")
+                    val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:[^"']*)?)""") // Regex más flexible
+                    for (script in scriptElements) {
+                        val scriptText = script.html()
+                        val matchResult = m3u8Regex.find(scriptText)
+                        if (matchResult != null) {
+                            m3u8Url = matchResult.groupValues[1]
+                            println("${name}: ¡Éxito! URL de video M3U8 encontrada en un script como fallback: $m3u8Url")
+                            callback(
+                                ExtractorLink(
+                                    source = "Cubembed",
+                                    name = "Cubembed",
+                                    url = m3u8Url,
+                                    referer = cubembedUrl,
+                                    quality = 0,
+                                    type = ExtractorLinkType.M3U8
+                                )
+                            )
+                            return true
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 println("${name}: Error al obtener o parsear el HTML del embed de Cubembed: ${e.message}")
@@ -154,8 +174,7 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
-    // Esta data class ya no es estrictamente necesaria si la URL del M3U8 se extrae directamente,
-    // pero la mantengo por si la necesitas para otro propósito o si la estructura de la API cambia.
+    // Esta data class ya no es necesaria y puede ser eliminada si no se usa en ningún otro lugar.
     data class CubembedApiResponse(
         @JsonProperty("file")
         val file: String?,
