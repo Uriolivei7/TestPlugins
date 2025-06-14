@@ -106,9 +106,13 @@ class PlushdProvider : MainAPI() {
             if (jsonscript.isNullOrEmpty()) {
                 Log.e("PlushdProvider", "ERROR: No se pudo extraer el JSON de seasonsJson después de 'seasonsJson = ' para la URL: $url")
             } else {
+                // *** INICIO: MEJORAS EN EL SANEAMIENTO DEL JSON ***
+                // Intento de sanear el JSON si está incompleto al final.
+                // Verifica si el JSON no termina con '}' y si se encuentra una llave de cierre anterior
                 if (!jsonscript.endsWith("}")) {
                     val lastBraceIndex = jsonscript.lastIndexOf("}")
                     if (lastBraceIndex != -1) {
+                        // Corta la cadena justo después de la última llave de cierre encontrada
                         jsonscript = jsonscript.substring(0, lastBraceIndex + 1)
                         Log.w("PlushdProvider", "ADVERTENCIA: JSON ajustado para terminar con '}'. JSON parcial: ${jsonscript.take(500)}...")
                     } else {
@@ -117,9 +121,51 @@ class PlushdProvider : MainAPI() {
                     }
                 }
 
+                // Limpieza de caracteres de escape y comillas rotas al final.
+                // Esto intenta arreglar casos como "...confia" (donde falta el final de la cadena)
+                // Se busca una comilla no escapada que no esté al final y se elimina todo después de ella.
+                // Esto es un parche, no una solución robusta para JSONs malformados.
                 jsonscript = jsonscript.replace("\\/", "/")
                     .replace("\\\"", "\"")
-                    .trim()
+
+                // Aquí es donde está el problema principal que vemos en los logs:
+                // "title": "Cuesti\u00f3n de confia
+                // El JSON se corta en medio de un valor de cadena.
+                // Intentaremos encontrar la última comilla NO escapada y si después de ella
+                // el JSON no está bien formado, cortar ahí.
+                // Esto es heurístico y puede romper JSONs válidos en casos raros.
+                var lastQuoteIndex = -1
+                var i = jsonscript.length - 1
+                while (i >= 0) {
+                    if (jsonscript[i] == '"' && (i == 0 || jsonscript[i-1] != '\\')) {
+                        lastQuoteIndex = i
+                        break
+                    }
+                    i--
+                }
+
+                if (lastQuoteIndex != -1 && !jsonscript.substring(lastQuoteIndex).matches(Regex("\".*\"[\\s\\n\\r]*[\\}\\]]"))) {
+                    // Si la última comilla no escapada no cierra una cadena correctamente, cortamos.
+                    jsonscript = jsonscript.substring(0, lastQuoteIndex)
+                    Log.w("PlushdProvider", "ADVERTENCIA: JSON truncado en la última comilla no escapada debido a formato incorrecto. JSON parcial: ${jsonscript.take(500)}...")
+                    // Intentamos cerrar la estructura que creemos que está abierta.
+                    // Esto es pura heurística, podría ser un array, un objeto, etc.
+                    // Por ahora, simplemente intentamos cerrar el objeto si es el caso.
+                    // Si el truncamiento ocurrió dentro de un array, esto puede no funcionar.
+                    if (jsonscript.endsWith("{") || jsonscript.endsWith("[")) {
+                        // Si termina en { o [, es un objeto/array abierto, dejarlo así
+                        // porque el parseJson de Jackson ya manejará el EOF.
+                        // El `_reportInvalidEOF` indica que esperaba más.
+                    } else if (jsonscript.endsWith(",")) {
+                        jsonscript = jsonscript.dropLast(1) // Eliminar la última coma si está ahí
+                        Log.w("PlushdProvider", "ADVERTENCIA: Última coma eliminada del JSON. JSON parcial: ${jsonscript.take(500)}...")
+                    }
+                    jsonscript += "}" // Intentamos cerrar el último objeto
+                    Log.w("PlushdProvider", "ADVERTENCIA: Se añadió '}' al final del JSON. JSON parcial: ${jsonscript.take(500)}...")
+                }
+
+                jsonscript = jsonscript.trim() // Limpiar espacios extra
+                // *** FIN: MEJORAS EN EL SANEAMIENTO DEL JSON ***
 
                 Log.d("PlushdProvider", "JSON final (seasonsJson) antes de parsear: ${jsonscript.take(500)}...")
 
@@ -158,21 +204,21 @@ class PlushdProvider : MainAPI() {
                     }
                 } catch (e: Exception) {
                     Log.e("PlushdProvider", "ERROR: Error general al parsear seasonsJson. JSON que causó el error: ${jsonscript.take(500)}... Error: ${e.message}", e)
+                    // Si el JSON es irrecuperable después de todos los intentos, podemos retornar null aquí.
+                    // Esto evita que la aplicación se bloquee y permite que se muestre como "no disponible".
+                    return null
                 }
             }
         }
 
         return when (tvType) {
             TvType.TvSeries -> {
-                // Correcto según la firma:
-                // suspend fun MainAPI.newTvSeriesLoadResponse(name: String, url: String, type: TvType, episodes: List<Episode>, initializer: suspend TvSeriesLoadResponse.() -> Unit = COMPILED_CODE): TvSeriesLoadResponse
                 newTvSeriesLoadResponse(
-                    title, // name
-                    url,   // url
-                    TvType.TvSeries, // type
-                    allEpisodes.sortedWith(compareBy({ it.season }, { it.episode })) // episodes
+                    title,
+                    url,
+                    TvType.TvSeries,
+                    allEpisodes.sortedWith(compareBy({ it.season }, { it.episode }))
                 ) {
-                    // Estos se configuran en el bloque lambda 'initializer'
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
@@ -180,14 +226,11 @@ class PlushdProvider : MainAPI() {
                 }
             }
             TvType.Movie -> {
-                // Correcto según la firma:
-                // suspend fun <T> MainAPI.newMovieLoadResponse(name: String, url: String, type: TvType, data: T?, initializer: suspend MovieLoadResponse.() -> Unit = COMPILED_CODE): MovieLoadResponse
-                // O: suspend fun MainAPI.newMovieLoadResponse(name: String, url: String, type: TvType, dataUrl: String, initializer: suspend MovieLoadResponse.() -> Unit = COMPILED_CODE): MovieLoadResponse
                 newMovieLoadResponse(
-                    title,    // name
-                    url,      // url
-                    tvType,   // type
-                    url       // dataUrl (usamos la misma URL de la página como dataUrl)
+                    title,
+                    url,
+                    tvType,
+                    url
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
