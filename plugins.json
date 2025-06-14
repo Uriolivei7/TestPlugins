@@ -60,24 +60,25 @@
     ],
     "iconUrl": "https://img.icons8.com/?size=96&id=avzQEPM5mxjf&format=png",
     "language": "es",
-    "fileSize": 17000
+    "fileSize": 18000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
-    "status": 1,
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/RetrotveProvider.cs3",
+    "status": 0,
     "version": 1,
     "apiVersion": 4,
-    "name": "LACartoons",
-    "internalName": "LacartoonsProvider",
+    "name": "RetroTVE",
+    "internalName": "RetrotveProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para www.lacartoons.com",
+    "description": "Plugin para retrotve.com",
     "tvTypes": [
+      "Movie",
       "TvSeries",
       "Cartoon"
     ],
-    "iconUrl": "https://img.icons8.com/?size=100&id=u9L7LAQFgNF2&format=png",
+    "iconUrl": "https://retrotve.com/wp-content/uploads/2024/11/cropped-android-chrome-512x512-1-32x32.png",
     "language": "es",
     "fileSize": 12000
   },

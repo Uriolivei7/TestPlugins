@@ -105,67 +105,62 @@ class PlushdProvider : MainAPI() {
 
             if (jsonscript.isNullOrEmpty()) {
                 Log.e("PlushdProvider", "ERROR: No se pudo extraer el JSON de seasonsJson después de 'seasonsJson = ' para la URL: $url")
+                return null
             } else {
-                // *** INICIO: MEJORAS EN EL SANEAMIENTO DEL JSON ***
-                // Intento de sanear el JSON si está incompleto al final.
-                // Verifica si el JSON no termina con '}' y si se encuentra una llave de cierre anterior
-                if (!jsonscript.endsWith("}")) {
-                    val lastBraceIndex = jsonscript.lastIndexOf("}")
-                    if (lastBraceIndex != -1) {
-                        // Corta la cadena justo después de la última llave de cierre encontrada
-                        jsonscript = jsonscript.substring(0, lastBraceIndex + 1)
-                        Log.w("PlushdProvider", "ADVERTENCIA: JSON ajustado para terminar con '}'. JSON parcial: ${jsonscript.take(500)}...")
-                    } else {
-                        Log.e("PlushdProvider", "ERROR: JSON extraído no es válido y no contiene '}'. No se puede parsear. JSON: ${jsonscript.take(500)}...")
-                        return null
-                    }
-                }
-
-                // Limpieza de caracteres de escape y comillas rotas al final.
-                // Esto intenta arreglar casos como "...confia" (donde falta el final de la cadena)
-                // Se busca una comilla no escapada que no esté al final y se elimina todo después de ella.
-                // Esto es un parche, no una solución robusta para JSONs malformados.
                 jsonscript = jsonscript.replace("\\/", "/")
                     .replace("\\\"", "\"")
 
-                // Aquí es donde está el problema principal que vemos en los logs:
-                // "title": "Cuesti\u00f3n de confia
-                // El JSON se corta en medio de un valor de cadena.
-                // Intentaremos encontrar la última comilla NO escapada y si después de ella
-                // el JSON no está bien formado, cortar ahí.
-                // Esto es heurístico y puede romper JSONs válidos en casos raros.
-                var lastQuoteIndex = -1
-                var i = jsonscript.length - 1
-                while (i >= 0) {
-                    if (jsonscript[i] == '"' && (i == 0 || jsonscript[i-1] != '\\')) {
-                        lastQuoteIndex = i
-                        break
+                if (!jsonscript.endsWith("}")) {
+                    val lastBraceIndex = jsonscript.lastIndexOf("}")
+                    if (lastBraceIndex != -1) {
+                        jsonscript = jsonscript.substring(0, lastBraceIndex + 1)
+                        Log.w("PlushdProvider", "ADVERTENCIA: JSON ajustado para terminar con '}'. JSON parcial: ${jsonscript.take(500)}...")
+                    } else {
+                        Log.e("PlushdProvider", "ERROR: JSON extraído no contiene '}'. Intentando recuperación drástica. JSON: ${jsonscript.take(500)}...")
                     }
-                    i--
                 }
 
-                if (lastQuoteIndex != -1 && !jsonscript.substring(lastQuoteIndex).matches(Regex("\".*\"[\\s\\n\\r]*[\\}\\]]"))) {
-                    // Si la última comilla no escapada no cierra una cadena correctamente, cortamos.
-                    jsonscript = jsonscript.substring(0, lastQuoteIndex)
-                    Log.w("PlushdProvider", "ADVERTENCIA: JSON truncado en la última comilla no escapada debido a formato incorrecto. JSON parcial: ${jsonscript.take(500)}...")
-                    // Intentamos cerrar la estructura que creemos que está abierta.
-                    // Esto es pura heurística, podría ser un array, un objeto, etc.
-                    // Por ahora, simplemente intentamos cerrar el objeto si es el caso.
-                    // Si el truncamiento ocurrió dentro de un array, esto puede no funcionar.
-                    if (jsonscript.endsWith("{") || jsonscript.endsWith("[")) {
-                        // Si termina en { o [, es un objeto/array abierto, dejarlo así
-                        // porque el parseJson de Jackson ya manejará el EOF.
-                        // El `_reportInvalidEOF` indica que esperaba más.
-                    } else if (jsonscript.endsWith(",")) {
-                        jsonscript = jsonscript.dropLast(1) // Eliminar la última coma si está ahí
-                        Log.w("PlushdProvider", "ADVERTENCIA: Última coma eliminada del JSON. JSON parcial: ${jsonscript.take(500)}...")
+                val lastValidEndingIndex = jsonscript.indexOfLast { it == '}' || it == ']' }
+                val lastCommaIndex = jsonscript.lastIndexOf(",")
+
+                if (lastCommaIndex != -1 && (lastValidEndingIndex == -1 || lastCommaIndex > lastValidEndingIndex)) {
+                    var cutIndex = lastCommaIndex
+                    var tempJson = jsonscript.substring(0, lastCommaIndex)
+                    var lastQuoteBeforeComma = -1
+                    var k = tempJson.length - 1
+                    while (k >= 0) {
+                        if (tempJson[k] == '"' && (k == 0 || tempJson[k-1] != '\\')) {
+                            lastQuoteBeforeComma = k
+                            break
+                        }
+                        k--
                     }
-                    jsonscript += "}" // Intentamos cerrar el último objeto
-                    Log.w("PlushdProvider", "ADVERTENCIA: Se añadió '}' al final del JSON. JSON parcial: ${jsonscript.take(500)}...")
+
+                    if (lastQuoteBeforeComma != -1) {
+                        cutIndex = lastQuoteBeforeComma + 1
+                    }
+
+                    jsonscript = jsonscript.substring(0, cutIndex)
+                    Log.w("PlushdProvider", "ADVERTENCIA: JSON truncado para sanear un campo o valor incompleto. JSON parcial: ${jsonscript.take(500)}...")
                 }
 
-                jsonscript = jsonscript.trim() // Limpiar espacios extra
-                // *** FIN: MEJORAS EN EL SANEAMIENTO DEL JSON ***
+                var openBraces = jsonscript.count { it == '{' }
+                var closedBraces = jsonscript.count { it == '}' }
+                var openBrackets = jsonscript.count { it == '[' }
+                var closedBrackets = jsonscript.count { it == ']' }
+
+                while (openBraces > closedBraces) {
+                    jsonscript += "}"
+                    closedBraces++
+                    Log.w("PlushdProvider", "ADVERTENCIA: Se a??adi?? '}' al final del JSON para cerrar objeto. JSON parcial: ${jsonscript.take(500)}...")
+                }
+                while (openBrackets > closedBrackets) {
+                    jsonscript += "]"
+                    closedBrackets++
+                    Log.w("PlushdProvider", "ADVERTENCIA: Se a??adi?? ']' al final del JSON para cerrar array. JSON parcial: ${jsonscript.take(500)}...")
+                }
+
+                jsonscript = jsonscript.trim()
 
                 Log.d("PlushdProvider", "JSON final (seasonsJson) antes de parsear: ${jsonscript.take(500)}...")
 
@@ -204,42 +199,52 @@ class PlushdProvider : MainAPI() {
                     }
                 } catch (e: Exception) {
                     Log.e("PlushdProvider", "ERROR: Error general al parsear seasonsJson. JSON que causó el error: ${jsonscript.take(500)}... Error: ${e.message}", e)
-                    // Si el JSON es irrecuperable después de todos los intentos, podemos retornar null aquí.
-                    // Esto evita que la aplicación se bloquee y permite que se muestre como "no disponible".
                     return null
                 }
             }
         }
 
+        // --- INICIO: Corrección de la llamada a newTvSeriesLoadResponse y newMovieLoadResponse ---
         return when (tvType) {
             TvType.TvSeries -> {
+                // La firma correcta para tu versión de CloudStream parece ser:
+                // newTvSeriesLoadResponse(name: String, url: String, type: TvType, episodes: List<Episode>) { /* builder block */ }
+                // donde 'apiName' y otras propiedades van dentro del bloque.
                 newTvSeriesLoadResponse(
-                    title,
-                    url,
-                    TvType.TvSeries,
-                    allEpisodes.sortedWith(compareBy({ it.season }, { it.episode }))
+                    title, // name
+                    url, // url
+                    TvType.TvSeries, // type
+                    allEpisodes // episodes
                 ) {
+                    // Propiedades adicionales asignadas dentro del bloque
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
                     this.tags = tags
+                    // apiName ya es una propiedad de la clase MainAPI, no se pasa aquí.
+                    // Si te da error de "Unresolved reference: apiName" aquí, es redundante.
+                    // apiName es una propiedad de la clase, así que ya está disponible para el Loader
                 }
             }
             TvType.Movie -> {
+                // La firma correcta para películas parece ser similar:
+                // newMovieLoadResponse(name: String, url: String, type: TvType, dataUrl: String) { /* builder block */ }
                 newMovieLoadResponse(
-                    title,
-                    url,
-                    tvType,
-                    url
+                    title, // name
+                    url, // url
+                    tvType, // type
+                    url // dataUrl
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
                     this.tags = tags
+                    // apiName también es una propiedad de la clase.
                 }
             }
             else -> null
         }
+        // --- FIN: Corrección de la llamada ---
     }
 
     override suspend fun loadLinks(
@@ -252,16 +257,31 @@ class PlushdProvider : MainAPI() {
         doc.select("div ul.subselect li").apmap {
             val encodedOne = it.attr("data-server").toByteArray()
             val encodedTwo = base64Encode(encodedOne)
-            val linkRegex = Regex("window\\.location\\.href\\s*=\\s*'(.*)'")
             val playerUrl = "$mainUrl/player/$encodedTwo"
-            val text = app.get(playerUrl).text
-            val link = linkRegex.find(text)?.destructured?.component1()
+
+            // 'val' es correcto aquí, ya que 'playerDoc' no se reasigna.
+            val playerDoc = app.get(playerUrl).document
+
+            // Buscar un iframe o un script que contenga una URL de reproductor
+            val link = playerDoc.selectFirst("iframe")?.attr("src") // Podría ser un iframe
+                ?: playerDoc.select("script").firstOrNull { it.html().contains("player.src") || it.html().contains("source src=") }?.let { scriptTag ->
+                    // Intenta extraer el src del reproductor de un script si existe
+                    // Regex para player.src
+                    val playerSrcMatch = "player\\.src\\s*=\\s*['\"](.*?)['\"]".toRegex().find(scriptTag.html())?.groupValues?.get(1)
+                    if (playerSrcMatch != null) return@let playerSrcMatch
+
+                    // Regex para source src=
+                    val sourceSrcMatch = "source\\s+src=['\"](.*?)['\"]".toRegex().find(scriptTag.html())?.groupValues?.get(1)
+                    if (sourceSrcMatch != null) return@let sourceSrcMatch
+
+                    null // Si no se encuentra ninguno
+                }
 
             if (link != null) {
                 Log.d("PlushdProvider", "Enlace extraído del player ($playerUrl): $link")
                 loadExtractor(link, mainUrl, subtitleCallback, callback)
             } else {
-                Log.e("PlushdProvider", "ERROR: No se pudo extraer el enlace del player de $playerUrl")
+                Log.e("PlushdProvider", "ERROR: No se pudo extraer el enlace del player de $playerUrl. HTML completo del player: ${playerDoc.html().take(500)}...")
             }
         }
         return true
