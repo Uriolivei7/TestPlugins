@@ -1,12 +1,11 @@
 // use an integer for version numbers
-version = 3
-
+version = 21
 
 cloudstream {
     language = "es"
     // All of these properties are optional, you can safely remove them
 
-    //description = "Lorem Ipsum"
+    description = "Contenido en Latino"
     authors = listOf("Ranita", "Yeji", "Mina")
 
     /**
@@ -18,9 +17,9 @@ cloudstream {
      * */
     status = 1 // will be 3 if unspecified
     tvTypes = listOf(
-        "Cartoons",
-        "TvSeries"
+        "TvSeries",
+        "Cartoon",
     )
 
-    iconUrl = "https://www.google.com/s2/favicons?domain=lacartoons.com&sz=%size%"
+    //iconUrl = "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/NetflixMirrorProvider/icon.png"
 }

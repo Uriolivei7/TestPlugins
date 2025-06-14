@@ -9,7 +9,7 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URL
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 
-class CablevisionHdProvider : MainAPI() {
+class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.cablevisionhd.com"
     override var name = "CablevisionHd"
