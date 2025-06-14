@@ -174,6 +174,19 @@ class RetrotveProvider : MainAPI() {
 
         var foundLinks = false
 
+        // --- INICIO DE DEPURACIÓN ADICIONAL ---
+        println("RetroTVE DEBUG: Contenido completo de .TPlayerTb:")
+        val tPlayerTbDiv = doc.selectFirst("div.TPlayerTb") // Selecciona el primer div con esa clase
+        if (tPlayerTbDiv != null) {
+            // Imprime el HTML exterior de ese div
+            // Nota: .html() o .outerHtml() puede ser muy largo, úsalo con precaución en logs reales.
+            // Para depuración, es muy útil.
+            println(tPlayerTbDiv.outerHtml())
+        } else {
+            println("RetroTVE DEBUG: No se encontró div.TPlayerTb")
+        }
+        // --- FIN DE DEPURACIÓN ADICIONAL ---
+
         val playerEmbedIframes = doc.select(".TPlayerTb iframe")
 
         // Depuración: Imprimir cuántos iframes se encontraron con el selector
@@ -198,9 +211,6 @@ class RetrotveProvider : MainAPI() {
                 println("RetroTVE: Encontrado iframe de reproductor principal (crudo): $iframeSrc, Decodificado: $decodedSrc")
             }
         }
-
-        // El resto del código es el mismo, ya que 'decodedSrc' ya contendrá la URL correcta
-        // para el ordenamiento y las futuras peticiones.
 
         val sortedPlayerEmbedUrls = playerEmbedUrls.sortedWith(compareBy { url ->
             when {
