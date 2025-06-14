@@ -9,7 +9,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.net.URLEncoder
-import java.net.URI // Para resolver URLs relativas
+import java.net.URI // Importa la clase URI para resolver URLs relativas
 import org.jsoup.nodes.Document
 import android.util.Base64
 
@@ -109,24 +109,50 @@ class LacartoonsProvider:MainAPI() {
             try {
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
-                // Buscar la etiqueta <source> directamente
-                val videoSourceElement = embedDoc.selectFirst("video source[type=application/x-mpegurl]")
                 var m3u8Url: String? = null
 
-                if (videoSourceElement != null) {
-                    val relativeUrl = videoSourceElement.attr("src")
-                    // Construir la URL absoluta usando el base del iframe
-                    val baseUri = URI(cubembedUrl.substringBeforeLast('/')) // Get "https://cubeembed.rpmvid.com"
-                    m3u8Url = baseUri.resolve(relativeUrl).toString()
-                    println("${name}: ¡Éxito! URL de video M3U8 encontrada en <source>: $m3u8Url")
+                // 1. Encontrar el script principal dinámico
+                val mainScriptElement = embedDoc.selectFirst("script[type=module][src*=/assets/index-]")
+
+                if (mainScriptElement != null) {
+                    val relativeScriptUrl = mainScriptElement.attr("src")
+
+                    // Construir la URL absoluta para el script JS
+                    // Usar la base del dominio del iframe (e.g., https://cubeembed.rpmvid.com)
+                    val baseDomain = URI(cubembedUrl).host // Obtiene "cubeembed.rpmvid.com" del iframeSrc
+                    val scriptBaseUri = URI("https://$baseDomain") // Reconstruye "https://cubeembed.rpmvid.com"
+
+                    val fullScriptUrl = scriptBaseUri.resolve(relativeScriptUrl).toString()
+                    println("${name}: Intentando descargar JavaScript principal: $fullScriptUrl")
+
+                    try {
+                        val scriptContent = app.get(fullScriptUrl, headers = embedHeaders).text
+
+                        // 2. Buscar la URL .m3u8 dentro del contenido del script
+                        val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:[^"']*)?)""") // Regex para encontrar URLs .m3u8
+                        val matchResult = m3u8Regex.find(scriptContent)
+
+                        if (matchResult != null) {
+                            m3u8Url = matchResult.groupValues[1]
+                            println("${name}: ¡Éxito! URL de video M3U8 encontrada en el JavaScript principal: $m3u8Url")
+                        } else {
+                            println("${name}: No se encontró la fuente de video M3U8 en el contenido del JavaScript principal.")
+                        }
+                    } catch (e: Exception) {
+                        println("${name}: Error al descargar o leer el JavaScript principal: ${e.message}")
+                        e.printStackTrace()
+                    }
+                } else {
+                    println("${name}: No se encontró el script principal 'index-XXXX.js' en el embed.")
                 }
+
 
                 if (!m3u8Url.isNullOrBlank()) {
                     callback(
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = m3u8Url, // Usar la URL M3U8 absoluta
+                            url = m3u8Url, // Usar la URL M3U8 absoluta encontrada en el JS
                             referer = cubembedUrl, // El referer para el link final debe ser la URL del iframe
                             quality = 0, // Calidad, puedes ajustarla si puedes extraerla
                             type = ExtractorLinkType.M3U8
@@ -134,30 +160,7 @@ class LacartoonsProvider:MainAPI() {
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la fuente de video M3U8 en la etiqueta <source> del embed de Cubembed para URL: $cubembedUrl")
-                    // Si no se encuentra en <source>, intenta la búsqueda en scripts como fallback (opcional)
-                    // Este código de fallback es el que tenías en el intento anterior
-                    val scriptElements = embedDoc.select("script")
-                    val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:[^"']*)?)""") // Regex más flexible
-                    for (script in scriptElements) {
-                        val scriptText = script.html()
-                        val matchResult = m3u8Regex.find(scriptText)
-                        if (matchResult != null) {
-                            m3u8Url = matchResult.groupValues[1]
-                            println("${name}: ¡Éxito! URL de video M3U8 encontrada en un script como fallback: $m3u8Url")
-                            callback(
-                                ExtractorLink(
-                                    source = "Cubembed",
-                                    name = "Cubembed",
-                                    url = m3u8Url,
-                                    referer = cubembedUrl,
-                                    quality = 0,
-                                    type = ExtractorLinkType.M3U8
-                                )
-                            )
-                            return true
-                        }
-                    }
+                    println("${name}: No se pudo extraer la URL M3U8 de Cubembed para URL: $cubembedUrl")
                 }
             } catch (e: Exception) {
                 println("${name}: Error al obtener o parsear el HTML del embed de Cubembed: ${e.message}")
@@ -174,7 +177,7 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
-    // Esta data class ya no es necesaria y puede ser eliminada si no se usa en ningún otro lugar.
+    // Esta data class puede ser eliminada si no se usa en ningún otro lugar.
     data class CubembedApiResponse(
         @JsonProperty("file")
         val file: String?,
