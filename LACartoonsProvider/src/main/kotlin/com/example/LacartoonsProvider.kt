@@ -4,6 +4,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Document
+import android.util.Log // ¡Añade esta línea!
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -76,8 +77,15 @@ class LacartoonsProvider:MainAPI() {
     ): Boolean {
         val res = app.get(data).document
         res.select(".serie-video-informacion iframe").map {
-            val link = it.attr("src")?.replace("https://short.ink/","https://abysscdn.com/?v=")
-            loadExtractor(link!!, data, subtitleCallback, callback)
+            val link = it.attr("src")
+            if (link != null) {
+                // Puedes usar Log.d para depurar si necesitas
+                // Log.d(name, "Found iframe link: $link") // Opcional, para depuración
+                loadExtractor(link, data, subtitleCallback, callback)
+            } else {
+                // Log.w(name, "No 'src' found for an iframe in $data") // Opcional, para depuración
+                println("No se encontró 'src' para un iframe en $data") // Esto es suficiente para ver en consola sin Logcat
+            }
         }
         return true
     }
