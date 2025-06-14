@@ -4,7 +4,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import android.util.Log
+import android.util.Log // Asegúrate de que esta importación esté presente
 import com.fasterxml.jackson.databind.JsonNode
 import java.util.regex.Pattern
 
@@ -87,17 +87,24 @@ class PlushdProvider : MainAPI() {
 
         if (tvType == TvType.TvSeries) {
             val script = doc.select("script").firstOrNull { it.html().contains("seasonsJson = ") }?.html()
+
+            // Log clave: ¿Se encontró el script con seasonsJson?
+            if (script.isNullOrEmpty()) {
+                Log.e("PlushdProvider", "ERROR: seasonsJson script no encontrado o está vacío para la URL: $url")
+            }
+
             if (!script.isNullOrEmpty()) {
                 var jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
 
-                // Limpieza del JSON para manejar cortes y caracteres
+                // Limpieza del JSON
                 jsonscript = jsonscript.replace("\\/", "/").replace("\\\"", "\"")
-                    .replace(Regex("(?<!\\\\)\"[^\"]*$"), "") // Elimina cadenas no cerradas al final
-                    .replace(Regex(",\\s*\\}"), "}") // Corrige objetos truncados
+                    .replace(Regex("(?<!\\\\)\"[^\"]*$"), "")
+                    .replace(Regex(",\\s*\\}"), "}")
                     .trim()
 
-                // Depuración
-                Log.d("PlushdProvider", "seasonsJson recuperado y limpiado: $jsonscript")
+                // Log clave: ¿Cómo quedó el JSON después de la limpieza?
+                // Útil si el parseo falla, para ver el JSON final intentado
+                Log.d("PlushdProvider", "JSON final (seasonsJson) antes de parsear: ${jsonscript.take(500)}...") // Solo los primeros 500 caracteres
 
                 try {
                     val jsonNodeMap = parseJson<Map<String, JsonNode>>(jsonscript)
@@ -125,16 +132,18 @@ class PlushdProvider : MainAPI() {
                                         allEpisodes.add(episode)
                                     }
                                 } catch (e: Exception) {
-                                    Log.w("PlushdProvider", "Error al parsear episodio en season $seasonKey: ${episodeNode.toString()}", e)
+                                    // Log clave: Si un episodio falla, ¿por qué?
+                                    Log.w("PlushdProvider", "ADVERTENCIA: Error al parsear episodio en temporada $seasonKey: ${episodeNode.toString().take(200)}... Error: ${e.message}")
                                 }
                             }
                         } else {
-                            Log.w("PlushdProvider", "seasonNode no es un array para la clave $seasonKey: $seasonNode")
+                            // Log clave: Si una temporada no es un array, ¿por qué?
+                            Log.w("PlushdProvider", "ADVERTENCIA: seasonNode no es un array para la clave $seasonKey: $seasonNode. Esto puede indicar un formato inesperado.")
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("PlushdProvider", "Error general al parsear seasonsJson: $jsonscript", e)
-                    // Continúa con los episodios ya procesados
+                    // Log clave: Error general si todo el JSON seasonsJson no se puede parsear
+                    Log.e("PlushdProvider", "ERROR: Error general al parsear seasonsJson. JSON que causó el error: ${jsonscript.take(500)}... Error: ${e.message}", e)
                 }
             }
         }
