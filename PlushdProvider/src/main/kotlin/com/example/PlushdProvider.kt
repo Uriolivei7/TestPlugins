@@ -90,11 +90,9 @@ class PlushdProvider : MainAPI() {
 
             if (script.isNullOrEmpty()) {
                 Log.e("PlushdProvider", "ERROR: seasonsJson script no encontrado o está vacío para la URL: $url")
-                // Si no hay script, no hay episodios. Retornar null aquí para que CloudStream lo maneje como una serie sin datos.
                 return null
             }
 
-            // Aquí, justo después de asegurarte que script no es nulo, añade un log detallado
             Log.d("PlushdProvider", "Contenido completo del script para seasonsJson (primeros 1000 caracteres): ${script.take(1000)}")
 
             val jsonRegex = "seasonsJson\\s*=\\s*([^;]+);".toRegex(RegexOption.DOT_MATCHES_ALL)
@@ -102,14 +100,12 @@ class PlushdProvider : MainAPI() {
 
             var jsonscript: String? = null
             if (match != null && match.groupValues.size > 1) {
-                jsonscript = match.groupValues[1].trim() // Captura el contenido del JSON y elimina espacios en blanco
+                jsonscript = match.groupValues[1].trim()
             }
 
             if (jsonscript.isNullOrEmpty()) {
                 Log.e("PlushdProvider", "ERROR: No se pudo extraer el JSON de seasonsJson después de 'seasonsJson = ' para la URL: $url")
             } else {
-                // Asegurarse de que el JSON termine con una llave de cierre si el regex no la capturó
-                // Esto es un parche si el regex no es perfecto y el JSON queda "abierto"
                 if (!jsonscript.endsWith("}")) {
                     val lastBraceIndex = jsonscript.lastIndexOf("}")
                     if (lastBraceIndex != -1) {
@@ -117,17 +113,13 @@ class PlushdProvider : MainAPI() {
                         Log.w("PlushdProvider", "ADVERTENCIA: JSON ajustado para terminar con '}'. JSON parcial: ${jsonscript.take(500)}...")
                     } else {
                         Log.e("PlushdProvider", "ERROR: JSON extraído no es válido y no contiene '}'. No se puede parsear. JSON: ${jsonscript.take(500)}...")
-                        // Si no se encuentra '}', no hay mucho que hacer, el JSON está muy mal
-                        return null // Retorna null si el JSON no es recuperable.
+                        return null
                     }
                 }
 
-                // Limpieza del JSON (mantén estas, son para corregir posibles escapes y truncamientos internos)
                 jsonscript = jsonscript.replace("\\/", "/")
                     .replace("\\\"", "\"")
-                    .replace(Regex("(?<!\\\\)\"[^\"]*$"), "") // Elimina cadenas no cerradas al final
-                    .replace(Regex(",\\s*\\}"), "}") // Corrige objetos truncados
-                    .trim() // Trim al final después de todas las manipulaciones
+                    .trim()
 
                 Log.d("PlushdProvider", "JSON final (seasonsJson) antes de parsear: ${jsonscript.take(500)}...")
 
@@ -172,12 +164,15 @@ class PlushdProvider : MainAPI() {
 
         return when (tvType) {
             TvType.TvSeries -> {
+                // Correcto según la firma:
+                // suspend fun MainAPI.newTvSeriesLoadResponse(name: String, url: String, type: TvType, episodes: List<Episode>, initializer: suspend TvSeriesLoadResponse.() -> Unit = COMPILED_CODE): TvSeriesLoadResponse
                 newTvSeriesLoadResponse(
-                    title,
-                    url,
-                    TvType.TvSeries, // <-- Este es el TvType correcto para series
-                    allEpisodes.sortedWith(compareBy({ it.season }, { it.episode })) // Ordena por temporada, luego por episodio
+                    title, // name
+                    url,   // url
+                    TvType.TvSeries, // type
+                    allEpisodes.sortedWith(compareBy({ it.season }, { it.episode })) // episodes
                 ) {
+                    // Estos se configuran en el bloque lambda 'initializer'
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
@@ -185,7 +180,15 @@ class PlushdProvider : MainAPI() {
                 }
             }
             TvType.Movie -> {
-                newMovieLoadResponse(title, url, tvType, url) {
+                // Correcto según la firma:
+                // suspend fun <T> MainAPI.newMovieLoadResponse(name: String, url: String, type: TvType, data: T?, initializer: suspend MovieLoadResponse.() -> Unit = COMPILED_CODE): MovieLoadResponse
+                // O: suspend fun MainAPI.newMovieLoadResponse(name: String, url: String, type: TvType, dataUrl: String, initializer: suspend MovieLoadResponse.() -> Unit = COMPILED_CODE): MovieLoadResponse
+                newMovieLoadResponse(
+                    title,    // name
+                    url,      // url
+                    tvType,   // type
+                    url       // dataUrl (usamos la misma URL de la página como dataUrl)
+                ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = backimage
                     this.plot = description
@@ -207,10 +210,15 @@ class PlushdProvider : MainAPI() {
             val encodedOne = it.attr("data-server").toByteArray()
             val encodedTwo = base64Encode(encodedOne)
             val linkRegex = Regex("window\\.location\\.href\\s*=\\s*'(.*)'")
-            val text = app.get("$mainUrl/player/$encodedTwo").text
+            val playerUrl = "$mainUrl/player/$encodedTwo"
+            val text = app.get(playerUrl).text
             val link = linkRegex.find(text)?.destructured?.component1()
+
             if (link != null) {
+                Log.d("PlushdProvider", "Enlace extraído del player ($playerUrl): $link")
                 loadExtractor(link, mainUrl, subtitleCallback, callback)
+            } else {
+                Log.e("PlushdProvider", "ERROR: No se pudo extraer el enlace del player de $playerUrl")
             }
         }
         return true
