@@ -60,8 +60,8 @@ class RetrotveProvider : MainAPI() {
                     this.year = year
                 }
             } else {
-                newMovieSearchResponse(title, fixUrl(href)) { // <-- CAMBIO AQUÍ
-                    this.posterUrl = posterUrl // <-- Y AQUÍ
+                newMovieSearchResponse(title, fixUrl(href)) {
+                    this.posterUrl = posterUrl
                     this.year = year
                 }
             }
@@ -168,11 +168,23 @@ class RetrotveProvider : MainAPI() {
 
         var foundLinks = false
 
+        val playerEmbedIframes = doc.select(".TPlayerTb iframe")
+
+        // Depuración: Imprimir cuántos iframes se encontraron con el selector
+        println("RetroTVE: Número de iframes '.TPlayerTb iframe' encontrados: ${playerEmbedIframes.size}")
+
+        // Depuración: Imprimir todos los src de los iframes encontrados por el selector
+        playerEmbedIframes.forEachIndexed { index, element ->
+            val debugSrc = element.attr("src")
+            println("RetroTVE: Iframe encontrado por selector [${index}]: $debugSrc")
+        }
+
+
         // Lista para almacenar las URLs de los iframes en el orden de prioridad que queremos.
         val playerEmbedUrls = mutableListOf<String>()
 
         // 1. Recopilar todas las URLs de los iframes presentes en el HTML, decodificando &amp;
-        doc.select(".TPlayerTb iframe").forEach { iframe ->
+        playerEmbedIframes.forEach { iframe ->
             val iframeSrc = iframe.attr("src")
             if (!iframeSrc.isNullOrBlank()) {
                 val decodedSrc = decodeHtml(iframeSrc) // Decodificar entidades HTML
