@@ -14,6 +14,7 @@ import org.jsoup.nodes.Document
 import com.fasterxml.jackson.annotation.JsonProperty
 
 import java.net.URLEncoder
+import java.net.URI // Importa la clase URI para construir URLs
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -96,7 +97,7 @@ class LacartoonsProvider:MainAPI() {
 
         if (iframeSrc.contains("cubeembed.rpmvid.com")) {
             println("${name}: Detectado iframe de cubeembed.rpmvid.com, procesando internamente.")
-            val cubembedUrl = iframeSrc
+            val cubembedUrl = iframeSrc // Esta es la URL base del iframe de Cubembed
             val refererForEmbed = data
             val originForEmbed = mainUrl
 
@@ -112,17 +113,23 @@ class LacartoonsProvider:MainAPI() {
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
                 val videoSourceElement = embedDoc.selectFirst("video source[type=application/x-mpegurl]")
-                val videoUrlFromHtml = videoSourceElement?.attr("src")
+                val videoUrlFromHtmlRelative = videoSourceElement?.attr("src")
 
-                if (!videoUrlFromHtml.isNullOrBlank()) {
+                if (!videoUrlFromHtmlRelative.isNullOrBlank()) {
+                    // *** CAMBIO CRÍTICO AQUÍ: CONSTRUIR LA URL ABSOLUTA MANUALMENTE ***
+                    // Asegúrate de que cubembedUrl NO termine con un slash y videoUrlFromHtmlRelative NO empiece con uno
+                    // O usa la clase URI de Java para una construcción más robusta
+                    val baseUri = URI(cubembedUrl)
+                    val videoUrlFromHtml = baseUri.resolve(videoUrlFromHtmlRelative).toString()
+
                     println("${name}: ¡Éxito! URL de video M3U8 extraída del HTML del embed de Cubembed: $videoUrlFromHtml")
                     callback(
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = videoUrlFromHtml,
+                            url = videoUrlFromHtml, // Ahora pasas la URL ABSOLUTA
                             referer = cubembedUrl,
-                            quality = 0, // <--- CAMBIO AQUÍ: Usar 0 (o un valor específico como 720, 1080)
+                            quality = 0,
                             type = ExtractorLinkType.M3U8
                         )
                     )
