@@ -107,76 +107,36 @@ class LacartoonsProvider:MainAPI() {
             )
 
             try {
+                // Obtener el HTML del iframe
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
-                var m3u8Url: String? = null
+                // Buscar la etiqueta <source> directamente en el DOM del iframe
+                val sourceElement = embedDoc.selectFirst("source[src*=.m3u8]")
 
-                // 1. Encontrar el script principal dinámico (Vidstack)
-                val mainScriptElement = embedDoc.selectFirst("script[type=module][src*=/assets/index-]")
+                if (sourceElement != null) {
+                    val relativeM3u8Src = sourceElement.attr("src")
 
-                if (mainScriptElement != null) {
-                    val relativeScriptUrl = mainScriptElement.attr("src")
+                    // Resolver la URL relativa a una URL absoluta usando la base del iframe
+                    val baseUri = URI(cubembedUrl.substringBefore("#")) // Usar la URL sin el hash como base
+                    val m3u8Url = baseUri.resolve(relativeM3u8Src).toString()
 
-                    val baseDomain = URI(cubembedUrl).host
-                    val scriptBaseUri = URI("https://$baseDomain")
+                    println("${name}: ¡Éxito! URL de video M3U8 encontrada en la etiqueta <source>: $m3u8Url")
 
-                    val fullScriptUrl = scriptBaseUri.resolve(relativeScriptUrl).toString()
-                    println("${name}: Intentando descargar JavaScript principal: $fullScriptUrl")
-
-                    try {
-                        val scriptContent = app.get(fullScriptUrl, headers = embedHeaders).text
-
-                        // Intentar una regex más amplia si el anterior no funcionó
-                        // Buscar cualquier string que parezca una URL y termine en .m3u8
-                        val m3u8Regex = Regex("""(https?:\/\/[^"'\\]+\.m3u8[^"'\\]*)""")
-                        val matchResult = m3u8Regex.find(scriptContent)
-
-                        if (matchResult != null) {
-                            m3u8Url = matchResult.groupValues[1]
-                            println("${name}: ¡Éxito! URL de video M3U8 encontrada en el JavaScript principal: $m3u8Url")
-                        } else {
-                            println("${name}: No se encontró la fuente de video M3U8 en el contenido del JavaScript principal con la primera regex.")
-
-                            // SEGUNDO INTENTO: Buscar URLs que contengan el ID del video y terminen en master.m3u8
-                            // Esto asume que el ID del video está en el hash de la URL del iframe (#ourng -> ourng)
-                            val videoId = cubembedUrl.substringAfterLast("#", "").ifBlank { null }
-
-                            if (videoId != null) {
-                                println("${name}: Intentando buscar con el ID de video: $videoId")
-                                val idM3u8Regex = Regex("""(https?:\/\/[^"']*\/${videoId}[^"']*\.m3u8(?:[^"']*)?)""")
-                                val idMatchResult = idM3u8Regex.find(scriptContent)
-                                if (idMatchResult != null) {
-                                    m3u8Url = idMatchResult.groupValues[1]
-                                    println("${name}: ¡Éxito! URL de video M3U8 encontrada con ID: $m3u8Url")
-                                } else {
-                                    println("${name}: No se encontró la URL M3U8 con el ID del video en el JavaScript principal.")
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        println("${name}: Error al descargar o leer el JavaScript principal: ${e.message}")
-                        e.printStackTrace()
-                    }
-                } else {
-                    println("${name}: No se encontró el script principal 'index-XXXX.js' en el embed.")
-                }
-
-
-                if (!m3u8Url.isNullOrBlank()) {
                     callback(
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
                             url = m3u8Url,
-                            referer = cubembedUrl,
-                            quality = 0,
+                            referer = cubembedUrl, // El referer para el M3U8 es la URL del iframe
+                            quality = 0, // Puedes ajustar la calidad si la obtienes de alguna parte
                             type = ExtractorLinkType.M3U8
                         )
                     )
                     return true
                 } else {
-                    println("${name}: No se pudo extraer la URL M3U8 de Cubembed para URL: $cubembedUrl")
+                    println("${name}: No se encontró la etiqueta <source> con .m3u8 en el DOM del iframe.")
                 }
+
             } catch (e: Exception) {
                 println("${name}: Error al obtener o parsear el HTML del embed de Cubembed: ${e.message}")
                 e.printStackTrace()

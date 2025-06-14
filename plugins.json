@@ -79,24 +79,24 @@
     ],
     "iconUrl": "https://img.icons8.com/?size=100&id=u9L7LAQFgNF2&format=png",
     "language": "es",
-    "fileSize": 13000
+    "fileSize": 12000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PelispediaProvider.cs3",
-    "status": 1,
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
+    "status": 0,
     "version": 1,
     "apiVersion": 4,
-    "name": "Pelispedia",
-    "internalName": "PelispediaProvider",
+    "name": "AniZone",
+    "internalName": "AnizoneProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para pelispedia.is",
+    "description": "Plugin para anizone.to",
     "tvTypes": [
       "Movie",
-      "TvSeries"
+      "Anime"
     ],
-    "iconUrl": "https://pelispedia.is/wp-content/uploads/2022/01/cropped-pelispediafavicon-e1642201982676-32x32.png",
+    "iconUrl": "https://img.icons8.com/?size=200&id=kp0Q6ux98sHP&format=png",
     "language": "es",
     "fileSize": 14000
   }
