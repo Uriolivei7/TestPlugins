@@ -112,13 +112,14 @@ class LacartoonsProvider:MainAPI() {
             try {
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
-                val videoSourceElement = embedDoc.selectFirst("video source[type=application/x-mpegurl]")
+                // *** CAMBIO CLAVE AQUÍ: Selector CSS más específico para el source del M3U8 ***
+                val videoSourceElement = embedDoc.selectFirst("media-provider video source[type=application/x-mpegurl]")
+                // Si el selector anterior no funciona, intenta con:
+                // val videoSourceElement = embedDoc.selectFirst(".media-player source[type=application/x-mpegurl]")
+
                 val videoUrlFromHtmlRelative = videoSourceElement?.attr("src")
 
                 if (!videoUrlFromHtmlRelative.isNullOrBlank()) {
-                    // *** CAMBIO CRÍTICO AQUÍ: CONSTRUIR LA URL ABSOLUTA MANUALMENTE ***
-                    // Asegúrate de que cubembedUrl NO termine con un slash y videoUrlFromHtmlRelative NO empiece con uno
-                    // O usa la clase URI de Java para una construcción más robusta
                     val baseUri = URI(cubembedUrl)
                     val videoUrlFromHtml = baseUri.resolve(videoUrlFromHtmlRelative).toString()
 
@@ -127,7 +128,7 @@ class LacartoonsProvider:MainAPI() {
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = videoUrlFromHtml, // Ahora pasas la URL ABSOLUTA
+                            url = videoUrlFromHtml,
                             referer = cubembedUrl,
                             quality = 0,
                             type = ExtractorLinkType.M3U8
