@@ -7,14 +7,12 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.AppUtils
-// import com.lagradost.cloudstream3.extractors.helper.Qualities // COMENTA O ELIMINA ESTA LÍNEA
-
-import org.jsoup.nodes.Document
-
 import com.fasterxml.jackson.annotation.JsonProperty
-
 import java.net.URLEncoder
-import java.net.URI // Importa la clase URI para construir URLs
+import java.net.URI
+import org.jsoup.nodes.Document
+import android.util.Base64 // Importa la clase Base64 de Android para decodificación
+import com.fasterxml.jackson.databind.ObjectMapper
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -101,6 +99,7 @@ class LacartoonsProvider:MainAPI() {
             val refererForEmbed = data
             val originForEmbed = mainUrl
 
+            // Headers para la petición al iframe (aunque aquí no la usaremos para el HTML del iframe)
             val embedHeaders = mapOf(
                 "Referer" to refererForEmbed,
                 "Origin" to originForEmbed,
@@ -110,36 +109,58 @@ class LacartoonsProvider:MainAPI() {
             )
 
             try {
-                val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
+                val baseUri = URI(cubembedUrl)
+                // Extraer el ID del hash (ej. #ourng -> ourng)
+                val videoId = baseUri.fragment?.substringBefore("&")
 
-                // *** CAMBIO CLAVE AQUÍ: Selector CSS más específico para el source del M3U8 ***
-                val videoSourceElement = embedDoc.selectFirst("media-provider video source[type=application/x-mpegurl]")
-                // Si el selector anterior no funciona, intenta con:
-                // val videoSourceElement = embedDoc.selectFirst(".media-player source[type=application/x-mpegurl]")
+                if (videoId.isNullOrBlank() || videoId.length <= 1) { // Longitud > 1 como en el JS original
+                    println("${name}: No se pudo extraer el ID del video del hash de Cubembed URL: $cubembedUrl")
+                    return false
+                }
 
-                val videoUrlFromHtmlRelative = videoSourceElement?.attr("src")
+                val apiUrl = "https://cubeembed.rpmvid.com/api/v1/stream?id=$videoId"
+                println("${name}: URL de la API de Cubembed generada: $apiUrl")
 
-                if (!videoUrlFromHtmlRelative.isNullOrBlank()) {
-                    val baseUri = URI(cubembedUrl)
-                    val videoUrlFromHtml = baseUri.resolve(videoUrlFromHtmlRelative).toString()
+                // Headers para la API de stream (pueden ser los mismos o más específicos)
+                val apiHeaders = mapOf(
+                    "Referer" to cubembedUrl, // El referer para la API es la URL del iframe
+                    "Origin" to "https://cubeembed.rpmvid.com", // El origen para la API es el dominio de Cubembed
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                    "Accept" to "*/*", // La API devuelve JSON, no HTML
+                    "Accept-Language" to "es,en-US;q=0.7,en;q=0.3"
+                )
 
-                    println("${name}: ¡Éxito! URL de video M3U8 extraída del HTML del embed de Cubembed: $videoUrlFromHtml")
+                val apiResponse = app.get(apiUrl, headers = apiHeaders).text
+                println("${name}: Respuesta Base64 de la API de Cubembed: $apiResponse")
+
+                // Decodificar la respuesta Base64
+                val decodedBytes = Base64.decode(apiResponse, Base64.DEFAULT)
+                val decodedString = String(decodedBytes, Charsets.UTF_8)
+                println("${name}: Respuesta decodificada (posible JSON): $decodedString")
+
+                val mapper = ObjectMapper() // Si necesitas una instancia local
+                val apiJson = mapper.readValue(decodedString, CubembedApiResponse::class.java)
+
+                val fileUrl = apiJson.file
+                if (!fileUrl.isNullOrBlank()) {
+                    println("${name}: ¡Éxito! URL de video M3U8 obtenida de la API decodificada: $fileUrl")
                     callback(
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = videoUrlFromHtml,
-                            referer = cubembedUrl,
-                            quality = 0,
+                            url = fileUrl,
+                            referer = cubembedUrl, // El referer para el link final suele ser la URL del iframe
+                            quality = 0, // Puedes ajustar esto si la API devuelve calidad
                             type = ExtractorLinkType.M3U8
                         )
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la fuente de video M3U8 en el HTML del embed de Cubembed para URL: $cubembedUrl")
+                    println("${name}: 'file' (URL de video) no encontrada en la respuesta decodificada de Cubembed.")
                 }
+
             } catch (e: Exception) {
-                println("${name}: Error al obtener o parsear el HTML del embed de Cubembed: ${e.message}")
+                println("${name}: Error al procesar la API de Cubembed: ${e.message}")
                 e.printStackTrace()
             }
             return false
