@@ -60,7 +60,7 @@
     ],
     "iconUrl": "https://img.icons8.com/?size=96&id=avzQEPM5mxjf&format=png",
     "language": "es",
-    "fileSize": 18000
+    "fileSize": 19000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LatanimeProvider.cs3",
@@ -78,7 +78,7 @@
       "TvSeries",
       "Cartoon"
     ],
-    "iconUrl": "https://retrotve.com/wp-content/uploads/2024/11/cropped-android-chrome-512x512-1-32x32.png",
+    "iconUrl": "https://latanime.org/public/favicon.ico",
     "language": "es",
     "fileSize": 21000
   },
