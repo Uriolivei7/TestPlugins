@@ -42,7 +42,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
                 val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
                 val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
                 val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
@@ -54,7 +54,7 @@ class RetrotveProvider : MainAPI() {
                         referer = referer ?: "",
                         quality = Qualities.Unknown,
                         type = ExtractorLinkType.VIDEO,
-                        headers = mapOf("Referer" to (referer ?: ""))
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 } else {
                     emptyList()
@@ -73,7 +73,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
                 val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
                 val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
                 val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
@@ -85,7 +85,7 @@ class RetrotveProvider : MainAPI() {
                         referer = referer ?: "",
                         quality = Qualities.Unknown,
                         type = ExtractorLinkType.VIDEO,
-                        headers = mapOf("Referer" to (referer ?: ""))
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 } else {
                     emptyList()
@@ -114,7 +114,7 @@ class RetrotveProvider : MainAPI() {
                         referer = link.referer,
                         quality = link.quality,
                         type = link.type,
-                        headers = link.headers
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 }
                 return if (result) links else emptyList()
@@ -132,7 +132,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                // Devolver la URL original como enlace de video, ya que el blob no se puede extraer directamente
+                // Devolver la URL original como enlace de video
                 return listOf(ExtractorLink(
                     source = name,
                     name = name,
@@ -140,7 +140,7 @@ class RetrotveProvider : MainAPI() {
                     referer = referer ?: "",
                     quality = Qualities.Unknown,
                     type = ExtractorLinkType.VIDEO,
-                    headers = mapOf("Referer" to (referer ?: ""))
+                    headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                 ))
             } catch (e: Exception) {
                 println("RetroTVE: Error en VkExtractor para $url: ${e.message}")
@@ -325,10 +325,25 @@ class RetrotveProvider : MainAPI() {
                 }
 
                 println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
+                if (videoSrc.contains("vk.com")) {
+                    println("RetroTVE: Saltando enlace de vk.com no soportado temporalmente")
+                    continue
+                }
+
                 val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
                 println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
                 if (extractorResult) {
-                    println("RetroTVE: Enlace encontrado, intentando reproducción con callback")
+                    println("RetroTVE: Enlace encontrado, ejecutando callback directamente")
+                    val link = ExtractorLink(
+                        source = videoSrc.substringAfter("https://").substringBefore("/"),
+                        name = videoSrc.substringAfter("https://").substringBefore("/"),
+                        url = videoSrc,
+                        referer = fullTrembedUrl,
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = headers
+                    )
+                    callback(link)
                     foundLinks = true
                     return true
                 }
