@@ -173,25 +173,29 @@ class RetrotveProvider : MainAPI() {
             if (!baseSrc.isNullOrBlank()) {
                 println("RetroTVE: Iframe base encontrado: $baseSrc")
 
-                // Probar las opciones de trembed en orden (1, 0, 2 por tu indicación)
+                // Probar las opciones de trembed en orden (1, 0, 2)
                 val trembedOptions = listOf(1, 0, 2) // Priorizar trembed=1
                 for (trembed in trembedOptions) {
-                    val fullTrembedUrl = baseSrc.replaceAfter("trembed=", "trembed=$trembed").let { fixUrl(it) }
+                    // Generar URL correcta
+                    val params = baseSrc.split("&").toMutableList()
+                    params[0] = params[0].replaceAfter("trembed=", "trembed=$trembed")
+                    val fullTrembedUrl = params.joinToString("&").let { fixUrl(it) }
                     println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
 
                     try {
                         val embedDoc = app.get(fullTrembedUrl, headers = headers).document
-                        val videoIframe = embedDoc.selectFirst("iframe[src]")
+                        // Buscar iframe dentro de div.Video
+                        val videoIframe = embedDoc.selectFirst("div.Video iframe[src]")
                         val videoSrc = videoIframe?.attr("src")?.let { decodeHtml(it) }
 
                         if (!videoSrc.isNullOrBlank()) {
-                            println("RetroTVE: Encontrado iframe de video: $videoSrc")
+                            println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
                             if (loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)) {
                                 foundLinks = true
-                                return true // Salir si se resuelve
+                                return true
                             }
                         } else {
-                            println("RetroTVE: No se encontró iframe de video en $fullTrembedUrl, posiblemente en mantenimiento")
+                            println("RetroTVE: No se encontró iframe de video en $fullTrembedUrl")
                         }
                     } catch (e: Exception) {
                         println("RetroTVE: Error al acceder a $fullTrembedUrl: ${e.message}")
