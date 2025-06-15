@@ -72,7 +72,7 @@
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para latanime.com",
+    "description": "Plugin para latanime.org",
     "tvTypes": [
       "Movie",
       "TvSeries",
@@ -80,13 +80,13 @@
     ],
     "iconUrl": "https://latanime.org/public/favicon.ico",
     "language": "es",
-    "fileSize": 12000
+    "fileSize": 13000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
     "status": 0,
     "version": 1,
-    "apiVersion": 4,
+    "apiVersion": 5,
     "name": "AniZone",
     "internalName": "AnizoneProvider",
     "authors": [
