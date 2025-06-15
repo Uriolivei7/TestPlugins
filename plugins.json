@@ -74,9 +74,8 @@
     ],
     "description": "Plugin para latanime.org",
     "tvTypes": [
-      "Movie",
-      "TvSeries",
-      "Cartoon"
+      "Anime",
+      "OVA"
     ],
     "iconUrl": "https://latanime.org/public/favicon.ico",
     "language": "es",
