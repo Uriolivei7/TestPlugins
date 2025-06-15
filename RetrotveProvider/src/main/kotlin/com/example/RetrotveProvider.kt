@@ -384,8 +384,9 @@ class RetrotveProvider : MainAPI() {
                 if (extractorResult) {
                     foundLinks = true
                     return true
-                } else if (embedDoc.select("body").text().contains("maintenance", ignoreCase = true)) {
-                    println("RetroTVE: Server under maintenance for $videoSrc, skipping")
+                } else if (embedDoc.select("body").text().contains("maintenance", ignoreCase = true) ||
+                    embedDoc.select("body").text().contains("error", ignoreCase = true)) {
+                    println("RetroTVE: Server issue detected for $videoSrc (maintenance or error), skipping")
                     continue
                 }
             } catch (e: Exception) {
