@@ -89,37 +89,47 @@ class RetrotveProvider : MainAPI() {
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
                 val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
-                val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
+                val script = response.select("script").firstOrNull { it.html().contains("jwplayerOptions") }?.html() ?: ""
                 println("RetroTVE: YourUpload script content: $script")
-                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+\\.mp4)\"").find(script)
-                val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
-                println("RetroTVE: YourUpload extracted URL: $videoUrl")
+                val match = Regex("aboutlink\\s*:\\s*\"([^\"]+)\"").find(script)
+                val watchUrl = match?.groupValues?.getOrNull(1) ?: ""
+                println("RetroTVE: YourUpload extracted watch URL: $watchUrl")
+
+                if (watchUrl.isNotBlank()) {
+                    val watchResponse = app.get(watchUrl, referer = url, headers = mapOf("Referer" to url, "User-Agent" to "Mozilla/5.0")).document
+                    val videoMatch = Regex("<source\\s+src=\"([^\"]+\\.mp4)\"|<video\\s+src=\"([^\"]+\\.mp4)\"").find(watchResponse.html())
+                    val videoUrl = videoMatch?.groupValues?.getOrNull(1) ?: videoMatch?.groupValues?.getOrNull(2) ?: ""
+                    println("RetroTVE: YourUpload extracted video URL: $videoUrl")
+
+                    if (videoUrl.isNotBlank()) {
+                        return listOf(ExtractorLink(
+                            source = name,
+                            name = name,
+                            url = videoUrl,
+                            referer = watchUrl,
+                            quality = Qualities.Unknown,
+                            type = ExtractorLinkType.VIDEO,
+                            headers = mapOf("Referer" to watchUrl, "User-Agent" to "Mozilla/5.0")
+                        ))
+                    } else {
+                        println("RetroTVE: No static video URL found. Dynamic loading via JavaScript may be required.")
+                    }
+                }
+
                 if (response.select("body").text().contains("maintenance", ignoreCase = true)) {
                     println("RetroTVE: YourUpload server under maintenance, skipping")
                     return emptyList()
                 }
-                return if (videoUrl.isNotBlank()) {
-                    listOf(ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = videoUrl,
-                        referer = referer ?: "",
-                        quality = Qualities.Unknown,
-                        type = ExtractorLinkType.VIDEO,
-                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
-                    ))
-                } else {
-                    println("RetroTVE: No video URL found in YourUpload script, falling back to embed")
-                    listOf(ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = url,
-                        referer = referer ?: "",
-                        quality = Qualities.Unknown,
-                        type = ExtractorLinkType.VIDEO,
-                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
-                    ))
-                }
+                println("RetroTVE: No video URL found in YourUpload script, falling back to embed")
+                return listOf(ExtractorLink(
+                    source = name,
+                    name = name,
+                    url = url,
+                    referer = referer ?: "",
+                    quality = Qualities.Unknown,
+                    type = ExtractorLinkType.VIDEO,
+                    headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
+                ))
             } catch (e: Exception) {
                 println("RetroTVE: Error en YourUploadExtractor para $url: ${e.message}")
                 return emptyList()
@@ -384,10 +394,13 @@ class RetrotveProvider : MainAPI() {
                 if (extractorResult) {
                     foundLinks = true
                     return true
-                } else if (embedDoc.select("body").text().contains("maintenance", ignoreCase = true) ||
-                    embedDoc.select("body").text().contains("error", ignoreCase = true)) {
-                    println("RetroTVE: Server issue detected for $videoSrc (maintenance or error), skipping")
-                    continue
+                } else if (!extractorResult) {
+                    println("RetroTVE: No links extracted by loadExtractor for $videoSrc, checking for errors")
+                    if (embedDoc.select("body").text().contains("maintenance", ignoreCase = true) ||
+                        embedDoc.select("body").text().contains("error", ignoreCase = true)) {
+                        println("RetroTVE: Server issue detected for $videoSrc (maintenance or error), skipping")
+                        continue
+                    }
                 }
             } catch (e: Exception) {
                 println("RetroTVE: Error al acceder a $fullTrembedUrl: ${e.message}, StackTrace: ${e.stackTraceToString()}")
