@@ -195,7 +195,7 @@ class RetrotveProvider : MainAPI() {
                             val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
                             println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
                             if (extractorResult) {
-                                println("RetroTVE: Enlace encontrado, intentando reproducción")
+                                println("RetroTVE: Enlace encontrado, intentando reproducción con callback")
                                 foundLinks = true
                                 return true
                             }
