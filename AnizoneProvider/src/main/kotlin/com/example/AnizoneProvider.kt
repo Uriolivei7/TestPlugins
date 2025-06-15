@@ -50,13 +50,11 @@ class AnizoneProvider : MainAPI() {
         "6" to "Latest Web"
     )
 
-
     private var cookies = mutableMapOf<String, String>()
     private var wireData = mutableMapOf(
         "wireSnapshot" to "",
         "token" to ""
     )
-
 
     init {
         val initReq = Jsoup.connect("$mainUrl/anime")
