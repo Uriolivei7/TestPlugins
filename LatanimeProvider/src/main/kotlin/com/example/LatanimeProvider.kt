@@ -1,26 +1,23 @@
 package com.example
 
+import android.util.Log // Asegúrate de tener esta importación
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
-import com.lagradost.cloudstream3.utils.loadExtractor
 import java.util.*
-import android.util.Log
 
 
 class LatanimeProvider : MainAPI() {
     companion object {
         fun getType(t: String): TvType {
-            // Mantener esta lógica, parece correcta para el nombre
             return if (t.contains("OVA") || t.contains("Especial")) TvType.OVA
             else if (t.contains("Pelicula")) TvType.AnimeMovie
             else TvType.Anime
         }
 
         fun getDubStatus(title: String): DubStatus {
-            // Mantener esta lógica, parece correcta para el nombre
             return if (title.contains("Latino") || title.contains("Castellano"))
                 DubStatus.Dubbed
             else DubStatus.Subbed
@@ -47,8 +44,6 @@ class LatanimeProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val urls = listOf(
             Pair("$mainUrl/emision", "En emisión"),
-            // ¡IMPORTANTE! Revisa si estas URLs siguen mostrando la misma estructura HTML que has compartido.
-            // Si la página de /animes usa una estructura diferente a "Series recientes", necesitarás un selector diferente para esa.
             Pair(
                 "$mainUrl/animes?fecha=false&genero=false&letra=false&categoria=Película",
                 "Peliculas"
@@ -57,22 +52,37 @@ class LatanimeProvider : MainAPI() {
         )
 
         val items = ArrayList<HomePageList>()
-        val isHorizontal = true
+        // Puedes descomentar y adaptar esto si necesitas la sección de "Capítulos actualizados"
+        // y tiene una estructura diferente a las demás, como la de image_30e8c0.png
+        // items.add(
+        //         HomePageList(
+        //                 "Capítulos actualizados",
+        //                 appGetChildMainUrl(mainUrl).document.select("div.col-6.col-md-6.col-lg-3.mb-3").map { // Selector de la sección "Añadidos recientemente"
+        //                     val itemLink = it.selectFirst("a")!!
+        //                     val title = itemLink.selectFirst("div.info h2.mt-3")?.text() ?: ""
+        //                     val poster = itemLink.selectFirst("div.imgrec img.lozad.nxtmainimg")?.attr("data-src")
+        //                             ?: itemLink.selectFirst("div.imgrec img.lozad.nxtmainimg")?.attr("src") ?: ""
+        //                     newAnimeSearchResponse(title, fixUrl(itemLink.attr("href"))) {
+        //                         this.posterUrl = fixUrl(poster)
+        //                         addDubStatus(getDubStatus(title))
+        //                         this.posterHeaders = if (poster.contains(mainUrl)) cloudflareKiller.getCookieHeaders(mainUrl).toMap() else emptyMap<String, String>()
+        //                     }
+        //                 }, true) // true para isHorizontal
+        // )
+
 
         urls.apmap { (url, name) ->
-            // !!! Selector principal corregido basado en el ÚLTIMO HTML proporcionado (para "Series recientes") !!!
-            val home = appGetChildMainUrl(url).document.select("li.col.mb-4.ficha_efecto").map {
-                // Selectores internos ahora son relativos a 'it' (el li.col.mb-4.ficha_efecto)
-                val itemLink = it.selectFirst("article a")!!
-                val title = itemLink.selectFirst("h3.title_cap")?.text() // O solo "h3" si es más robusto
-                    ?: "" // Manejar caso de título nulo
+            // !!! Selector principal corregido para "En emisión", "Peliculas", "Animes" (basado en image_316ce4.png) !!!
+            val home = appGetChildMainUrl(url).document.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
+                val itemLink = it.selectFirst("a")!! // El enlace <a> dentro del contenedor
+                val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() // Título dentro de div.seriedetails
+                    ?: ""
                 val itemUrl = itemLink.attr("href")
 
-                // !!! NECESITAS VERIFICAR CÓMO SE OBTIENE LA IMAGEN DENTRO DE "div.tarjeta" !!!
-                // Esto es una suposición, puede que sea diferente.
-                val poster = itemLink.selectFirst("div.tarjeta img")?.attr("data-src")
-                    ?: itemLink.selectFirst("div.tarjeta img")?.attr("src")
-                    ?: "" // Si no encuentra nada, deja vacío
+                // Póster dentro de div.serieimg
+                val poster = itemLink.selectFirst("div.serieimg img.img-fluid2")?.attr("data-src")
+                    ?: itemLink.selectFirst("div.serieimg img.img-fluid2")?.attr("src")
+                    ?: ""
 
                 newAnimeSearchResponse(title, fixUrl(itemUrl)) {
                     this.posterUrl = fixUrl(poster)
@@ -80,6 +90,7 @@ class LatanimeProvider : MainAPI() {
                     this.posterHeaders = if (poster.contains(mainUrl)) cloudflareKiller.getCookieHeaders(mainUrl).toMap() else emptyMap<String, String>()
                 }
             }
+
             items.add(HomePageList(name, home))
         }
 
@@ -88,22 +99,21 @@ class LatanimeProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // !!! Asumo que la estructura de búsqueda es SIMILAR a la de "Series recientes". Si no, ajústala !!!
-        return appGetChildMainUrl("$mainUrl/buscar?q=$query").document.select("li.col.mb-4.ficha_efecto").map {
-            val itemLink = it.selectFirst("article a")!!
-            val title = itemLink.selectFirst("h3.title_cap")?.text() ?: ""
+        // !!! Selectores corregidos para la página de búsqueda (basado en image_316ce4.png, misma estructura) !!!
+        return appGetChildMainUrl("$mainUrl/buscar?q=$query").document.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
+            val itemLink = it.selectFirst("a")!!
+            val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() ?: ""
             val href = fixUrl(itemLink.attr("href"))
 
-            // !!! NECESITAS VERIFICAR CÓMO SE OBTIENE LA IMAGEN DENTRO DE "div.tarjeta" en la página de búsqueda !!!
-            val image = itemLink.selectFirst("div.tarjeta img")?.attr("data-src")
-                ?: itemLink.selectFirst("div.tarjeta img")?.attr("src")
+            val image = itemLink.selectFirst("div.serieimg img.img-fluid2")?.attr("data-src")
+                ?: itemLink.selectFirst("div.serieimg img.img-fluid2")?.attr("src")
                 ?: ""
 
             AnimeSearchResponse(
                 title,
                 href,
                 this.name,
-                TvType.Anime, // Asegúrate de que el TvType es apropiado. Podría ser TvType.Movie para películas en los resultados.
+                TvType.Anime, // Puedes ajustar esto si la búsqueda puede retornar películas y quieres distinguirlas
                 fixUrl(image),
                 null,
                 if (title.contains("Latino") || title.contains("Castellano")) EnumSet.of(
@@ -116,10 +126,10 @@ class LatanimeProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = appGetChildMainUrl(url).document
-        // !!! Los selectores en load() son para la página de detalles de un anime/película.
-        // Necesitas volver a revisar el HTML de una página de detalles individual. !!!
-        // Ej: https://latanime.org/anime/las-aventuras-de-la-hija-del-rey-demonio-s4-latino
-
+        // !!! Revisa estos selectores para la página de detalles individual.
+        // La estructura de la página de detalles puede ser diferente a la de las listas.
+        // Abre una página de anime/película (ej: https://latanime.org/anime/las-aventuras-de-la-hija-del-rey-demonio-s4-latino)
+        // y usa F12 para verificar los selectores.
         val poster = doc.selectFirst("div.col-lg-3.col-md-4 div.series2 div.serieimgficha img.img-fluid2")!!.attr("src")
         val backimage = doc.selectFirst("div.col-lg-3.col-md-4 div.series2 div.serieimgficha img.img-fluid2")!!.attr("src")
         val title = doc.selectFirst("div.col-lg-9.col-md-8 h2")!!.text()
@@ -133,7 +143,7 @@ class LatanimeProvider : MainAPI() {
         }
         val episodes = doc.select("div.row div.col-lg-9.col-md-8 div.row div a").map {
             val name = it.selectFirst("div.cap-layout")?.text()
-                ?: it.selectFirst("h2")?.text() // Posiblemente h2 si es una página de "capítulo" directamente
+                ?: it.selectFirst("h2")?.text()
                 ?: ""
             val link = it!!.attr("href")
             val epThumb = it.selectFirst(".animeimghv")?.attr("data-src")
@@ -158,42 +168,30 @@ class LatanimeProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Log para indicar que se está llamando a loadLinks y con qué 'data' (la URL del episodio)
         Log.d("LatanimePlugin", "loadLinks called with data: $data")
 
-        // Selector para encontrar el elemento que contiene la URL codificada del reproductor
-        // Asegúrate de que este selector (div.container-fluid ... li#play-video) es CORRECTO
-        // para la página de un episodio individual en LatAnime.
         appGetChildMainUrl(data).document.select("div.container-fluid div.row div.col-md-12.col-lg-8.seiya ul.cap_repro.d-flex.flex-wrap li#play-video").apmap {
-            // Log para mostrar el HTML del elemento que se está procesando
             Log.d("LatanimePlugin", "Found player element: ${it.outerHtml()}")
 
             val encodedurl = it.select("a").attr("data-player")
 
-            // Log para mostrar la URL codificada que se encontró
             Log.d("LatanimePlugin", "Encoded URL found: $encodedurl")
 
             if (encodedurl.isNullOrEmpty()) {
-                // Log de advertencia si la URL codificada está vacía
                 Log.w("LatanimePlugin", "Encoded URL is null or empty for $data. Could not find player data-player attribute.")
-                return@apmap // Salir de esta iteración si no hay URL codificada
+                return@apmap
             }
 
             val urlDecoded = base64Decode(encodedurl)
-            // Log para mostrar la URL después de la decodificación Base64
             Log.d("LatanimePlugin", "Decoded URL (Base64): $urlDecoded")
 
-            // Aplicar los reemplazos de URL. Revisa si estos patrones siguen siendo válidos.
             val url = (urlDecoded).replace("https://monoschinos2.com/reproductor?url=", "")
                 .replace("https://sblona.com", "https://watchsb.com")
 
-            // Log para mostrar la URL final que se pasará al extractor
             Log.d("LatanimePlugin", "Final URL for Extractor: $url")
 
-            // Llamar al loadExtractor de Cloudstream para procesar la URL del video
             loadExtractor(url, mainUrl, subtitleCallback, callback)
         }
-        // Log para indicar que loadLinks ha terminado de procesar
         Log.d("LatanimePlugin", "loadLinks finished for data: $data")
         return true
     }
