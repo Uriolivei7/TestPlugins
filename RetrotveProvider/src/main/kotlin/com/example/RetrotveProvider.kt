@@ -42,7 +42,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val videoUrl = response.select("video source").attr("src") ?: response.select("source").attr("src")
+            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video directamente
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -54,7 +54,21 @@ class RetrotveProvider : MainAPI() {
                     headers = mapOf("Referer" to (referer ?: ""))
                 ))
             } else {
-                emptyList()
+                // Si no encuentra el source, busca en el documento
+                val alternativeUrl = response.select("source").attr("src") ?: ""
+                if (alternativeUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = alternativeUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""))
+                    ))
+                } else {
+                    emptyList()
+                }
             }
         }
     }
@@ -66,7 +80,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val videoUrl = response.select("source").attr("src") // Ajustar según el HTML real
+            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video directamente
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -78,7 +92,21 @@ class RetrotveProvider : MainAPI() {
                     headers = mapOf("Referer" to (referer ?: ""))
                 ))
             } else {
-                emptyList()
+                // Si no encuentra el source, busca en el documento
+                val alternativeUrl = response.select("source").attr("src") ?: ""
+                if (alternativeUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = alternativeUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""))
+                    ))
+                } else {
+                    emptyList()
+                }
             }
         }
     }
