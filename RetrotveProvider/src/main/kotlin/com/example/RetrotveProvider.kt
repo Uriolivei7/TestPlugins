@@ -178,7 +178,9 @@ class RetrotveProvider : MainAPI() {
                 for (trembed in trembedOptions) {
                     // Generar URL correcta
                     val params = baseSrc.split("&").toMutableList()
-                    params[0] = params[0].replaceAfter("trembed=", "trembed=$trembed")
+                    val trembedParam = params.find { it.startsWith("trembed=") } ?: params[0]
+                    params.remove(trembedParam)
+                    params.add(0, "trembed=$trembed")
                     val fullTrembedUrl = params.joinToString("&").let { fixUrl(it) }
                     println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
 
@@ -190,7 +192,9 @@ class RetrotveProvider : MainAPI() {
 
                         if (!videoSrc.isNullOrBlank()) {
                             println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
-                            if (loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)) {
+                            val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
+                            println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
+                            if (extractorResult) {
                                 foundLinks = true
                                 return true
                             }
@@ -211,4 +215,5 @@ class RetrotveProvider : MainAPI() {
         }
         return foundLinks
     }
+
 }
