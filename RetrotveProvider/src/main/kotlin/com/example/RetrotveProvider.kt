@@ -132,22 +132,16 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-                val videoUrl = response.selectFirst("source[src*=.mp4]")?.attr("src") ?: ""
-                return if (videoUrl.isNotBlank()) {
-                    listOf(ExtractorLink(
-                        source = name,
-                        name = name,
-                        url = videoUrl,
-                        referer = referer ?: "",
-                        quality = Qualities.Unknown,
-                        type = ExtractorLinkType.VIDEO,
-                        headers = mapOf("Referer" to (referer ?: ""))
-                    ))
-                } else {
-                    println("RetroTVE: No se encontró URL de video en VK para $url")
-                    return emptyList()
-                }
+                // Devolver la URL original como enlace de video, ya que el blob no se puede extraer directamente
+                return listOf(ExtractorLink(
+                    source = name,
+                    name = name,
+                    url = url,
+                    referer = referer ?: "",
+                    quality = Qualities.Unknown,
+                    type = ExtractorLinkType.VIDEO,
+                    headers = mapOf("Referer" to (referer ?: ""))
+                ))
             } catch (e: Exception) {
                 println("RetroTVE: Error en VkExtractor para $url: ${e.message}")
                 return emptyList()
@@ -204,8 +198,8 @@ class RetrotveProvider : MainAPI() {
             items.add(HomePageList("Últimas Series y Películas", homeResults))
         }
 
-        // Especificar explícitamente hasNext basado en si hay más páginas
-        val hasNext = page < 5 // Ajusta este valor según la lógica del sitio (por ejemplo, máximo 5 páginas)
+        // Ajustar hasNext según la lógica del sitio (placeholder)
+        val hasNext = page < 5 // Cambia según el número máximo de páginas en retrotve.com
         return HomePageResponse(items, hasNext)
     }
 
@@ -331,18 +325,6 @@ class RetrotveProvider : MainAPI() {
                 }
 
                 println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
-                if (videoSrc.contains("vk.com")) {
-                    val vkExtractor = VkExtractor()
-                    val links = vkExtractor.getUrl(videoSrc, fullTrembedUrl)
-                    links.forEach { callback(it) }
-                    if (links.isNotEmpty()) {
-                        println("RetroTVE: Enlaces extraídos de vk.com: ${links.size}")
-                        foundLinks = true
-                        return true
-                    }
-                    continue
-                }
-
                 val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
                 println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
                 if (extractorResult) {
