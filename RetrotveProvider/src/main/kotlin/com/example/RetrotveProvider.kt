@@ -181,7 +181,7 @@ class RetrotveProvider : MainAPI() {
                     val trembedParam = params.find { it.startsWith("trembed=") } ?: params[0]
                     params.remove(trembedParam)
                     params.add(0, "trembed=$trembed")
-                    val fullTrembedUrl = params.joinToString("&").let { fixUrl(it) }
+                    val fullTrembedUrl = "${mainUrl}${if (params.isNotEmpty()) "?" else ""}${params.joinToString("&")}".let { fixUrl(it) }
                     println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
 
                     try {
