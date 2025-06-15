@@ -44,8 +44,14 @@ class RetrotveProvider : MainAPI() {
             try {
                 val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
                 val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
-                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
+                println("RetroTVE: Filemoon script content: $script")
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+\\.mp4)\"").find(script)
                 val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
+                println("RetroTVE: Filemoon extracted URL: $videoUrl")
+                if (response.select("body").text().contains("maintenance", ignoreCase = true)) {
+                    println("RetroTVE: Filemoon server under maintenance, skipping")
+                    return emptyList()
+                }
                 return if (videoUrl.isNotBlank()) {
                     listOf(ExtractorLink(
                         source = name,
@@ -57,7 +63,16 @@ class RetrotveProvider : MainAPI() {
                         headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 } else {
-                    emptyList()
+                    println("RetroTVE: No video URL found in Filemoon script, falling back to embed")
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = url,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
+                    ))
                 }
             } catch (e: Exception) {
                 println("RetroTVE: Error en FilemoonExtractor para $url: ${e.message}")
@@ -75,8 +90,14 @@ class RetrotveProvider : MainAPI() {
             try {
                 val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
                 val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
-                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
+                println("RetroTVE: YourUpload script content: $script")
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+\\.mp4)\"").find(script)
                 val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
+                println("RetroTVE: YourUpload extracted URL: $videoUrl")
+                if (response.select("body").text().contains("maintenance", ignoreCase = true)) {
+                    println("RetroTVE: YourUpload server under maintenance, skipping")
+                    return emptyList()
+                }
                 return if (videoUrl.isNotBlank()) {
                     listOf(ExtractorLink(
                         source = name,
@@ -88,7 +109,16 @@ class RetrotveProvider : MainAPI() {
                         headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 } else {
-                    emptyList()
+                    println("RetroTVE: No video URL found in YourUpload script, falling back to embed")
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = url,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
+                    ))
                 }
             } catch (e: Exception) {
                 println("RetroTVE: Error en YourUploadExtractor para $url: ${e.message}")
@@ -104,20 +134,38 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                val links = mutableListOf<ExtractorLink>()
-                val subtitleCallback: (SubtitleFile) -> Unit = {}
-                val result = loadExtractor(url, referer, subtitleCallback) { link ->
-                    links.add(ExtractorLink(
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")).document
+                val script = response.select("script").firstOrNull { it.html().contains("source") }?.html() ?: ""
+                println("RetroTVE: Mega script content: $script")
+                val match = Regex("source\\s*=\\s*\"([^\"]+\\.mp4)\"").find(script)
+                val videoUrl = match?.groupValues?.getOrNull(1) ?: ""
+                println("RetroTVE: Mega extracted URL: $videoUrl")
+                if (response.select("body").text().contains("maintenance", ignoreCase = true)) {
+                    println("RetroTVE: Mega server under maintenance, skipping")
+                    return emptyList()
+                }
+                return if (videoUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
                         source = name,
                         name = name,
-                        url = link.url,
-                        referer = link.referer,
-                        quality = link.quality,
-                        type = link.type,
+                        url = videoUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
+                    ))
+                } else {
+                    println("RetroTVE: No video URL found in Mega script, falling back to embed")
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = url,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
                         headers = mapOf("Referer" to (referer ?: ""), "User-Agent" to "Mozilla/5.0")
                     ))
                 }
-                return if (result) links else emptyList()
             } catch (e: Exception) {
                 println("RetroTVE: Error en MegaExtractor para $url: ${e.message}")
                 return emptyList()
@@ -132,7 +180,6 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             try {
-                // Devolver la URL original como enlace de video
                 return listOf(ExtractorLink(
                     source = name,
                     name = name,
@@ -198,8 +245,7 @@ class RetrotveProvider : MainAPI() {
             items.add(HomePageList("Últimas Series y Películas", homeResults))
         }
 
-        // Ajustar hasNext según la lógica del sitio (placeholder)
-        val hasNext = page < 5 // Cambia según el número máximo de páginas en retrotve.com
+        val hasNext = page < 5 // Ajusta según la lógica del sitio
         return HomePageResponse(items, hasNext)
     }
 
@@ -232,7 +278,7 @@ class RetrotveProvider : MainAPI() {
                 this.posterUrl = finalPosterUrl
                 this.backgroundPosterUrl = finalBackgroundPosterUrl
             }
-        } else { // Es TvSeries
+        } else {
             val episodes = ArrayList<Episode>()
 
             doc.select("div.Wdgt.AAbox").forEach { seasonBlock ->
@@ -252,7 +298,7 @@ class RetrotveProvider : MainAPI() {
                     val epNum = epNumElement?.text()?.toIntOrNull() ?: 0
 
                     if (epHref.isBlank()) {
-                        println("RetroTVE: Faltan datos para un episodio en fila (Skipped): Season $currentSeason, Link: $epHref, Title: $epTitle, Row HTML: ${epRow.html().substring(0, 200)}")
+                        println("RetroTVE: Faltan datos para un episodio en fila (Skipped): Season $currentSeason, Link: $epHref, Title: $epTitle")
                         return@forEach
                     }
 
@@ -330,22 +376,17 @@ class RetrotveProvider : MainAPI() {
                     continue
                 }
 
-                val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
+                val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback) { link ->
+                    println("RetroTVE: Extractor found link: ${link.url}")
+                    callback(link)
+                }
                 println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
                 if (extractorResult) {
-                    println("RetroTVE: Enlace encontrado, ejecutando callback directamente")
-                    val link = ExtractorLink(
-                        source = videoSrc.substringAfter("https://").substringBefore("/"),
-                        name = videoSrc.substringAfter("https://").substringBefore("/"),
-                        url = videoSrc,
-                        referer = fullTrembedUrl,
-                        quality = Qualities.Unknown,
-                        type = ExtractorLinkType.VIDEO,
-                        headers = headers
-                    )
-                    callback(link)
                     foundLinks = true
                     return true
+                } else if (embedDoc.select("body").text().contains("maintenance", ignoreCase = true)) {
+                    println("RetroTVE: Server under maintenance for $videoSrc, skipping")
+                    continue
                 }
             } catch (e: Exception) {
                 println("RetroTVE: Error al acceder a $fullTrembedUrl: ${e.message}, StackTrace: ${e.stackTraceToString()}")
