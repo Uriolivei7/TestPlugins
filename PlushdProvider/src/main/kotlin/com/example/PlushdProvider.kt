@@ -4,9 +4,11 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import android.util.Log // Mantener para Log.e
+import android.util.Base64
+import android.util.Log
 import com.fasterxml.jackson.databind.JsonNode
-import java.util.regex.Pattern
+import kotlin.random.Random
+import kotlinx.coroutines.delay
 
 class PlushdProvider : MainAPI() {
     override var mainUrl = "https://ww3.pelisplus.to"
@@ -22,7 +24,7 @@ class PlushdProvider : MainAPI() {
         TvType.AsianDrama,
     )
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
             Pair("Peliculas", "$mainUrl/peliculas"),
@@ -41,7 +43,7 @@ class PlushdProvider : MainAPI() {
                     title!!,
                     link!!,
                     this.name,
-                    TvType.TvSeries, // Asumimos TvSeries por simplicidad en HomePage
+                    TvType.TvSeries,
                     img,
                 )
             }
@@ -61,7 +63,7 @@ class PlushdProvider : MainAPI() {
                 title!!,
                 link!!,
                 this.name,
-                TvType.TvSeries, // Asumimos TvSeries en búsqueda
+                TvType.TvSeries,
                 img,
             )
         }
@@ -93,7 +95,6 @@ class PlushdProvider : MainAPI() {
                 return null
             }
 
-            // Regex más precisa para extraer solo el bloque JSON.
             val jsonRegex = "seasonsJson\\s*=\\s*(\\{[^;]*\\});?".toRegex(RegexOption.DOT_MATCHES_ALL)
             val match = jsonRegex.find(script)
 
@@ -106,8 +107,7 @@ class PlushdProvider : MainAPI() {
                 Log.e("PlushdProvider", "ERROR: No se pudo extraer el JSON de seasonsJson después de 'seasonsJson = ' para la URL: $url")
                 return null
             } else {
-                jsonscript = jsonscript.replace("\\/", "/")
-                    .replace("\\\"", "\"")
+                jsonscript = jsonscript.replace("\\/", "/").replace("\\\"", "\"")
 
                 var cleanJson = jsonscript
                 var openBraces = 0
@@ -131,19 +131,15 @@ class PlushdProvider : MainAPI() {
                 if (openBraces != closedBraces || openBrackets != closedBrackets) {
                     if (lastValidIndex != -1) {
                         cleanJson = cleanJson.substring(0, lastValidIndex + 1)
-                        // Log.w("PlushdProvider", "ADVERTENCIA: JSON truncado para balancear llaves/corchetes. JSON parcial: ${cleanJson.take(500)}...") // Comentado
                     } else {
                         Log.e("PlushdProvider", "ERROR: JSON malformado severamente, no se pudo encontrar un punto de balance válido. Intentando cierre forzado.")
                         while (openBraces > closedBraces) { cleanJson += "}"; closedBraces++ }
                         while (openBrackets > closedBrackets) { cleanJson += "]"; closedBrackets++ }
-                        // Log.w("PlushdProvider", "ADVERTENCIA: Cierre forzado de JSON. JSON parcial: ${cleanJson.take(500)}...") // Comentado
                     }
                 }
 
                 cleanJson = cleanJson.replace(",}", "}")
                 cleanJson = cleanJson.replace(",]", "]")
-
-                // Log.d("PlushdProvider", "JSON final (seasonsJson) antes de parsear: ${cleanJson.take(500)}...") // Comentado
 
                 try {
                     val jsonNodeMap = parseJson<Map<String, JsonNode>>(cleanJson)
@@ -171,11 +167,9 @@ class PlushdProvider : MainAPI() {
                                         allEpisodes.add(episode)
                                     }
                                 } catch (e: Exception) {
-                                    // Log.w("PlushdProvider", "ADVERTENCIA: Error al parsear episodio en temporada $seasonKey: ${episodeNode.toString().take(200)}... Error: ${e.message}") // Comentado
+                                    Log.w("PlushdProvider", "ADVERTENCIA: Error al parsear episodio en temporada $seasonKey: ${e.message}")
                                 }
                             }
-                        } else {
-                            // Log.w("PlushdProvider", "ADVERTENCIA: seasonNode no es un array para la clave $seasonKey: $seasonNode. Esto puede indicar un formato inesperado.") // Comentado
                         }
                     }
                 } catch (e: Exception) {
@@ -216,49 +210,91 @@ class PlushdProvider : MainAPI() {
         }
     }
 
+    private fun base64Encode(bytes: ByteArray): String {
+        return Base64.encodeToString(bytes, Base64.DEFAULT)
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data).document
-        // Log.d("PlushdProvider", "Iniciando loadLinks para: $data") // Comentado
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            "Referer" to data
+        )
+        Log.d("PlushdProvider", "Iniciando loadLinks para: $data")
 
+        val doc = app.get(data, headers = headers).document
         val serversFound = doc.select("div ul.subselect li")
         if (serversFound.isEmpty()) {
             Log.e("PlushdProvider", "ERROR: No se encontraron servidores de video en la página: $data")
             return false
         }
 
+        var foundLinks = false
         serversFound.apmap {
             val encodedOne = it.attr("data-server").toByteArray()
             val encodedTwo = base64Encode(encodedOne)
             val playerUrl = "$mainUrl/player/$encodedTwo"
+            Log.d("PlushdProvider", "Procesando servidor con player URL: $playerUrl")
 
-            // Log.d("PlushdProvider", "Procesando servidor con player URL: $playerUrl") // Comentado
+            // Retardo para evitar bloqueos
+            delay(Random.nextLong(1000, 3000))
 
-            val playerDoc = app.get(playerUrl).document
+            try {
+                val playerDoc = app.get(playerUrl, headers = headers, allowRedirects = true).document
+                var link: String? = null
 
-            val link = playerDoc.selectFirst("iframe")?.attr("src")
-                ?: playerDoc.select("script").firstOrNull { it.html().contains("player.src") || it.html().contains("source src=") }?.let { scriptTag ->
-                    val scriptHtml = scriptTag.html()
-                    val playerSrcMatch = "player\\.src\\s*=\\s*['\"](.*?)['\"]".toRegex().find(scriptHtml)?.groupValues?.get(1)
-                    if (playerSrcMatch != null) return@let playerSrcMatch
-
-                    val sourceSrcMatch = "source\\s+src=['\"](.*?)['\"]".toRegex().find(scriptHtml)?.groupValues?.get(1)
-                    if (sourceSrcMatch != null) return@let sourceSrcMatch
-
-                    null
+                // Intentar extraer desde iframe
+                val iframe = playerDoc.selectFirst("iframe")
+                if (iframe != null) {
+                    link = iframe.attr("src")
+                } else {
+                    // Intentar extraer desde script
+                    val scriptTag = playerDoc.select("script").firstOrNull { it.html().contains("player.src") || it.html().contains("source src=") }
+                    if (scriptTag != null) {
+                        val scriptHtml = scriptTag.html()
+                        val playerSrcMatch = "player\\.src\\s*=\\s*['\"](.*?)['\"]".toRegex().find(scriptHtml)?.groupValues?.get(1)
+                        if (playerSrcMatch != null) {
+                            link = playerSrcMatch
+                        } else {
+                            val sourceSrcMatch = "source\\s+src=['\"](.*?)['\"]".toRegex().find(scriptHtml)?.groupValues?.get(1)
+                            link = sourceSrcMatch ?: ""
+                        }
+                    }
                 }
+                link = link ?: ""
 
-            if (link != null) {
-                // Log.d("PlushdProvider", "Enlace extraído del player ($playerUrl): $link") // Comentado
-                loadExtractor(link, mainUrl, subtitleCallback, callback)
-            } else {
-                Log.e("PlushdProvider", "ERROR: No se pudo extraer el enlace del reproductor de $playerUrl. HTML (parcial) del reproductor: ${playerDoc.html().take(500)}...")
+                if (link.isNotEmpty()) {
+                    Log.d("PlushdProvider", "Enlace extraído del player ($playerUrl): $link")
+                    val extractorResult = loadExtractor(link, playerUrl, subtitleCallback) { link ->
+                        callback(link)
+                        foundLinks = true
+                    }
+                    Log.d("PlushdProvider", "Resultado de loadExtractor para $link: $extractorResult")
+                    // Verificar el resultado del extractor
+                    if (!extractorResult) {
+                        Log.w("PlushdProvider", "ADVERTENCIA: loadExtractor falló para $link. Verificando bloqueo...")
+                        var errorMessage = ""
+                        if (playerDoc.text().contains("bloqueo temporal", ignoreCase = true) || playerDoc.html().contains("cargando")) {
+                            errorMessage = "ERROR: Bloqueo temporal o carga dinámica detectada en $playerUrl"
+                            Log.e("PlushdProvider", errorMessage)
+                        } else {
+                            errorMessage = "ERROR: Posible dependencia de JavaScript, no soportado en CloudStream3 para $playerUrl"
+                            Log.e("PlushdProvider", errorMessage)
+                        }
+                    } else {
+                        // No hacer nada si extractorResult es true
+                    }
+                } else {
+                    Log.e("PlushdProvider", "ERROR: No se pudo extraer el enlace del reproductor de $playerUrl. HTML (parcial) del reproductor: ${playerDoc.html().take(500)}...")
+                }
+            } catch (e: Exception) {
+                Log.e("PlushdProvider", "ERROR: Excepción al acceder a $playerUrl: ${e.message}")
             }
         }
-        return true
+        return foundLinks
     }
 }

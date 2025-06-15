@@ -1,5 +1,5 @@
 // use an integer for version numbers
-version = 1
+version = 3
 
 
 cloudstream {
@@ -7,7 +7,7 @@ cloudstream {
     // All of these properties are optional, you can safely remove them
 
     //description = "Lorem Ipsum"
-    authors = listOf("redblacker8")
+    authors = listOf("Stormunblessed")
 
     /**
      * Status int as the following:
@@ -18,9 +18,9 @@ cloudstream {
      * */
     status = 1 // will be 3 if unspecified
     tvTypes = listOf(
-        "Movie",
-        "TvSeries",
+        "Anime",
+        "OVA",
     )
 
-    iconUrl = "https://hdfullcdn.cc/favicon.ico"
+    iconUrl = "https://www.google.com/s2/favicons?domain=tioanime.com&sz=%size%"
 }
