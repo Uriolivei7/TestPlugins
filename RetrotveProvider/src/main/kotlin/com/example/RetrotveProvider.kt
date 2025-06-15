@@ -42,7 +42,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video directamente
+            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -54,13 +54,15 @@ class RetrotveProvider : MainAPI() {
                     headers = mapOf("Referer" to (referer ?: ""))
                 ))
             } else {
-                // Si no encuentra el source, busca en el documento
-                val alternativeUrl = response.select("source").attr("src") ?: ""
-                if (alternativeUrl.isNotBlank()) {
+                // Si no encuentra el source, busca un script o enlace alternativo
+                val scriptUrl = response.select("script").firstOrNull { it.html().contains("sources") }?.html()
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(scriptUrl ?: "")
+                val extractedUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "")
+                if (!extractedUrl.isNullOrBlank()) {
                     listOf(ExtractorLink(
                         source = name,
                         name = name,
-                        url = alternativeUrl,
+                        url = extractedUrl,
                         referer = referer ?: "",
                         quality = Qualities.Unknown,
                         type = ExtractorLinkType.VIDEO,
@@ -80,7 +82,7 @@ class RetrotveProvider : MainAPI() {
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video directamente
+            val videoUrl = response.select("video source").attr("src") // Intenta extraer la URL del video
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -92,13 +94,15 @@ class RetrotveProvider : MainAPI() {
                     headers = mapOf("Referer" to (referer ?: ""))
                 ))
             } else {
-                // Si no encuentra el source, busca en el documento
-                val alternativeUrl = response.select("source").attr("src") ?: ""
-                if (alternativeUrl.isNotBlank()) {
+                // Si no encuentra el source, busca un enlace alternativo
+                val configScript = response.select("script").firstOrNull { it.html().contains("sources") }?.html()
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(configScript ?: "")
+                val extractedUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "")
+                if (!extractedUrl.isNullOrBlank()) {
                     listOf(ExtractorLink(
                         source = name,
                         name = name,
-                        url = alternativeUrl,
+                        url = extractedUrl,
                         referer = referer ?: "",
                         quality = Qualities.Unknown,
                         type = ExtractorLinkType.VIDEO,
@@ -198,19 +202,20 @@ class RetrotveProvider : MainAPI() {
             doc.select("div.Wdgt.AAbox").forEach { seasonBlock ->
                 val seasonNum = seasonBlock.selectFirst("div.Title.AA-Season")?.attr("data-tab")?.toIntOrNull()
                     ?: seasonBlock.selectFirst("div.Title.AA-Season span")?.text()?.replace("Temporada", "")?.trim()?.toIntOrNull()
+                    ?: 0 // Valor por defecto si no se encuentra
 
-                val currentSeason = seasonNum ?: 0
+                val currentSeason = seasonNum
 
                 seasonBlock.select("table tbody tr").forEach { epRow ->
                     val epLinkElement = epRow.selectFirst("td:nth-child(2) a[href]")
                     val epTitleElement = epRow.selectFirst("td:nth-child(3) a")
                     val epNumElement = epRow.selectFirst("td:nth-child(1) span.Num")
 
-                    val epHref = epLinkElement?.attr("href")
-                    val epTitle = epTitleElement?.text()?.trim()
-                    val epNum = epNumElement?.text()?.toIntOrNull()
+                    val epHref = epLinkElement?.attr("href") ?: ""
+                    val epTitle = epTitleElement?.text()?.trim() ?: "Episodio desconocido"
+                    val epNum = epNumElement?.text()?.toIntOrNull() ?: 0
 
-                    if (!epHref.isNullOrBlank() && !epTitle.isNullOrBlank()) {
+                    if (epHref.isNotBlank()) {
                         episodes.add(
                             Episode(
                                 fixUrl(epHref),
