@@ -64,13 +64,13 @@ class LatanimeProvider : MainAPI() {
         val items = ArrayList<HomePageList>()
         urls.apmap { (url, name) ->
             val doc = appGetChildMainUrl(url).document
-            delay(5000) // Retardo para lazy loading
+            delay(2000) // Retardo reducido
             val home = doc.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
                 val itemLink = it.selectFirst("a")!!
                 val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() ?: ""
                 val itemUrl = itemLink.attr("href")
 
-                val posterElement = itemLink.selectFirst("div.p-2.cap-layout.d-flex.align-items-center.gap-2 img.lozad.rounded-3")
+                val posterElement = it.selectFirst("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3 a div.series img.img-fluid2.shadow-sm")
                 val src = posterElement?.attr("src") ?: ""
                 val dataSrc = posterElement?.attr("data-src") ?: ""
                 Log.d("LatanimePlugin", "Poster data: src=$src, data-src=$dataSrc")
@@ -91,13 +91,13 @@ class LatanimeProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val doc = appGetChildMainUrl("$mainUrl/buscar?q=$query").document
-        delay(5000) // Retardo para lazy loading
+        delay(2000) // Retardo reducido
         return doc.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
             val itemLink = it.selectFirst("a")!!
             val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() ?: ""
             val href = fixUrl(itemLink.attr("href"))
 
-            val imageElement = itemLink.selectFirst("div.p-2.cap-layout.d-flex.align-items-center.gap-2 img.lozad.rounded-3")
+            val imageElement = it.selectFirst("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3 a div.series img.img-fluid2.shadow-sm")
             val src = imageElement?.attr("src") ?: ""
             val dataSrc = imageElement?.attr("data-src") ?: ""
             Log.d("LatanimePlugin", "Search image data: src=$src, data-src=$dataSrc")
@@ -165,26 +165,30 @@ class LatanimeProvider : MainAPI() {
         var foundLinks = false
         val doc = appGetChildMainUrl(data).document
         delay(5000) // Retardo para carga dinámica
-        doc.select("ul.cap_repro li#play-video").apmap {
-            Log.d("LatanimePlugin", "Found player element: ${it.outerHtml()}")
+        try {
+            doc.select("ul.cap_repro li#play-video").apmap {
+                Log.d("LatanimePlugin", "Found player element: ${it.outerHtml()}")
 
-            val encodedUrl = it.selectFirst("a.play-video")?.attr("data-player")
-            Log.d("LatanimePlugin", "Encoded URL found: $encodedUrl")
+                val encodedUrl = it.selectFirst("a.play-video")?.attr("data-player")
+                Log.d("LatanimePlugin", "Encoded URL found: $encodedUrl")
 
-            if (encodedUrl.isNullOrEmpty()) {
-                Log.w("LatanimePlugin", "Encoded URL is null or empty for $data. Could not find player data-player attribute.")
-                return@apmap
+                if (encodedUrl.isNullOrEmpty()) {
+                    Log.w("LatanimePlugin", "Encoded URL is null or empty for $data. Could not find player data-player attribute.")
+                    return@apmap
+                }
+
+                val urlDecoded = base64Decode(encodedUrl)
+                Log.d("LatanimePlugin", "Decoded URL (Base64): $urlDecoded")
+
+                val url = urlDecoded.replace("https://monoschinos2.com/reproductor?url=", "")
+                    .replace("https://sblona.com", "https://watchsb.com")
+                Log.d("LatanimePlugin", "Final URL for Extractor: $url")
+
+                loadExtractor(url, mainUrl, subtitleCallback, callback)
+                foundLinks = true
             }
-
-            val urlDecoded = base64Decode(encodedUrl)
-            Log.d("LatanimePlugin", "Decoded URL (Base64): $urlDecoded")
-
-            val url = urlDecoded.replace("https://monoschinos2.com/reproductor?url=", "")
-                .replace("https://sblona.com", "https://watchsb.com")
-            Log.d("LatanimePlugin", "Final URL for Extractor: $url")
-
-            loadExtractor(url, mainUrl, subtitleCallback, callback)
-            foundLinks = true
+        } catch (e: Exception) {
+            Log.e("LatanimePlugin", "Error in loadLinks: ${e.message}")
         }
 
         Log.d("LatanimePlugin", "loadLinks finished for data: $data with foundLinks: $foundLinks")
