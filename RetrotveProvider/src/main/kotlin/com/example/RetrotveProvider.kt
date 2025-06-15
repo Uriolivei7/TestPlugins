@@ -7,7 +7,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Document
-import org.jsoup.parser.Parser // Importar para decodificar HTML
+import org.jsoup.parser.Parser
 import java.net.URLEncoder
 
 // Definición manual de Qualities si no está disponible
@@ -41,22 +41,27 @@ class RetrotveProvider : MainAPI() {
         override val mainUrl: String = "https://filemoon.to"
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
-            val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
-            val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
-            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
-            return if (videoUrl.isNotBlank()) {
-                listOf(ExtractorLink(
-                    source = name,
-                    name = name,
-                    url = videoUrl,
-                    referer = referer ?: "",
-                    quality = Qualities.Unknown,
-                    type = ExtractorLinkType.VIDEO,
-                    headers = mapOf("Referer" to (referer ?: ""))
-                ))
-            } else {
-                emptyList()
+            try {
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+                val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
+                val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
+                return if (videoUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = videoUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""))
+                    ))
+                } else {
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                println("RetroTVE: Error en FilemoonExtractor para $url: ${e.message}")
+                return emptyList()
             }
         }
     }
@@ -67,43 +72,86 @@ class RetrotveProvider : MainAPI() {
         override val mainUrl: String = "https://www.yourupload.com"
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
-            val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
-            val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
-            val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
-            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
-            return if (videoUrl.isNotBlank()) {
-                listOf(ExtractorLink(
-                    source = name,
-                    name = name,
-                    url = videoUrl,
-                    referer = referer ?: "",
-                    quality = Qualities.Unknown,
-                    type = ExtractorLinkType.VIDEO,
-                    headers = mapOf("Referer" to (referer ?: ""))
-                ))
-            } else {
-                emptyList()
+            try {
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+                val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
+                val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
+                val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
+                return if (videoUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = videoUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""))
+                    ))
+                } else {
+                    emptyList()
+                }
+            } catch (e: Exception) {
+                println("RetroTVE: Error en YourUploadExtractor para $url: ${e.message}")
+                return emptyList()
             }
         }
     }
 
-    // Extractor básico para Mega.nz (si no está soportado por CloudStream3)
+    // Extractor para Mega.nz
     class MegaExtractor : ExtractorApi {
         override val name: String = "Mega"
         override val mainUrl: String = "https://mega.nz"
 
         override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
-            // Nota: La extracción directa de Mega puede requerir JavaScript, lo cual no es ideal aquí.
-            // Por ahora, devolvemos la URL embed como fallback, asumiendo que CloudStream3 lo procesa.
-            return listOf(ExtractorLink(
-                source = name,
-                name = name,
-                url = url,
-                referer = referer ?: "",
-                quality = Qualities.Unknown,
-                type = ExtractorLinkType.VIDEO,
-                headers = mapOf("Referer" to (referer ?: ""))
-            ))
+            try {
+                val links = mutableListOf<ExtractorLink>()
+                val subtitleCallback: (SubtitleFile) -> Unit = {}
+                val result = loadExtractor(url, referer, subtitleCallback) { link ->
+                    links.add(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = link.url,
+                        referer = link.referer,
+                        quality = link.quality,
+                        type = link.type,
+                        headers = link.headers
+                    ))
+                }
+                return if (result) links else emptyList()
+            } catch (e: Exception) {
+                println("RetroTVE: Error en MegaExtractor para $url: ${e.message}")
+                return emptyList()
+            }
+        }
+    }
+
+    // Extractor para VK
+    class VkExtractor : ExtractorApi {
+        override val name: String = "VK"
+        override val mainUrl: String = "https://vk.com"
+
+        override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+            try {
+                val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+                val videoUrl = response.selectFirst("source[src*=.mp4]")?.attr("src") ?: ""
+                return if (videoUrl.isNotBlank()) {
+                    listOf(ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = videoUrl,
+                        referer = referer ?: "",
+                        quality = Qualities.Unknown,
+                        type = ExtractorLinkType.VIDEO,
+                        headers = mapOf("Referer" to (referer ?: ""))
+                    ))
+                } else {
+                    println("RetroTVE: No se encontró URL de video en VK para $url")
+                    return emptyList()
+                }
+            } catch (e: Exception) {
+                println("RetroTVE: Error en VkExtractor para $url: ${e.message}")
+                return emptyList()
+            }
         }
     }
 
@@ -156,11 +204,13 @@ class RetrotveProvider : MainAPI() {
             items.add(HomePageList("Últimas Series y Películas", homeResults))
         }
 
-        return HomePageResponse(items)
+        // Especificar explícitamente hasNext basado en si hay más páginas
+        val hasNext = page < 5 // Ajusta este valor según la lógica del sitio (por ejemplo, máximo 5 páginas)
+        return HomePageResponse(items, hasNext)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val doc = app.get("$mainUrl/?s=$query").document
+        val doc = app.get("$mainUrl/?s=${encode(query)}").document
         return doc.toSearchResult()
     }
 
@@ -194,31 +244,32 @@ class RetrotveProvider : MainAPI() {
             doc.select("div.Wdgt.AAbox").forEach { seasonBlock ->
                 val seasonNum = seasonBlock.selectFirst("div.Title.AA-Season")?.attr("data-tab")?.toIntOrNull()
                     ?: seasonBlock.selectFirst("div.Title.AA-Season span")?.text()?.replace("Temporada", "")?.trim()?.toIntOrNull()
-                    ?: 0 // Valor por defecto si no se encuentra
+                    ?: 0
 
                 val currentSeason = seasonNum
 
                 seasonBlock.select("table tbody tr").forEach { epRow ->
-                    val epLinkElement = epRow.selectFirst("td:nth-child(2) a[href]") ?: epRow.selectFirst("a[href]") // Intenta un selector alternativo
-                    val epTitleElement = epRow.selectFirst("td:nth-child(3) a")
-                    val epNumElement = epRow.selectFirst("td:nth-child(1) span.Num")
+                    val epLinkElement = epRow.selectFirst("td:nth-child(2) a[href]") ?: epRow.selectFirst("td a[href]") ?: return@forEach
+                    val epTitleElement = epRow.selectFirst("td:nth-child(3) a") ?: epRow.selectFirst("td:nth-child(3)")
+                    val epNumElement = epRow.selectFirst("td:nth-child(1) span.Num") ?: epRow.selectFirst("td:nth-child(1)")
 
-                    val epHref = epLinkElement?.attr("href") ?: ""
+                    val epHref = epLinkElement.attr("href") ?: ""
                     val epTitle = epTitleElement?.text()?.trim() ?: "Episodio desconocido"
                     val epNum = epNumElement?.text()?.toIntOrNull() ?: 0
 
-                    if (epHref.isNotBlank()) {
-                        episodes.add(
-                            Episode(
-                                fixUrl(epHref),
-                                epTitle,
-                                currentSeason,
-                                epNum,
-                            )
-                        )
-                    } else {
-                        println("RetroTVE: Faltan datos para un episodio en fila (Skipped): Season $currentSeason, Link: $epHref, Title: $epTitle")
+                    if (epHref.isBlank()) {
+                        println("RetroTVE: Faltan datos para un episodio en fila (Skipped): Season $currentSeason, Link: $epHref, Title: $epTitle, Row HTML: ${epRow.html().substring(0, 200)}")
+                        return@forEach
                     }
+
+                    episodes.add(
+                        Episode(
+                            fixUrl(epHref),
+                            epTitle,
+                            currentSeason,
+                            epNum,
+                        )
+                    )
                 }
             }
 
@@ -243,7 +294,6 @@ class RetrotveProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         println("RetroTVE: Cargando enlaces para: $data")
-
         val headers = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
             "Referer" to data
@@ -254,47 +304,55 @@ class RetrotveProvider : MainAPI() {
 
         println("RetroTVE DEBUG: Buscando iframes...")
         val baseIframe = doc.selectFirst("iframe[src*=trembed]")
-        if (baseIframe != null) {
-            val baseSrc = baseIframe.attr("src")?.let { decodeHtml(it) }
-            if (!baseSrc.isNullOrBlank()) {
-                println("RetroTVE: Iframe base encontrado: $baseSrc")
-
-                // Probar las opciones de trembed en orden (1, 0, 2)
-                val trembedOptions = listOf(1, 0, 2) // Priorizar trembed=1
-                for (trembed in trembedOptions) {
-                    // Generar URL correcta
-                    val params = baseSrc.split("&").toMutableList()
-                    val trembedParam = params.find { it.startsWith("trembed=") } ?: params[0]
-                    params.remove(trembedParam)
-                    params.add(0, "trembed=$trembed")
-                    val fullTrembedUrl = "${mainUrl}/?${params.joinToString("&")}".let { fixUrl(it) }
-                    println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
-
-                    try {
-                        val embedDoc = app.get(fullTrembedUrl, headers = headers).document
-                        // Buscar iframe dentro de div.Video
-                        val videoIframe = embedDoc.selectFirst("div.Video iframe[src]")
-                        val videoSrc = videoIframe?.attr("src")?.let { decodeHtml(it) }
-
-                        if (!videoSrc.isNullOrBlank()) {
-                            println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
-                            val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
-                            println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
-                            if (extractorResult) {
-                                println("RetroTVE: Enlace encontrado, intentando reproducción con callback")
-                                foundLinks = true
-                                return true
-                            }
-                        } else {
-                            println("RetroTVE: No se encontró iframe de video en $fullTrembedUrl")
-                        }
-                    } catch (e: Exception) {
-                        println("RetroTVE: Error al acceder a $fullTrembedUrl: ${e.message}")
-                    }
-                }
-            }
-        } else {
+        if (baseIframe == null) {
             println("RetroTVE DEBUG: No se encontró iframe con 'trembed'")
+            return false
+        }
+
+        val baseSrc = baseIframe.attr("src")?.let { decodeHtml(it) } ?: run {
+            println("RetroTVE: No se pudo obtener src del iframe base")
+            return false
+        }
+
+        println("RetroTVE: Iframe base encontrado: $baseSrc")
+        val trembedOptions = listOf(1, 0, 2)
+        for (trembed in trembedOptions) {
+            val fullTrembedUrl = baseSrc.replace(Regex("trembed=\\d"), "trembed=$trembed").let { fixUrl(it) }
+            println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
+
+            try {
+                val embedDoc = app.get(fullTrembedUrl, headers = headers).document
+                val videoIframe = embedDoc.selectFirst("div.Video iframe[src]")
+                val videoSrc = videoIframe?.attr("src")?.let { decodeHtml(it) }
+
+                if (videoSrc.isNullOrBlank()) {
+                    println("RetroTVE: No se encontró iframe de video en $fullTrembedUrl")
+                    continue
+                }
+
+                println("RetroTVE: Encontrado iframe de video en div.Video: $videoSrc")
+                if (videoSrc.contains("vk.com")) {
+                    val vkExtractor = VkExtractor()
+                    val links = vkExtractor.getUrl(videoSrc, fullTrembedUrl)
+                    links.forEach { callback(it) }
+                    if (links.isNotEmpty()) {
+                        println("RetroTVE: Enlaces extraídos de vk.com: ${links.size}")
+                        foundLinks = true
+                        return true
+                    }
+                    continue
+                }
+
+                val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
+                println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
+                if (extractorResult) {
+                    println("RetroTVE: Enlace encontrado, intentando reproducción con callback")
+                    foundLinks = true
+                    return true
+                }
+            } catch (e: Exception) {
+                println("RetroTVE: Error al acceder a $fullTrembedUrl: ${e.message}, StackTrace: ${e.stackTraceToString()}")
+            }
         }
 
         if (!foundLinks) {
