@@ -181,7 +181,7 @@ class RetrotveProvider : MainAPI() {
                     val trembedParam = params.find { it.startsWith("trembed=") } ?: params[0]
                     params.remove(trembedParam)
                     params.add(0, "trembed=$trembed")
-                    val fullTrembedUrl = "${mainUrl}${if (params.isNotEmpty()) "?" else ""}${params.joinToString("&")}".let { fixUrl(it) }
+                    val fullTrembedUrl = "${mainUrl}/?${params.joinToString("&")}".let { fixUrl(it) }
                     println("RetroTVE: Probando URL de trembed: $fullTrembedUrl")
 
                     try {
@@ -195,6 +195,7 @@ class RetrotveProvider : MainAPI() {
                             val extractorResult = loadExtractor(videoSrc, fullTrembedUrl, subtitleCallback, callback)
                             println("RetroTVE: Resultado de loadExtractor para $videoSrc: $extractorResult")
                             if (extractorResult) {
+                                println("RetroTVE: Enlace encontrado, intentando reproducción")
                                 foundLinks = true
                                 return true
                             }
