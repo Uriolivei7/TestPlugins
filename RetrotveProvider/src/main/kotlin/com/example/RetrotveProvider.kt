@@ -2,12 +2,25 @@ package com.example
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.loadExtractor
 import org.jsoup.nodes.Document
 import org.jsoup.parser.Parser // Importar para decodificar HTML
 import java.net.URLEncoder
+
+// Definición manual de Qualities si no está disponible
+object Qualities {
+    const val Unknown = 0
+}
+
+// Definición manual de ExtractorApi si no se resuelve
+interface ExtractorApi {
+    val name: String
+    val mainUrl: String
+    suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>
+}
 
 class RetrotveProvider : MainAPI() {
     override var mainUrl = "https://retrotve.com"
@@ -21,6 +34,54 @@ class RetrotveProvider : MainAPI() {
         TvType.Cartoon,
         TvType.Movie
     )
+
+    // Extractor para Filemoon
+    class FilemoonExtractor : ExtractorApi {
+        override val name: String = "Filemoon"
+        override val mainUrl: String = "https://filemoon.to"
+
+        override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+            val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+            val videoUrl = response.select("video source").attr("src") ?: response.select("source").attr("src")
+            return if (videoUrl.isNotBlank()) {
+                listOf(ExtractorLink(
+                    source = name,
+                    name = name,
+                    url = videoUrl,
+                    referer = referer ?: "",
+                    quality = Qualities.Unknown,
+                    type = ExtractorLinkType.VIDEO,
+                    headers = mapOf("Referer" to (referer ?: ""))
+                ))
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    // Extractor para YourUpload
+    class YourUploadExtractor : ExtractorApi {
+        override val name: String = "YourUpload"
+        override val mainUrl: String = "https://www.yourupload.com"
+
+        override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+            val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
+            val videoUrl = response.select("source").attr("src") // Ajustar según el HTML real
+            return if (videoUrl.isNotBlank()) {
+                listOf(ExtractorLink(
+                    source = name,
+                    name = name,
+                    url = videoUrl,
+                    referer = referer ?: "",
+                    quality = Qualities.Unknown,
+                    type = ExtractorLinkType.VIDEO,
+                    headers = mapOf("Referer" to (referer ?: ""))
+                ))
+            } else {
+                emptyList()
+            }
+        }
+    }
 
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
@@ -216,5 +277,4 @@ class RetrotveProvider : MainAPI() {
         }
         return foundLinks
     }
-
 }
