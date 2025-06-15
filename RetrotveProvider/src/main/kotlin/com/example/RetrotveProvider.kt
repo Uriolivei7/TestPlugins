@@ -44,7 +44,7 @@ class RetrotveProvider : MainAPI() {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
             val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
             val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
-            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: response.select("video source").attr("src")
+            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -70,7 +70,7 @@ class RetrotveProvider : MainAPI() {
             val response = app.get(url, referer = referer, headers = mapOf("Referer" to (referer ?: ""))).document
             val script = response.select("script").firstOrNull { it.html().contains("sources") }?.html() ?: ""
             val match = Regex("sources:\\s*\\[\\s*\\{[^}]*\"file\":\"([^\"]+)\"").find(script)
-            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: response.select("video source").attr("src")
+            val videoUrl = match?.groupValues?.getOrNull(1)?.replace("\\", "") ?: ""
             return if (videoUrl.isNotBlank()) {
                 listOf(ExtractorLink(
                     source = name,
@@ -84,6 +84,26 @@ class RetrotveProvider : MainAPI() {
             } else {
                 emptyList()
             }
+        }
+    }
+
+    // Extractor básico para Mega.nz (si no está soportado por CloudStream3)
+    class MegaExtractor : ExtractorApi {
+        override val name: String = "Mega"
+        override val mainUrl: String = "https://mega.nz"
+
+        override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
+            // Nota: La extracción directa de Mega puede requerir JavaScript, lo cual no es ideal aquí.
+            // Por ahora, devolvemos la URL embed como fallback, asumiendo que CloudStream3 lo procesa.
+            return listOf(ExtractorLink(
+                source = name,
+                name = name,
+                url = url,
+                referer = referer ?: "",
+                quality = Qualities.Unknown,
+                type = ExtractorLinkType.VIDEO,
+                headers = mapOf("Referer" to (referer ?: ""))
+            ))
         }
     }
 
