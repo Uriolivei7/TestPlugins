@@ -79,7 +79,7 @@
     ],
     "iconUrl": "https://latanime.org/public/favicon.ico",
     "language": "es",
-    "fileSize": 13000
+    "fileSize": 14000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
@@ -93,8 +93,8 @@
     ],
     "description": "Plugin para anizone.to",
     "tvTypes": [
-      "Movie",
-      "Anime"
+      "Anime",
+      "AnimeMovie"
     ],
     "iconUrl": "https://img.icons8.com/?size=96&id=sGxCEkuQ0MGf&format=png",
     "language": "es",

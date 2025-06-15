@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.nicehttp.NiceResponse
+import kotlinx.coroutines.delay
 import java.util.*
 
 class LatanimeProvider : MainAPI() {
@@ -62,16 +63,18 @@ class LatanimeProvider : MainAPI() {
 
         val items = ArrayList<HomePageList>()
         urls.apmap { (url, name) ->
-            val home = appGetChildMainUrl(url).document.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
+            val doc = appGetChildMainUrl(url).document
+            delay(5000) // Retardo para lazy loading
+            val home = doc.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
                 val itemLink = it.selectFirst("a")!!
                 val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() ?: ""
                 val itemUrl = itemLink.attr("href")
 
-                // Ajuste del selector para póster
-                val posterElement = itemLink.selectFirst("div.series img.img-fluid.shadow-sm")
+                val posterElement = itemLink.selectFirst("div.p-2.cap-layout.d-flex.align-items-center.gap-2 img.lozad.rounded-3")
                 val src = posterElement?.attr("src") ?: ""
-                Log.d("LatanimePlugin", "Poster data: src=$src")
-                val poster = if (src.isNotEmpty()) fixUrl(src) else ""
+                val dataSrc = posterElement?.attr("data-src") ?: ""
+                Log.d("LatanimePlugin", "Poster data: src=$src, data-src=$dataSrc")
+                val poster = if (dataSrc.isNotEmpty()) fixUrl(dataSrc) else if (src.isNotEmpty()) fixUrl(src) else ""
 
                 newAnimeSearchResponse(title, fixUrl(itemUrl)) {
                     this.posterUrl = poster
@@ -87,16 +90,18 @@ class LatanimeProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        return appGetChildMainUrl("$mainUrl/buscar?q=$query").document.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
+        val doc = appGetChildMainUrl("$mainUrl/buscar?q=$query").document
+        delay(5000) // Retardo para lazy loading
+        return doc.select("div.col-md-4.col-lg-3.col-xl-2.col-6.my-3").map {
             val itemLink = it.selectFirst("a")!!
             val title = itemLink.selectFirst("div.seriedetails h3.my-1")?.text() ?: ""
             val href = fixUrl(itemLink.attr("href"))
 
-            // Ajuste del selector para imagen
-            val imageElement = itemLink.selectFirst("div.series img.img-fluid.shadow-sm")
+            val imageElement = itemLink.selectFirst("div.p-2.cap-layout.d-flex.align-items-center.gap-2 img.lozad.rounded-3")
             val src = imageElement?.attr("src") ?: ""
-            Log.d("LatanimePlugin", "Search image data: src=$src")
-            val image = if (src.isNotEmpty()) fixUrl(src) else ""
+            val dataSrc = imageElement?.attr("data-src") ?: ""
+            Log.d("LatanimePlugin", "Search image data: src=$src, data-src=$dataSrc")
+            val image = if (dataSrc.isNotEmpty()) fixUrl(dataSrc) else if (src.isNotEmpty()) fixUrl(src) else ""
 
             AnimeSearchResponse(
                 title,
@@ -113,7 +118,7 @@ class LatanimeProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val doc = appGetChildMainUrl(url).document
-        val posterElement = doc.selectFirst("div.col-lg-3.col-md-4 div.series2 div.serieimgficha img.img-fluid2")!!
+        val posterElement = doc.selectFirst("div.p-2.cap-layout.d-flex.align-items-center.gap-2 img.lozad.rounded-3")!!
         val dataSrc = posterElement.attr("data-src")
         val src = posterElement.attr("src")
         Log.d("LatanimePlugin", "Load poster data: data-src=$dataSrc, src=$src")
@@ -158,10 +163,12 @@ class LatanimeProvider : MainAPI() {
         Log.d("LatanimePlugin", "loadLinks called with data: $data")
 
         var foundLinks = false
-        appGetChildMainUrl(data).document.select("div.container-fluid div.row div.col-md-12.col-lg-8.seiya ul.cap_repro.d-flex.flex-wrap li#play-video").apmap {
+        val doc = appGetChildMainUrl(data).document
+        delay(5000) // Retardo para carga dinámica
+        doc.select("ul.cap_repro li#play-video").apmap {
             Log.d("LatanimePlugin", "Found player element: ${it.outerHtml()}")
 
-            val encodedUrl = it.select("a").attr("data-player")
+            val encodedUrl = it.selectFirst("a.play-video")?.attr("data-player")
             Log.d("LatanimePlugin", "Encoded URL found: $encodedUrl")
 
             if (encodedUrl.isNullOrEmpty()) {
