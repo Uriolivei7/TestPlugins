@@ -145,106 +145,137 @@ class CablevisionhdProvider : MainAPI() {
     }
 
     override suspend fun loadLinks(
-        data: String,
+        data: String, // data es la URL de la página de detalle del canal (ej: https://www.tvporinternet2.com/channel/americatv)
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // --- CAMBIO AQUÍ: Nuevo selector para los enlaces de opciones de stream ---
-        app.get(data).document.select("div.flex.flex-wrap.gap-3 a").apmap {
-            val trembedlink = it.attr("href")
+        // PASO 1: Obtener el SRC del IFRAME principal de la página de detalle del canal.
+        // Este iframe es el que realmente carga el contenido del stream.
+        val mainChannelPageDoc = app.get(data).document
+        val firstIframeSrc = mainChannelPageDoc.selectFirst("iframe[name=\"player\"]")?.attr("src")
+        Log.d(name, "SRC del PRIMER Iframe (player): $firstIframeSrc")
 
-            if (trembedlink.contains("/live")) {
-                Log.d(name, "TrembedLink (Opción de stream): $trembedlink")
+        if (firstIframeSrc.isNullOrBlank()) {
+            Log.w(name, "No se encontr?? el SRC del primer iframe principal en la p??gina: $data")
+            return false
+        }
 
-                val tremrequestDoc = app.get(trembedlink, headers = mapOf(
-                    "Host" to "www.tvporinternet2.com",
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language" to "en-US,en;q=0.5",
-                    "Referer" to data,
-                    "Alt-Used" to "www.tvporinternet2.com",
-                    "Connection" to "keep-alive",
-                    "Cookie" to "TawkConnectionTime=0; twk_idm_key=qMfE5UE9JTs3JUBCtVUR1",
-                    "Upgrade-Insecure-Requests" to "1",
-                    "Sec-Fetch-Dest" to "iframe",
-                    "Sec-Fetch-Mode" to "navigate",
-                    "Sec-Fetch-Site" to "same-origin",
-                )).document
+        // PASO 2: Solicitar la p??gina que carga el primer iframe.
+        // Esta p??gina (ej: https://www.tvporinternet2.com/live/americatv.php)
+        // contiene un SEGUNDO iframe con el stream real.
+        val secondIframePageDoc = app.get(firstIframeSrc, headers = mapOf(
+            "Host" to "www.tvporinternet2.com",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.5",
+            "Referer" to data, // El referer es la p??gina de detalle del canal original
+            "Alt-Used" to "www.tvporinternet2.com",
+            "Connection" to "keep-alive",
+            "Upgrade-Insecure-Requests" to "1",
+            "Sec-Fetch-Dest" to "iframe",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "same-origin",
+        )).document
 
-                val finalRedirectedUrl = tremrequestDoc.location()
-                Log.d(name, "URL de la página de stream: $finalRedirectedUrl")
+        // PASO 3: Obtener el SRC del SEGUNDO IFRAME dentro de la p??gina del primer iframe.
+        // Este es el iframe que apunta directamente al servidor del stream.
+        val finalStreamIframeSrc = secondIframePageDoc.selectFirst("iframe.embed-responsive-item[name=\"iframe\"]")?.attr("src")
+        Log.d(name, "SRC del SEGUNDO Iframe (stream): $finalStreamIframeSrc")
 
-                val scriptContent = tremrequestDoc.select("script").joinToString("") { it.html() }
-                Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
+        if (finalStreamIframeSrc.isNullOrBlank()) {
+            Log.w(name, "No se encontr?? el SRC del segundo iframe de stream en la p??gina: $firstIframeSrc")
+            return false
+        }
 
-                val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+(?:&amp;remote=\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})?(?:&expires=\\d+)?".toRegex()
+        // PASO 4: Solicitar la p??gina del segundo iframe para obtener el script con el .m3u8
+        val finalStreamPageDoc = app.get(finalStreamIframeSrc, headers = mapOf(
+            // El Host y Alt-Used ahora deben coincidir con el dominio del segundo iframe src
+            "Host" to URL(finalStreamIframeSrc).host,
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.5",
+            "Referer" to firstIframeSrc, // El referer es la p??gina del primer iframe
+            "Alt-Used" to URL(finalStreamIframeSrc).host,
+            "Connection" to "keep-alive",
+            "Upgrade-Insecure-Requests" to "1",
+            "Sec-Fetch-Dest" to "iframe",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "cross-site", // Ahora es cross-site porque el dominio del iframe es diferente
+        )).document
 
-                val matchResult = m3u8Regex.find(scriptContent)
+        val finalResolvedUrl = finalStreamPageDoc.location()
+        Log.d(name, "URL de la p??gina de stream resuelta: $finalResolvedUrl")
 
-                if (matchResult != null) {
-                    var extractedurl = matchResult.value
-                    extractedurl = extractedurl.replace("&amp;", "&")
-                    Log.d(name, "¡URL de stream .m3u8 encontrada por Regex!: $extractedurl")
+        val scriptContent = finalStreamPageDoc.select("script").joinToString("") { it.html() }
+        Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-                    callback(
-                        newExtractorLink(
-                            source = "TV por Internet",
-                            name = "Canal de TV",
-                            url = extractedurl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            this.quality = getQualityFromName("Normal")
-                            this.referer = finalRedirectedUrl
-                        }
-                    )
-                    return@apmap
-                } else {
-                    Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalRedirectedUrl")
+        // La regex para .m3u8 parece ser correcta si el script existe
+        val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+(?:&amp;remote=\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})?(?:&expires=\\d+)?".toRegex()
 
-                    val oldScriptPacked = tremrequestDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
-                    Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
+        val matchResult = m3u8Regex.find(scriptContent)
 
-                    if (oldScriptPacked != null) {
-                        val script = JsUnpacker(oldScriptPacked)
-                        Log.d(name, "JsUnpacker detect: ${script.detect()}")
+        if (matchResult != null) {
+            var extractedurl = matchResult.value
+            extractedurl = extractedurl.replace("&amp;", "&")
+            Log.d(name, "¡URL de stream .m3u8 encontrada por Regex!: $extractedurl")
 
-                        if (script.detect()) {
-                            val unpackedScript = script.unpack()
-                            Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
-
-                            val mariocRegex = """MARIOCSCryptOld\("(.*?)"\)""".toRegex()
-                            val mariocMatch = mariocRegex.find(unpackedScript ?: "")
-                            Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
-
-                            val hash = mariocMatch?.groupValues?.get(1) ?: ""
-                            Log.d(name, "Hash extraído (antes de decodificar): ${hash.take(50)}...")
-
-                            val extractedurl = decodeBase64UntilUnchanged(hash)
-                            Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
-
-                            if (extractedurl.isNotBlank()) {
-                                callback(
-                                    newExtractorLink(
-                                        source = "TV por Internet (Old Method)",
-                                        name = "Canal de TV (Old Method)",
-                                        url = extractedurl,
-                                        type = ExtractorLinkType.M3U8
-                                    ) {
-                                        this.quality = getQualityFromName("Normal")
-                                        this.referer = finalRedirectedUrl
-                                    }
-                                )
-                            } else {
-                                Log.w(name, "extractedurl está vacía o en blanco después de la decodificación (método antiguo) para hash: ${hash.take(50)}...")
-                            }
-                        } else {
-                            Log.w(name, "JsUnpacker no detectó un script empaquetado (método antiguo) en $finalRedirectedUrl")
-                        }
-                    } else {
-                        Log.w(name, "No se encontró el script 'function(p,a,c,k,e,d)' ni el patrón MARIOCSCryptOld para ${finalRedirectedUrl}.")
-                    }
+            callback(
+                newExtractorLink(
+                    source = "TV por Internet",
+                    name = "Canal de TV",
+                    url = extractedurl,
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    this.quality = getQualityFromName("Normal")
+                    this.referer = finalResolvedUrl // Referer es la URL de la p??gina que contiene el script
                 }
+            )
+        } else {
+            Log.w(name, "No se encontr?? la URL del stream .m3u8 con el Regex en la p??gina $finalResolvedUrl")
+
+            // Lógica de respaldo (JsUnpacker antigua) si el nuevo método falla
+            val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
+            Log.d(name, "Script Packed encontrado (l??gica antigua): ${oldScriptPacked != null}")
+
+            if (oldScriptPacked != null) {
+                val script = JsUnpacker(oldScriptPacked)
+                Log.d(name, "JsUnpacker detect: ${script.detect()}")
+
+                if (script.detect()) {
+                    val unpackedScript = script.unpack()
+                    Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
+
+                    val mariocRegex = """MARIOCSCryptOld\("(.*?)"\)""".toRegex()
+                    val mariocMatch = mariocRegex.find(unpackedScript ?: "")
+                    Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
+
+                    val hash = mariocMatch?.groupValues?.get(1) ?: ""
+                    Log.d(name, "Hash extraído (antes de decodificar): ${hash.take(50)}...")
+
+                    val extractedurl = decodeBase64UntilUnchanged(hash)
+                    Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
+
+                    if (extractedurl.isNotBlank()) {
+                        callback(
+                            newExtractorLink(
+                                source = "TV por Internet (Old Method)",
+                                name = "Canal de TV (Old Method)",
+                                url = extractedurl,
+                                type = ExtractorLinkType.M3U8
+                            ) {
+                                this.quality = getQualityFromName("Normal")
+                                this.referer = finalResolvedUrl
+                            }
+                        )
+                    } else {
+                        Log.w(name, "extractedurl est?? vac??a o en blanco despu??s de la decodificaci??n (m??todo antiguo) para hash: ${hash.take(50)}...")
+                    }
+                } else {
+                    Log.w(name, "JsUnpacker no detect?? un script empaquetado (m??todo antiguo) en $finalResolvedUrl")
+                }
+            } else {
+                Log.w(name, "No se encontr?? el script 'function(p,a,c,k,e,d)' ni el patr??n MARIOCSCryptOld para ${finalResolvedUrl}.")
             }
         }
         return true
