@@ -48,13 +48,13 @@ class CablevisionhdProvider : MainAPI() {
     }
 
     val nowAllowed = setOf("Únete al chat", "Donar con Paypal", "Lizard Premium", "Vuelvete Premium (No ADS)", "Únete a Whatsapp", "Únete a Telegram", "¿Nos invitas el cafe?")
-    val deportesCat = setOf("TUDN", "WWE", "Afizzionados", "Gol Perú", "Gol TV", "TNT SPORTS", "Fox Sports Premium", "TYC Sports", "Movistar Deportes (Perú)", "Movistar La Liga", "Movistar Liga De Campeones", "Dazn F1", "Dazn La Liga", "Bein La Liga", "Bein Sports Extra", "Directv Sports", "Directv Sports 2", "Directv Sports Plus", "Espn Deportes", "Espn Extra", "Espn Premium", "Espn", "Espn 2", "Espn 3", "Espn 4", "Espn Mexico", "Espn 2 Mexico", "Espn 3 Mexico", "Fox Deportes", "Fox Sports", "Fox Sports 2", "Fox Sports 3", "Fox Sports Mexico", "Fox Sports 2 Mexico", "Fox Sports 3 Mexico",)
-    val entretenimientoCat = setOf("Telefe", "El Trece", "Televisión Pública", "Telemundo Puerto rico", "Univisión", "Univisión Tlnovelas", "Pasiones", "Caracol", "RCN", "Latina", "America TV", "Willax TV", "ATV", "Las Estrellas", "Tl Novelas", "Galavision", "Azteca 7", "Azteca Uno", "Canal 5", "Distrito Comedia",)
-    val noticiasCat = setOf("Telemundo 51",)
-    val peliculasCat = setOf("Movistar Accion", "Movistar Drama", "Universal Channel", "TNT", "TNT Series", "Star Channel", "Star Action", "Star Series", "Cinemax", "Space", "Syfy", "Warner Channel", "Warner Channel (México)", "Cinecanal", "FX", "AXN", "AMC", "Studio Universal", "Multipremier", "Golden", "Golden Plus", "Golden Edge", "Golden Premier", "Golden Premier 2", "Sony", "DHE", "NEXT HD",)
-    val infantilCat = setOf("Cartoon Network", "Tooncast", "Cartoonito", "Disney Channel", "Disney JR", "Nick",)
-    val educacionCat = setOf("Discovery Channel", "Discovery World", "Discovery Theater", "Discovery Science", "Discovery Familia", "History", "History 2", "Animal Planet", "Nat Geo", "Nat Geo Mundo",)
-    val dos47Cat = setOf("24/7",)
+    val deportesCat = setOf("TUDN", "WWE", "Afizzionados", "Gol Perú", "Gol TV", "TNT SPORTS", "Fox Sports Premium", "TYC Sports", "Movistar Deportes (Perú)", "Movistar La Liga", "Movistar Liga De Campeones", "Dazn F1", "Dazn La Liga", "Bein La Liga", "Bein Sports Extra", "Directv Sports", "Directv Sports 2", "Directv Sports Plus", "Espn Deportes", "Espn Extra", "Espn Premium", "Espn", "Espn 2", "Espn 3", "Espn 4", "Espn Mexico", "Espn 2 Mexico", "Espn 3 Mexico", "Fox Deportes", "Fox Sports", "Fox Sports 2", "Fox Sports 3", "Fox Sports Mexico", "Fox Sports 2 Mexico", "Fox Sports 3 Mexico")
+    val entretenimientoCat = setOf("Telefe", "El Trece", "Televisión Pública", "Telemundo Puerto rico", "Univisión", "Univisión Tlnovelas", "Pasiones", "Caracol", "RCN", "Latina", "America TV", "Willax TV", "ATV", "Las Estrellas", "Tl Novelas", "Galavision", "Azteca 7", "Azteca Uno", "Canal 5", "Distrito Comedia")
+    val noticiasCat = setOf("Telemundo 51")
+    val peliculasCat = setOf("Movistar Accion", "Movistar Drama", "Universal Channel", "TNT", "TNT Series", "Star Channel", "Star Action", "Star Series", "Cinemax", "Space", "Syfy", "Warner Channel", "Warner Channel (México)", "Cinecanal", "FX", "AXN", "AMC", "Studio Universal", "Multipremier", "Golden", "Golden Plus", "Golden Edge", "Golden Premier", "Golden Premier 2", "Sony", "DHE", "NEXT HD")
+    val infantilCat = setOf("Cartoon Network", "Tooncast", "Cartoonito", "Disney Channel", "Disney JR", "Nick")
+    val educacionCat = setOf("Discovery Channel", "Discovery World", "Discovery Theater", "Discovery Science", "Discovery Familia", "History", "History 2", "Animal Planet", "Nat Geo", "Nat Geo Mundo")
+    val dos47Cat = setOf("24/7")
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = ArrayList<HomePageList>()
@@ -155,7 +155,14 @@ class CablevisionhdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val mainChannelPageDoc = app.get(data).document
+        val mainChannelPageDoc = app.get(data, headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-US,en;q=0.5",
+            "Accept-Encoding" to "gzip, deflate, br",
+            "Connection" to "keep-alive",
+            "Upgrade-Insecure-Requests" to "1"
+        )).document
         Log.d(name, "HTML COMPLETO de mainChannelPageDoc (Página del canal principal): ${mainChannelPageDoc.html().take(500)}...")
 
         val optionLinks = mainChannelPageDoc.select("div.flex.flex-wrap.gap-3 a")
@@ -169,7 +176,7 @@ class CablevisionhdProvider : MainAPI() {
             val firstIframeSrc = mainChannelPageDoc.selectFirst("iframe[name=\"player\"]")?.attr("src")
             if (!firstIframeSrc.isNullOrBlank()) listOf(firstIframeSrc) else emptyList()
         } else {
-            optionLinks
+            optionLinks.map { "$mainUrl/$it" } // Asegurar URLs absolutas
         }
 
         if (allPossibleSourcesToProcess.isEmpty()) {
@@ -182,34 +189,30 @@ class CablevisionhdProvider : MainAPI() {
         for ((index, sourceOptionUrl) in allPossibleSourcesToProcess.withIndex()) {
             Log.d(name, "Intentando procesar la URL de opción: $sourceOptionUrl (Opción ${index + 1})")
 
-            // Restablecer las cabeceras a un conjunto que imite un navegador normal y manejar la compresión.
-            // Es crucial incluir "Accept-Encoding"
             val optionPageResponse = app.get(sourceOptionUrl, headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language" to "en-US,en;q=0.5",
+                "Accept-Encoding" to "gzip, deflate, br",
                 "Connection" to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                "Accept-Encoding" to "gzip, deflate, br", // <-- RE-AGREGADO Y ES CLAVE
-                // Considera si "Referer" debería ser nulo o mainUrl aquí, dependiendo de si se accede a
-                // live/panamericana.php directamente o desde la homepage. Para la primera solicitud, a menudo es nulo.
-                // Para simplificar, lo dejaremos en null para la primera carga, asumiendo que CloudStream3
-                // lo maneja si no se especifica.
-            ), referer = null) // Asegurarse de que el Referer no sea un problema inicial
+                "Referer" to data // Usar la URL original como referer
+            ), allowRedirects = true)
 
             val optionPageDoc = optionPageResponse.document
             val finalOptionPageUrl = optionPageResponse.url
             Log.d(name, "HTML recibido para ${finalOptionPageUrl} (después de simular navegador): ${optionPageDoc.html().take(500)}...")
 
-            // Ahora que el HTML es (esperemos) válido, podemos buscar el script de redirección
+            // Verificar si hay redirección o script de JavaScript
             val scriptRedirect = optionPageDoc.selectFirst("script[language=\"javascript\"][type=\"text/javascript\"]")?.html()
             if (scriptRedirect != null && scriptRedirect.contains("if(self==top)")) {
                 Log.w(name, "Página de opción ${sourceOptionUrl} devolvió el script de redirección 'self==top'. Intentando siguiente opción.")
                 continue
             }
 
-            // PASO 3: Encontrar el IFRAME ANIDADO (el que apunta a live.saohgdasregions.fun)
-            val playerIframeSrc = optionPageDoc.selectFirst("iframe.embed-responsive-item[src*=\"live.saohgdasregions.fun\"]")?.attr("src")
+            // Buscar iframe anidado
+            val playerIframeSrc = optionPageDoc.selectFirst("iframe[src*=\"live.saohgdasregions.fun\"]")?.attr("src")
+                ?: optionPageDoc.selectFirst("iframe.embed-responsive-item")?.attr("src") // Selector alternativo
 
             if (playerIframeSrc.isNullOrBlank()) {
                 Log.w(name, "No se encontró el iframe del reproductor (live.saohgdasregions.fun) en la página de opción: $finalOptionPageUrl")
@@ -217,21 +220,17 @@ class CablevisionhdProvider : MainAPI() {
             }
             Log.d(name, "SRC del iframe del reproductor encontrado: $playerIframeSrc")
 
-            // PASO 4: Solicitar la página final del stream (la del iframe del reproductor)
+            // Solicitar la página del iframe
             val finalStreamPageResponse = app.get(playerIframeSrc, headers = mapOf(
-                "Host" to URL(playerIframeSrc).host,
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to finalOptionPageUrl, // MUY IMPORTANTE: Referer es la URL final de la página de la opción
-                "Alt-Used" to URL(playerIframeSrc).host,
+                "Referer" to finalOptionPageUrl,
+                "Accept-Encoding" to "gzip, deflate, br",
                 "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "iframe",
-                "Sec-Fetch-Mode" to "navigate",
-                "Sec-Fetch-Site" to "cross-site",
-                "Accept-Encoding" to "gzip, deflate, br" // También clave aquí
-            ))
+                "Upgrade-Insecure-Requests" to "1"
+            ), allowRedirects = true)
+
             val finalResolvedPlayerPageUrl = finalStreamPageResponse.url
             val finalStreamPageDoc = finalStreamPageResponse.document
             Log.d(name, "HTML de la página del reproductor ($finalResolvedPlayerPageUrl): ${finalStreamPageDoc.html().take(500)}...")
@@ -241,10 +240,9 @@ class CablevisionhdProvider : MainAPI() {
 
             var streamSourceUrl: String? = null
 
-            // Estrategia A: Clappr con Base64 anidado (hasta 5 atobs)
+            // Estrategia A: Clappr con Base64 anidado
             val clapprSourceRegex = "source:\\s*(?:atob\\(){1,5}\"(.*?)\"(?:\\)){1,5}".toRegex()
             val clapprMatch = clapprSourceRegex.find(scriptContent)
-
             if (clapprMatch != null) {
                 val encodedString = clapprMatch.groupValues[1]
                 Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
@@ -259,46 +257,15 @@ class CablevisionhdProvider : MainAPI() {
                 Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalResolvedPlayerPageUrl")
             }
 
-            // Estrategia B: Regex directa .m3u8 (si A falló)
+            // Estrategia B: Regex directa .m3u8
             if (streamSourceUrl.isNullOrBlank()) {
                 val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun(?::\\d+)?/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_.-]+".toRegex()
                 val m3u8Match = m3u8Regex.find(scriptContent)
-
                 if (m3u8Match != null) {
-                    streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
+                    streamSourceUrl = m3u8Match.value.replace("&", "&")
                     Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $streamSourceUrl")
                 } else {
                     Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalResolvedPlayerPageUrl")
-                }
-            }
-
-            // Estrategia C: JsUnpacker (Lógica antigua, solo si A y B fallaron)
-            if (streamSourceUrl.isNullOrBlank()) {
-                val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
-                Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
-
-                if (oldScriptPacked != null) {
-                    val script = JsUnpacker(oldScriptPacked)
-                    if (script.detect()) {
-                        val unpackedScript = script.unpack()
-                        Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
-
-                        val mariocRegex = """MARIOCSCryptOld\("(.*?)"\)""".toRegex()
-                        val mariocMatch = mariocRegex.find(unpackedScript ?: "")
-                        Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
-
-                        val hash = mariocMatch?.groupValues?.get(1) ?: ""
-                        val extractedurl = decodeBase64UntilUnchanged(hash)
-                        if (extractedurl.isNotBlank() && extractedurl.startsWith("http")) {
-                            streamSourceUrl = extractedurl
-                        } else {
-                            Log.w(name, "extractedurl está vacía, no es una URL, o en blanco después de la decodificación (método antiguo) para hash: ${hash.take(50)}...")
-                        }
-                    } else {
-                        Log.w(name, "JsUnpacker no detectó un script empaquetado (método antiguo) en $finalResolvedPlayerPageUrl")
-                    }
-                } else {
-                    Log.w(name, "No se encontró el script 'function(p,a,c,k,e,d)' ni el patrón MARIOCSCryptOld para ${finalResolvedPlayerPageUrl}.")
                 }
             }
 
