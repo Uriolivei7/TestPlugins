@@ -178,26 +178,31 @@ class TioanimeProvider:MainAPI() {
         Log.d("TioAnime", "loadLinks: JSON de videos encontrado: ${jsonString.take(500)}")
 
         try {
-            // CAMBIO CLAVE AQUÍ: Parsear a List<List<Any?>>
             val videoServers: List<List<Any?>> = AppUtils.parseJson(jsonString)
 
             Log.d("TioAnime", "loadLinks: Se encontraron ${videoServers.size} grupos de servidores.")
 
             videoServers.apmap { serverGroup ->
-                // Cada serverGroup es una lista como ["Mega","https://mega.nz/embed/...",0,0]
-                // Accedemos a los elementos por índice
-                val serverName = serverGroup[0] as? String // "Mega"
-                val videoCode = serverGroup[1] as? String // "https://mega.nz/embed/..."
-                // serverGroup[2] y [3] son los 0,0 que no estamos usando directamente
+                val serverName = serverGroup[0] as? String
+                val videoCode = serverGroup[1] as? String
 
                 if (serverName != null && videoCode != null) {
                     Log.d("TioAnime", "loadLinks: Procesando servidor: $serverName, Code: $videoCode")
 
                     val urlToExtract = when {
+                        // Extractores directos que Cloudstream puede manejar
                         videoCode.contains("fembed.com") -> videoCode
                         videoCode.contains("sbani.pro") -> videoCode
                         videoCode.contains("ok.ru") -> videoCode
-                        // Aquí puedes añadir más reglas si Tioanime usa otros dominios
+                        videoCode.contains("embedsb.com") -> videoCode // Añadido para StreamSB
+                        videoCode.contains("yourupload.com") -> videoCode // Añadido para YourUpload
+                        videoCode.contains("hqq.tv") -> videoCode // Añadido para Netu (hqq.tv)
+                        videoCode.contains("mega.nz") -> videoCode // Añadido para Mega
+                        // Puedes añadir más si encuentras otros dominios de extractores directos
+
+                        // Si Amus y Mepu (v.tioanime.com/embed.php?s=...) necesitan un extractor
+                        // secundario o una lógica específica para obtener el video real,
+                        // la lógica aquí se volvería más compleja, por ahora se saltarán.
                         else -> {
                             Log.w("TioAnime", "loadLinks: Formato de videoCode no reconocido para extractor directo: $videoCode")
                             null
@@ -207,13 +212,11 @@ class TioanimeProvider:MainAPI() {
                     if (!urlToExtract.isNullOrEmpty()) {
                         Log.d("TioAnime", "loadLinks: Intentando extraer de: $urlToExtract")
                         val decodedUrl = URLDecoder.decode(urlToExtract, StandardCharsets.UTF_8.toString())
-                            .replace("https://embedsb.com/e/","https://watchsb.com/e/")
-                            .replace("https://ok.ru","http://ok.ru")
+                            .replace("https://embedsb.com/e/","https://watchsb.com/e/") // Normalización para StreamSB
+                            .replace("https://ok.ru","http://ok.ru") // Normalización para Okru
 
                         loadExtractor(decodedUrl, subtitleCallback, callback)
                     } else {
-                        // Este else se ejecutará si urlToExtract es null o vacío,
-                        // lo que indica que el 'when' no encontró una regla de extracción.
                         Log.w("TioAnime", "loadLinks: No se pudo extraer la URL para el videoCode: $videoCode. Saltando.")
                     }
                 } else {
@@ -227,16 +230,3 @@ class TioanimeProvider:MainAPI() {
         }
     }
 }
-
-// Ya no necesitas la data class TioanimeVideo si parseas a List<List<Any?>>
-// Opcional: Podrías mantenerla si quieres hacer un mapeo más explícito DESPUÉS de parsear a List<List<Any?>>,
-// pero para tu caso, no es estrictamente necesario.
-// Si la mantienes, no se usará directamente para el parseo inicial del JSON de videos.
-/*
-data class TioanimeVideo(
-    @JsonProperty("server") val server: Int,
-    @JsonProperty("title") val title: String,
-    @JsonProperty("code") val code: String,
-    @JsonProperty("languaje") val language: String?
-)
-*/
