@@ -125,7 +125,7 @@
     "status": 1,
     "version": 1,
     "apiVersion": 7,
-    "name": "CableVisionHD",
+    "name": "CablevisionHD",
     "internalName": "CablevisionhdProvider",
     "authors": [
       "Ranita"
@@ -136,6 +136,6 @@
     ],
     "iconUrl": "https://www.cablevisionhd.com/imge/cablevisionhd.png",
     "language": "es",
-    "fileSize": 17000
+    "fileSize": 19000
   }
 ]
