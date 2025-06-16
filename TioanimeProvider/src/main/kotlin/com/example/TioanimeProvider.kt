@@ -3,7 +3,7 @@ package com.example
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson // Reutiliza el parser de Cloudstream
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import java.util.*
 import kotlin.collections.ArrayList
 import android.util.Log
@@ -29,13 +29,6 @@ class TioanimeProvider:MainAPI() {
         TvType.OVA,
         TvType.Anime,
     )
-
-    // ELIMINA LA INICIALIZACIÓN DEL MAPPER MANUAL AQUI:
-    // private val mapper = JsonMapper.builder()
-    //    .addModule(KotlinModule())
-    //    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    //    .build()
-
 
     override suspend fun getMainPage(page: Int, request : MainPageRequest): HomePageResponse {
         val urls = listOf(
@@ -100,7 +93,7 @@ class TioanimeProvider:MainAPI() {
         val response = app.post("https://tioanime.com/api/search",
             data = mapOf(Pair("value",query))
         ).text
-        val json = parseJson<List<SearchObject>>(response) // Usa AppUtils.parseJson
+        val json = parseJson<List<SearchObject>>(response)
         return json.map { searchr ->
             val title = searchr.title
             val href = "$mainUrl/anime/${searchr.slug}"
@@ -160,7 +153,6 @@ class TioanimeProvider:MainAPI() {
         }
     }
 
-    // FUNCIÓN LOADLINKS ADAPTADA PARA USAR AppUtils.parseJson
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -186,15 +178,19 @@ class TioanimeProvider:MainAPI() {
         Log.d("TioAnime", "loadLinks: JSON de videos encontrado: ${jsonString.take(500)}")
 
         try {
-            // USANDO AppUtils.parseJson para parsear la lista de listas
-            val videoServers: List<List<TioanimeVideo>> = AppUtils.parseJson(jsonString)
+            // CAMBIO CLAVE AQUÍ: Parsear a List<List<Any?>>
+            val videoServers: List<List<Any?>> = AppUtils.parseJson(jsonString)
 
             Log.d("TioAnime", "loadLinks: Se encontraron ${videoServers.size} grupos de servidores.")
 
             videoServers.apmap { serverGroup ->
-                serverGroup.apmap { videoInfo ->
-                    val videoCode = videoInfo.code
-                    val serverName = videoInfo.title
+                // Cada serverGroup es una lista como ["Mega","https://mega.nz/embed/...",0,0]
+                // Accedemos a los elementos por índice
+                val serverName = serverGroup[0] as? String // "Mega"
+                val videoCode = serverGroup[1] as? String // "https://mega.nz/embed/..."
+                // serverGroup[2] y [3] son los 0,0 que no estamos usando directamente
+
+                if (serverName != null && videoCode != null) {
                     Log.d("TioAnime", "loadLinks: Procesando servidor: $serverName, Code: $videoCode")
 
                     val urlToExtract = when {
@@ -215,7 +211,13 @@ class TioanimeProvider:MainAPI() {
                             .replace("https://ok.ru","http://ok.ru")
 
                         loadExtractor(decodedUrl, subtitleCallback, callback)
+                    } else {
+                        // Este else se ejecutará si urlToExtract es null o vacío,
+                        // lo que indica que el 'when' no encontró una regla de extracción.
+                        Log.w("TioAnime", "loadLinks: No se pudo extraer la URL para el videoCode: $videoCode. Saltando.")
                     }
+                } else {
+                    Log.w("TioAnime", "loadLinks: Elemento de servidor mal formado en el JSON: $serverGroup")
                 }
             }
             return true
@@ -226,10 +228,15 @@ class TioanimeProvider:MainAPI() {
     }
 }
 
-// Clases de datos para parsear la respuesta JSON de los videos de Tioanime
+// Ya no necesitas la data class TioanimeVideo si parseas a List<List<Any?>>
+// Opcional: Podrías mantenerla si quieres hacer un mapeo más explícito DESPUÉS de parsear a List<List<Any?>>,
+// pero para tu caso, no es estrictamente necesario.
+// Si la mantienes, no se usará directamente para el parseo inicial del JSON de videos.
+/*
 data class TioanimeVideo(
     @JsonProperty("server") val server: Int,
     @JsonProperty("title") val title: String,
     @JsonProperty("code") val code: String,
     @JsonProperty("languaje") val language: String?
 )
+*/
