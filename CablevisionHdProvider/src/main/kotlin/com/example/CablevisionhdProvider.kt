@@ -8,7 +8,7 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import java.net.URL
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import android.util.Log // <--- AGREGAR ESTA LÍNEA
+import android.util.Log // Importación necesaria para android.util.Log
 
 class CablevisionhdProvider : MainAPI() {
 
@@ -169,20 +169,32 @@ class CablevisionhdProvider : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        Log.d(TAG, "Inicia getMainPage")
+        Log.d(TAG, "Inicia getMainPage") // Log de depuración
         val items = ArrayList<HomePageList>()
+        // Cambiado para solo procesar "Todos" por ahora para simplificar el log del HTML
         val urls = listOf(
-            Pair("Todos", mainUrl), // Solo necesitamos "Todos" para este test
+            Pair("Todos", mainUrl),
         )
         urls.apmap { (name, url) ->
-            Log.d(TAG, "Intentando obtener documento para categoría $name en $url")
+            Log.d(TAG, "Intentando obtener documento para categoría $name en $url") // Log de depuración
             try {
-                val response = app.get(url) // Obtiene la respuesta completa
+                // *** CAMBIO CLAVE AQUÍ: AÑADIMOS HEADERS A app.get() ***
+                val response = app.get(url, headers = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language" to "es-ES,es;q=0.5",
+                    "Connection" to "keep-alive",
+                    "Upgrade-Insecure-Requests" to "1",
+                    "Sec-Fetch-Dest" to "document",
+                    "Sec-Fetch-Mode" to "navigate",
+                    "Sec-Fetch-Site" to "none",
+                    "Sec-Fetch-User" to "?1"
+                ))
                 val html = response.text // Obtiene el HTML crudo como String
                 Log.d(TAG, "HTML completo recibido para $name:\n$html") // LOGUEA EL HTML COMPLETO
                 val doc = response.document // Convierte a documento Jsoup para el resto del proceso
 
-                Log.d(TAG, "Documento obtenido para $name. Elementos encontrados antes de filtrar: ${doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").size}")
+                Log.d(TAG, "Documento obtenido para $name. Elementos encontrados antes de filtrar: ${doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").size}") // Log de depuración
 
                 val home = doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").filterNot { element ->
                     val text = element.selectFirst("div.lm-canal.lm-info-block.gray-default a h4")?.text()
@@ -191,7 +203,7 @@ class CablevisionhdProvider : MainAPI() {
                         text.contains(it, ignoreCase = true)
                     } || text.isBlank()
                     if (isFilteredOut) {
-                        Log.d(TAG, "Filtrando por nowAllowed/isBlank: $text (Categoría: $name)")
+                        Log.d(TAG, "Filtrando por nowAllowed/isBlank: $text (Categoría: $name)") // Log de depuración
                     }
                     isFilteredOut
                 }.filter {
@@ -209,7 +221,7 @@ class CablevisionhdProvider : MainAPI() {
                         else -> true
                     }
                     if (!matchesCategory) {
-                        Log.d(TAG, "Filtrando por NO coincidir con categoría $name: $text")
+                        Log.d(TAG, "Filtrando por NO coincidir con categoría $name: $text") // Log de depuración
                     }
                     matchesCategory
                 }.map {
@@ -219,7 +231,7 @@ class CablevisionhdProvider : MainAPI() {
                         ?: ""
                     val link = it.selectFirst("div.lm-canal.lm-info-block.gray-default a")?.attr("href")
                         ?: ""
-                    Log.d(TAG, "Canal detectado: Título='$title', Img='$img', Link='$link' (Categoría: $name)")
+                    Log.d(TAG, "Canal detectado: Título='$title', Img='$img', Link='$link' (Categoría: $name)") // Log de depuración
                     LiveSearchResponse(
                         title,
                         link,
@@ -230,14 +242,14 @@ class CablevisionhdProvider : MainAPI() {
                         null,
                     )
                 }
-                Log.d(TAG, "Categoría $name, elementos finales añadidos: ${home.size}")
+                Log.d(TAG, "Categoría $name, elementos finales añadidos: ${home.size}") // Log de depuración
                 items.add(HomePageList(name, home, true))
             } catch (e: Exception) {
-                Log.e(TAG, "Error en getMainPage para categoría $name: ${e.message}")
-                Log.e(TAG, "Stacktrace: ${e.stackTraceToString()}")
+                Log.e(TAG, "Error en getMainPage para categoría $name: ${e.message}") // Log de error
+                Log.e(TAG, "Stacktrace: ${e.stackTraceToString()}") // Stacktrace completo del error
             }
         }
-        Log.d(TAG, "Terminó getMainPage. Total de listas de HomePageList: ${items.size}")
+        Log.d(TAG, "Terminó getMainPage. Total de listas de HomePageList: ${items.size}") // Log de depuración
         return HomePageResponse(items)
     }
 
