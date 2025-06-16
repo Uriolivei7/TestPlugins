@@ -125,16 +125,16 @@
     "status": 1,
     "version": 1,
     "apiVersion": 7,
-    "name": "CablevisionHD",
+    "name": "TV por Internet",
     "internalName": "CablevisionhdProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para cablevisionhd.com",
+    "description": "Plugin para www.tvporinternet2.com",
     "tvTypes": [
       "Live"
     ],
-    "iconUrl": "https://www.cablevisionhd.com/imge/cablevisionhd.png",
+    "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
     "language": "es",
     "fileSize": 18000
   }
