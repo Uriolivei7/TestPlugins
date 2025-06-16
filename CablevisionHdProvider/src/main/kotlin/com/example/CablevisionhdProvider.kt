@@ -13,7 +13,7 @@ import java.net.URL
 class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.tvporinternet2.com"
-    override var name = "CablevisionHd"
+    override var name = "TVporInternet"
     override var lang = "es"
 
     override val hasQuickSearch = false
@@ -210,8 +210,9 @@ class CablevisionhdProvider : MainAPI() {
         val scriptContent = finalStreamPageDoc.select("script").joinToString("") { it.html() }
         Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-        // La regex para .m3u8 parece ser correcta si el script existe
-        val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+(?:&amp;remote=\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})?(?:&expires=\\d+)?".toRegex()
+        // Nueva regex basada en las capturas de red. Buscamos cualquier .m3u8 en el dominio saohgdasregions.fun
+        // La parte del token es variable, así que capturamos todo lo que viene después de ".m3u8?token="
+        val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
 
         val matchResult = m3u8Regex.find(scriptContent)
 
