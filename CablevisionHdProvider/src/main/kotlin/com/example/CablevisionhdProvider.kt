@@ -240,13 +240,13 @@ class CablevisionhdProvider : MainAPI() {
 
                         callback(
                             newExtractorLink(
-                                it.text() ?: getHostUrl(extractedurl),
-                                it.text() ?: getHostUrl(extractedurl),
-                                extractedurl,
-                                linkType
+                                source = "CablevisionHD", // O el nombre del canal
+                                name = "America TV",     // O el nombre del canal
+                                url = extractedurl,      // Esta es la URL del .m3u8 que encontraste
+                                type = ExtractorLinkType.M3U8 // Siempre ExtractorLinkType.M3U8 o .VIDEO
                             ) {
-                                this.quality = getQualityFromName("")
-                                this.referer = "${getBaseUrl(extractedurl)}/"
+                                this.quality = getQualityFromName("Normal")
+                                this.referer = URL(extractedurl).protocol + "://" + URL(extractedurl).authority // Para el referer correcto
                             }
                         )
                     } else {
