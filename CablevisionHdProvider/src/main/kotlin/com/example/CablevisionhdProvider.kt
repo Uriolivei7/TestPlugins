@@ -181,7 +181,7 @@ class CablevisionhdProvider : MainAPI() {
                 "Referer" to data,
                 "Cache-Control" to "no-cache",
                 "Pragma" to "no-cache"
-            ), allowRedirects = true)
+            ), allowRedirects = true, timeout = 10000)
 
             val optionPageDoc = optionPageResponse.document
             val finalOptionPageUrl = optionPageResponse.url
@@ -190,9 +190,9 @@ class CablevisionhdProvider : MainAPI() {
             val scriptContent = optionPageDoc.select("script").joinToString("") { it.html() }
             Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
+            // Intentar extraer la fuente Base64 de Clappr
             val clapprSourceRegex = "source:\\s*atob\\(atob\\(atob\\(atob\\(\"(.*?)\"\\)\\)\\)\\)".toRegex()
             val clapprMatch = clapprSourceRegex.find(scriptContent)
-
             if (clapprMatch != null) {
                 val encodedString = clapprMatch.groupValues[1]
                 Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
@@ -217,6 +217,29 @@ class CablevisionhdProvider : MainAPI() {
                 }
             } else {
                 Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalOptionPageUrl")
+            }
+
+            // Fallback: Buscar patrones .m3u8 directamente en la respuesta
+            val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun(?::\\d+)?/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_.-]+".toRegex()
+            val m3u8Match = m3u8Regex.find(optionPageResponse.text)
+            if (m3u8Match != null) {
+                val m3u8Url = m3u8Match.value.replace("&", "&")
+                Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $m3u8Url")
+                callback(
+                    newExtractorLink(
+                        source = "TV por Internet",
+                        name = "Canal de TV (Opción ${index + 1})",
+                        url = m3u8Url,
+                        type = ExtractorLinkType.M3U8
+                    ) {
+                        this.quality = getQualityFromName("Normal")
+                        this.referer = finalOptionPageUrl
+                    }
+                )
+                streamFound = true
+                break
+            } else {
+                Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalOptionPageUrl")
             }
         }
 
