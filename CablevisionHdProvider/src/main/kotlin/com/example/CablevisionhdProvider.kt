@@ -8,11 +8,12 @@ import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType // <-- ¡IMPORTANTE! Asegúrate de tener esta importación
 import java.net.URL
+import android.util.Log
 
 class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.cablevisionhd.com"
-    override var name = "CablevisionHd"
+    override var name = "CablevisionHD"
     override var lang = "es"
 
     override val hasQuickSearch = false
@@ -353,23 +354,23 @@ class CablevisionhdProvider : MainAPI() {
                     if (extractedurl.isNotBlank()) {
                         val linkType = if (extractedurl.contains("m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
 
+                        // AÑADE ESTA LÍNEA PARA DEPURAR
+                        Log.d("CablevisionHd", "URL extraída: $extractedurl, Tipo: $linkType")
+
                         callback(
                             newExtractorLink(
-                                // source: El nombre del extractor
                                 it.text() ?: getHostUrl(extractedurl),
-                                // name: El nombre del enlace
                                 it.text() ?: getHostUrl(extractedurl),
-                                // url: La URL real del video/stream
                                 extractedurl,
-                                // type: Pasa el ExtractorLinkType aquí
-                                linkType // Usamos la variable que acabamos de definir
+                                linkType
                             ) {
-                                // Bloque initializer
-                                this.quality = getQualityFromName("") // La calidad
-                                this.referer = "${getBaseUrl(extractedurl)}/" // El referer
-                                // 'isM3u8' ya no se asigna aquí, se infiere del 'type' que pasamos arriba.
+                                this.quality = getQualityFromName("")
+                                this.referer = "${getBaseUrl(extractedurl)}/"
                             }
                         )
+                    } else {
+                        // AÑADE ESTA LÍNEA SI extractedurl ESTÁ VACÍA
+                        Log.w("CablevisionHd", "extractedurl está vacía o en blanco para ${trembedlink2}")
                     }
                 }
             }
