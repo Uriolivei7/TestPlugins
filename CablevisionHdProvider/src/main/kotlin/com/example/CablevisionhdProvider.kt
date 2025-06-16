@@ -169,23 +169,20 @@ class CablevisionhdProvider : MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        Log.d(TAG, "Inicia getMainPage") // Log de depuración
+        Log.d(TAG, "Inicia getMainPage")
         val items = ArrayList<HomePageList>()
         val urls = listOf(
-            Pair("Deportes", mainUrl),
-            Pair("Entretenimiento", mainUrl),
-            Pair("Noticias", mainUrl),
-            Pair("Peliculas", mainUrl),
-            Pair("Infantil", mainUrl),
-            Pair("Educacion", mainUrl),
-            Pair("24/7", mainUrl),
-            Pair("Todos", mainUrl),
+            Pair("Todos", mainUrl), // Solo necesitamos "Todos" para este test
         )
         urls.apmap { (name, url) ->
-            Log.d(TAG, "Intentando obtener documento para categoría $name en $url") // Log de depuración
+            Log.d(TAG, "Intentando obtener documento para categoría $name en $url")
             try {
-                val doc = app.get(url).document
-                Log.d(TAG, "Documento obtenido para $name. Elementos encontrados antes de filtrar: ${doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").size}") // Log de depuración
+                val response = app.get(url) // Obtiene la respuesta completa
+                val html = response.text // Obtiene el HTML crudo como String
+                Log.d(TAG, "HTML completo recibido para $name:\n$html") // LOGUEA EL HTML COMPLETO
+                val doc = response.document // Convierte a documento Jsoup para el resto del proceso
+
+                Log.d(TAG, "Documento obtenido para $name. Elementos encontrados antes de filtrar: ${doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").size}")
 
                 val home = doc.select("div.page-scroll div#page_container.page-container.bg-move-effect div div#canales.row div.canal-item.col-6.col-xs-6.col-sm-6.col-md-3.col-lg-3").filterNot { element ->
                     val text = element.selectFirst("div.lm-canal.lm-info-block.gray-default a h4")?.text()
@@ -194,7 +191,7 @@ class CablevisionhdProvider : MainAPI() {
                         text.contains(it, ignoreCase = true)
                     } || text.isBlank()
                     if (isFilteredOut) {
-                        Log.d(TAG, "Filtrando por nowAllowed/isBlank: $text (Categoría: $name)") // Log de depuración
+                        Log.d(TAG, "Filtrando por nowAllowed/isBlank: $text (Categoría: $name)")
                     }
                     isFilteredOut
                 }.filter {
@@ -212,7 +209,7 @@ class CablevisionhdProvider : MainAPI() {
                         else -> true
                     }
                     if (!matchesCategory) {
-                        Log.d(TAG, "Filtrando por NO coincidir con categoría $name: $text") // Log de depuración
+                        Log.d(TAG, "Filtrando por NO coincidir con categoría $name: $text")
                     }
                     matchesCategory
                 }.map {
@@ -222,7 +219,7 @@ class CablevisionhdProvider : MainAPI() {
                         ?: ""
                     val link = it.selectFirst("div.lm-canal.lm-info-block.gray-default a")?.attr("href")
                         ?: ""
-                    Log.d(TAG, "Canal detectado: Título='$title', Img='$img', Link='$link' (Categoría: $name)") // Log de depuración
+                    Log.d(TAG, "Canal detectado: Título='$title', Img='$img', Link='$link' (Categoría: $name)")
                     LiveSearchResponse(
                         title,
                         link,
@@ -233,14 +230,14 @@ class CablevisionhdProvider : MainAPI() {
                         null,
                     )
                 }
-                Log.d(TAG, "Categoría $name, elementos finales añadidos: ${home.size}") // Log de depuración
+                Log.d(TAG, "Categoría $name, elementos finales añadidos: ${home.size}")
                 items.add(HomePageList(name, home, true))
             } catch (e: Exception) {
-                Log.e(TAG, "Error en getMainPage para categoría $name: ${e.message}") // Log de error
-                Log.e(TAG, "Stacktrace: ${e.stackTraceToString()}") // Stacktrace completo del error
+                Log.e(TAG, "Error en getMainPage para categoría $name: ${e.message}")
+                Log.e(TAG, "Stacktrace: ${e.stackTraceToString()}")
             }
         }
-        Log.d(TAG, "Terminó getMainPage. Total de listas de HomePageList: ${items.size}") // Log de depuración
+        Log.d(TAG, "Terminó getMainPage. Total de listas de HomePageList: ${items.size}")
         return HomePageResponse(items)
     }
 
