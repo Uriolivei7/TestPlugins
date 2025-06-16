@@ -13,7 +13,7 @@ import java.net.URL
 class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.tvporinternet2.com"
-    override var name = "CablevisionHd" // Podrías considerar cambiar esto a "TV por Internet" si quieres reflejar el nuevo nombre
+    override var name = "CablevisionHd"
     override var lang = "es"
 
     override val hasQuickSearch = false
@@ -65,7 +65,6 @@ class CablevisionhdProvider : MainAPI() {
         )
         urls.apmap { (name, url) ->
             val doc = app.get(url).document
-            // Estos selectores parecen seguir funcionando bien según tu feedback
             val home = doc.select("div.p-2").filterNot { element ->
                 val text = element.selectFirst("p.des")?.text() ?: ""
                 nowAllowed.any { text.contains(it, ignoreCase = true) } || text.isBlank()
@@ -105,7 +104,6 @@ class CablevisionhdProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = mainUrl
         val doc = app.get(url).document
-        // Estos selectores parecen seguir funcionando bien según tu feedback
         return doc.select("div.p-2").filterNot { element ->
             val text = element.selectFirst("p.des")?.text() ?: ""
             nowAllowed.any { text.contains(it, ignoreCase = true) } || text.isBlank()
@@ -130,32 +128,21 @@ class CablevisionhdProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
 
-        // --- INICIO DE AJUSTES PARA POSTER Y TITULO ---
-        // Nuevo selector para el título basado en tus capturas de pantalla
-        val title = doc.selectFirst("h1.text-3xl.font-bold.mb-4")?.text()
-            ?: "" // Si no se encuentra, se deja vacío
+        val title = doc.selectFirst("h1.text-3xl.font-bold.mb-4")?.text() ?: ""
 
-        // Según las capturas de pantalla de la página de canal individual, no hay un poster grande y claro.
-        // Si el poster debe venir de la página principal, se debería pasar en la 'data' de alguna forma
-        // o si hay un favicon, se podría usar. Por ahora, lo dejamos vacío si no se encuentra en esta página.
         val poster = doc.selectFirst("link[rel=\"shortcut icon\"]")?.attr("href") ?: ""
-        // Esta línea intenta obtener el favicon de la página, que a menudo es el logo.
-        // Si hay un elemento de imagen específico para el poster en la página de detalle que no has capturado,
-        // necesitaríamos el selector para ese.
 
-        val desc: String? = null // No hay un elemento claro para la descripción en las capturas.
-        // --- FIN DE AJUSTES PARA POSTER Y TITULO ---
+        val desc: String? = null
 
         return newMovieLoadResponse(
             title,
             url, TvType.Live, url
         ) {
             this.posterUrl = fixUrl(poster)
-            this.backgroundPosterUrl = fixUrl(poster) // Usamos el mismo para background si no hay uno específico
+            this.backgroundPosterUrl = fixUrl(poster)
             this.plot = desc
         }
     }
-
 
     override suspend fun loadLinks(
         data: String,
@@ -163,44 +150,34 @@ class CablevisionhdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        app.get(data).document.select("a.btn.btn-md").apmap {
-            // Este selector a.btn.btn-md parece ser de la web anterior,
-            // según las capturas, los enlaces de opciones están en un div.flex.flex-wrap.gap-3 a
-            // Cambiaremos el selector para los enlaces de "Opción 1", "Opción 2", etc.
+        // --- CAMBIO AQUÍ: Nuevo selector para los enlaces de opciones de stream ---
+        app.get(data).document.select("div.flex.flex-wrap.gap-3 a").apmap {
             val trembedlink = it.attr("href")
 
-            // Asegurarse de que el enlace sea relevante, aunque con el nuevo selector no debería haber botones que no lo sean.
             if (trembedlink.contains("/live")) {
-                Log.d(name, "TrembedLink: $trembedlink")
+                Log.d(name, "TrembedLink (Opción de stream): $trembedlink")
 
                 val tremrequestDoc = app.get(trembedlink, headers = mapOf(
-                    "Host" to "www.tvporinternet2.com", // *** CAMBIO CRÍTICO A LA NUEVA URL ***
+                    "Host" to "www.tvporinternet2.com",
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                     "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language" to "en-US,en;q=0.5",
                     "Referer" to data,
-                    "Alt-Used" to "www.tvporinternet2.com", // *** CAMBIO CRÍTICO A LA NUEVA URL ***
+                    "Alt-Used" to "www.tvporinternet2.com",
                     "Connection" to "keep-alive",
                     "Cookie" to "TawkConnectionTime=0; twk_idm_key=qMfE5UE9JTs3JUBCtVUR1",
                     "Upgrade-Insecure-Requests" to "1",
-                    "Sec-Fetch-Dest" to "iframe", // Aunque no sea un iframe directo, a veces ayuda
+                    "Sec-Fetch-Dest" to "iframe",
                     "Sec-Fetch-Mode" to "navigate",
                     "Sec-Fetch-Site" to "same-origin",
                 )).document
 
-                // En tvporinternet2.com, la página a la que apuntan los enlaces de "Opción X"
-                // YA contiene directamente el script con la URL del stream, no un iframe que redirige a otro sitio.
-                // Por lo tanto, el 'iframe'?.attr("src") no es necesario aquí para trembedlink2.
-                // En su lugar, el 'trembedlink' YA ES lo que solía ser trembedlink2.
-                // El log 'TrembedLink2 (iframe src)' ahora será 'URL de la página de stream'.
-
-                val finalRedirectedUrl = tremrequestDoc.location() // La URL final de la solicitud
+                val finalRedirectedUrl = tremrequestDoc.location()
                 Log.d(name, "URL de la página de stream: $finalRedirectedUrl")
 
                 val scriptContent = tremrequestDoc.select("script").joinToString("") { it.html() }
                 Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-                // El Regex para .m3u8 sigue siendo válido ya que las URLs de stream no cambiaron su estructura
                 val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+(?:&amp;remote=\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})?(?:&expires=\\d+)?".toRegex()
 
                 val matchResult = m3u8Regex.find(scriptContent)
@@ -212,13 +189,12 @@ class CablevisionhdProvider : MainAPI() {
 
                     callback(
                         newExtractorLink(
-                            source = "TV por Internet", // Nombre del extractor
+                            source = "TV por Internet",
                             name = "Canal de TV",
                             url = extractedurl,
                             type = ExtractorLinkType.M3U8
                         ) {
                             this.quality = getQualityFromName("Normal")
-                            // El referer debe ser la URL de la página que contiene el script con el stream (finalRedirectedUrl)
                             this.referer = finalRedirectedUrl
                         }
                     )
@@ -226,7 +202,6 @@ class CablevisionhdProvider : MainAPI() {
                 } else {
                     Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalRedirectedUrl")
 
-                    // Lógica de respaldo (JsUnpacker antigua) si el nuevo método falla
                     val oldScriptPacked = tremrequestDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
                     Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
 
