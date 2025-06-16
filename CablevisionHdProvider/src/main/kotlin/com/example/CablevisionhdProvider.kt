@@ -10,17 +10,11 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.net.URL
 
-// Importaciones necesarias para resolver "Unresolved reference"
-//import com.lagradost.cloudstream3.extractors.GdrivePlayer
-import com.lagradost.cloudstream3.extractors.StreamTape
-// Añade más importaciones según los errores que persistan después de configurar Gradle
-// Por ejemplo:
-// import com.lagradost.cloudstream3.network.CloudflareBypasser
-// import com.lagradost.cloudstream3.network.WebViewResolver
-// import com.lagradost.cloudstream3.network.set
-// import com.lagradost.cloudstream3.utils.AppUtils.fixUrl
-// import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-// import com.lagradost.cloudstream3.utils.AppUtils.toJson
+// Importaciones necesarias (verificar si GdrivePlayer y StreamTape se usan, si no, eliminarlas)
+// import com.lagradost.cloudstream3.extractors.GdrivePlayer
+// import com.lagradost.cloudstream3.extractors.StreamTape
+// Para 'app.get()', 'fixUrl' etc., asumimos que CloudStream3 ya las provee
+// (como lo demuestra el log de que el plugin se carga)
 
 class CablevisionhdProvider : MainAPI() {
 
@@ -37,26 +31,21 @@ class CablevisionhdProvider : MainAPI() {
         TvType.Live,
     )
 
-    // Helper para decodificar Base64 de forma recursiva hasta que no cambie
-    // Se ha mejorado el manejo de padding y el límite de intentos.
     private fun decodeBase64UntilUnchanged(encodedString: String): String {
         var decodedString = encodedString
         var previousDecodedString = ""
         var attempts = 0
-        val maxAttempts = 5 // Limita los intentos para evitar bucles infinitos en caso de malformación
+        val maxAttempts = 5
 
         while (decodedString != previousDecodedString && attempts < maxAttempts) {
             previousDecodedString = decodedString
             decodedString = try {
-                // Base64 URL safe tiene - y _ que se convierten a + y /
                 val cleanedString = decodedString.replace('-', '+').replace('_', '/')
-                // Añadir padding si es necesario
                 val paddedString = if (cleanedString.length % 4 == 0) cleanedString else cleanedString + "====".substring(0, 4 - (cleanedString.length % 4))
                 val decodedBytes = Base64.decode(paddedString, Base64.DEFAULT)
                 String(decodedBytes)
             } catch (e: IllegalArgumentException) {
                 Log.e(name, "Error decodificando Base64 (intento ${attempts + 1}): ${e.message} - Cadena: ${decodedString.take(50)}...")
-                // Si hay un error en la decodificación, retornamos lo que teníamos hasta ahora.
                 return previousDecodedString
             }
             attempts++
@@ -175,16 +164,13 @@ class CablevisionhdProvider : MainAPI() {
         val mainChannelPageDoc = app.get(data).document
         Log.d(name, "HTML COMPLETO de mainChannelPageDoc (Página del canal principal): ${mainChannelPageDoc.html().take(500)}...")
 
-        // **PASO 1: Recopilar todas las URLs de opciones (Opción 1, Opción 2, etc.)**
-        // Estos son los enlaces <a href="..."> que llevan a live/canal.php, live2/canal.php, etc.
         val optionLinks = mainChannelPageDoc.select("div.flex.flex-wrap.gap-3 a")
             .mapNotNull { it.attr("href") }
-            .filter { it.isNotBlank() && it != "#" && it != "${mainUrl}" } // Excluir "Ver Más Canales"
+            .filter { it.isNotBlank() && it != "#" && it != "${mainUrl}" }
             .distinct()
 
         Log.d(name, "URLs de opciones encontradas en la página principal: $optionLinks")
 
-        // Fallback: Si no se encuentran las opciones del div, intentamos el iframe principal "player" como única fuente inicial.
         val allPossibleSourcesToProcess = if (optionLinks.isEmpty()) {
             val firstIframeSrc = mainChannelPageDoc.selectFirst("iframe[name=\"player\"]")?.attr("src")
             if (!firstIframeSrc.isNullOrBlank()) listOf(firstIframeSrc) else emptyList()
@@ -199,42 +185,57 @@ class CablevisionhdProvider : MainAPI() {
 
         var streamFound = false
 
-        // **PASO 2: Iterar sobre todas las posibles URLs de fuentes (Opción 1, Opción 2, etc.)**
         for ((index, sourceOptionUrl) in allPossibleSourcesToProcess.withIndex()) {
             Log.d(name, "Intentando procesar la URL de opción: $sourceOptionUrl (Opción ${index + 1})")
 
-            // Obtener el HTML de la página de la opción (ej. live/panamericana.php, live2/panamericana.php)
-            val optionPageDoc = app.get(sourceOptionUrl).document
-            Log.d(name, "HTML de la página de opción ($sourceOptionUrl): ${optionPageDoc.html().take(500)}...")
+            // **CAMBIO CRÍTICO AQUÍ:** Simular una navegación completa.
+            // Esto implica no enviar headers que delaten que estamos en un iframe.
+            val optionPageResponse = app.get(sourceOptionUrl, headers = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
+                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language" to "en-US,en;q=0.5",
+                "Connection" to "keep-alive",
+                "Upgrade-Insecure-Requests" to "1",
+                // NO enviar Sec-Fetch-Dest: iframe, Sec-Fetch-Mode, Sec-Fetch-Site: cross-site
+                // NO enviar Referer inicial, ya que es una navegación "top-level"
+                "Accept-Encoding" to "gzip, deflate, br"
+            ), referer = null) // Asegurarse de que no se envíe un referer por defecto si app.get lo hace
 
-            // **PASO 3: Encontrar el IFRAME ANIDADO (el que apunta a live.saohgdasregions.fun)**
-            // Este iframe es donde reside el reproductor real de Clappr/JWPlayer.
+            val optionPageDoc = optionPageResponse.document
+            val finalOptionPageUrl = optionPageResponse.url // La URL final después de posibles redirecciones
+            Log.d(name, "HTML recibido para ${finalOptionPageUrl} (después de simular navegador): ${optionPageDoc.html().take(500)}...")
+
+            // Verificar si el HTML recibido es el HTML "vacío" de redirección
+            if (optionPageDoc.selectFirst("script[language=\"javascript\"][type=\"text/javascript\"]")?.html()?.contains("if(self==top)") == true) {
+                Log.w(name, "Página de opción ${sourceOptionUrl} devolvió el script de redirección 'self==top'. Intentando siguiente opción.")
+                continue // Saltar a la siguiente opción
+            }
+
+            // PASO 3: Encontrar el IFRAME ANIDADO (el que apunta a live.saohgdasregions.fun)
             val playerIframeSrc = optionPageDoc.selectFirst("iframe.embed-responsive-item[src*=\"live.saohgdasregions.fun\"]")?.attr("src")
 
             if (playerIframeSrc.isNullOrBlank()) {
-                Log.w(name, "No se encontró el iframe del reproductor (live.saohgdasregions.fun) en la página de opción: $sourceOptionUrl")
-                continue // Prueba la siguiente opción si esta no tiene el iframe del reproductor
+                Log.w(name, "No se encontró el iframe del reproductor (live.saohgdasregions.fun) en la página de opción: $finalOptionPageUrl")
+                continue
             }
             Log.d(name, "SRC del iframe del reproductor encontrado: $playerIframeSrc")
 
-
-            // **PASO 4: Solicitar la página final del stream (la del iframe del reproductor)**
-            // Y de aquí, extraer el stream real.
+            // PASO 4: Solicitar la página final del stream (la del iframe del reproductor)
             val finalStreamPageResponse = app.get(playerIframeSrc, headers = mapOf(
                 "Host" to URL(playerIframeSrc).host,
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to sourceOptionUrl, // EL REFERER ahora es la URL de la página de la opción (ej. live/panamericana.php)
+                "Referer" to finalOptionPageUrl, // MUY IMPORTANTE: Referer es la URL final de la página de la opción
                 "Alt-Used" to URL(playerIframeSrc).host,
                 "Connection" to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "iframe",
+                "Sec-Fetch-Dest" to "iframe", // Para el iframe del reproductor, sí necesitamos estas cabeceras
                 "Sec-Fetch-Mode" to "navigate",
                 "Sec-Fetch-Site" to "cross-site",
                 "Accept-Encoding" to "gzip, deflate, br"
             ))
-            val finalResolvedPlayerPageUrl = finalStreamPageResponse.url // URL final después de redirecciones
+            val finalResolvedPlayerPageUrl = finalStreamPageResponse.url
             val finalStreamPageDoc = finalStreamPageResponse.document
             Log.d(name, "HTML de la página del reproductor ($finalResolvedPlayerPageUrl): ${finalStreamPageDoc.html().take(500)}...")
 
@@ -243,18 +244,15 @@ class CablevisionhdProvider : MainAPI() {
 
             var streamSourceUrl: String? = null
 
-            // **Estrategia A: Clappr con Base64 anidado**
-            // Las imágenes no muestran 4 atobs, sino más bien un src directo en video tag o un atob(atob(atob("..")))
-            // Vamos a ser más genéricos con la regex de clappr
-            // Intenta capturar cualquier cantidad de atob anidados
-            val clapprSourceRegex = "source:\\s*(?:atob\\(){1,5}\"(.*?)\"(?:\\)){1,5}".toRegex() // Hasta 5 atobs
+            // Estrategia A: Clappr con Base64 anidado (hasta 5 atobs)
+            val clapprSourceRegex = "source:\\s*(?:atob\\(){1,5}\"(.*?)\"(?:\\)){1,5}".toRegex()
             val clapprMatch = clapprSourceRegex.find(scriptContent)
 
             if (clapprMatch != null) {
                 val encodedString = clapprMatch.groupValues[1]
                 Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
                 val decodedStreamUrl = decodeBase64UntilUnchanged(encodedString)
-                if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) { // Asegúrate que sea una URL válida
+                if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) {
                     streamSourceUrl = decodedStreamUrl
                     Log.d(name, "¡URL de stream decodificada de Clappr (Base64) con éxito!: $streamSourceUrl")
                 } else {
@@ -264,11 +262,10 @@ class CablevisionhdProvider : MainAPI() {
                 Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalResolvedPlayerPageUrl")
             }
 
-            // **Estrategia B: Regex directa .m3u8 (si A falló)**
-            // Ajusta esta regex si ves variaciones en los puertos o dominios en la pestaña Network
+            // Estrategia B: Regex directa .m3u8 (si A falló)
             if (streamSourceUrl.isNullOrBlank()) {
                 val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun(?::\\d+)?/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_.-]+".toRegex()
-                val m3u8Match = m3u8Regex.find(scriptContent) // Buscamos en el contenido de los scripts
+                val m3u8Match = m3u8Regex.find(scriptContent)
 
                 if (m3u8Match != null) {
                     streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
@@ -278,15 +275,13 @@ class CablevisionhdProvider : MainAPI() {
                 }
             }
 
-            // **Estrategia C: JsUnpacker (Lógica antigua, solo si A y B fallaron)**
+            // Estrategia C: JsUnpacker (Lógica antigua, solo si A y B fallaron)
             if (streamSourceUrl.isNullOrBlank()) {
                 val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
                 Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
 
                 if (oldScriptPacked != null) {
                     val script = JsUnpacker(oldScriptPacked)
-                    Log.d(name, "JsUnpacker detect: ${script.detect()}")
-
                     if (script.detect()) {
                         val unpackedScript = script.unpack()
                         Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
@@ -296,11 +291,7 @@ class CablevisionhdProvider : MainAPI() {
                         Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
 
                         val hash = mariocMatch?.groupValues?.get(1) ?: ""
-                        Log.d(name, "Hash extraído (antes de decodificar): ${hash.take(50)}...")
-
                         val extractedurl = decodeBase64UntilUnchanged(hash)
-                        Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
-
                         if (extractedurl.isNotBlank() && extractedurl.startsWith("http")) {
                             streamSourceUrl = extractedurl
                         } else {
@@ -314,22 +305,20 @@ class CablevisionhdProvider : MainAPI() {
                 }
             }
 
-
-            // Si se encontró un stream válido, lo agregamos y marcamos que se encontró uno
             if (streamSourceUrl != null) {
                 callback(
                     newExtractorLink(
                         source = "TV por Internet",
-                        name = "Canal de TV (Opción ${index + 1})", // Indica qué opción funcionó
+                        name = "Canal de TV (Opción ${index + 1})",
                         url = streamSourceUrl,
                         type = ExtractorLinkType.M3U8
                     ) {
                         this.quality = getQualityFromName("Normal")
-                        this.referer = finalResolvedPlayerPageUrl // Referer para el M3U8 es la URL de la página del reproductor (el segundo iframe).
+                        this.referer = finalResolvedPlayerPageUrl // Referer para el M3U8 es la URL de la página del reproductor.
                     }
                 )
                 streamFound = true
-                break // Salir del bucle una vez que se encuentre un stream
+                break
             }
         }
 
