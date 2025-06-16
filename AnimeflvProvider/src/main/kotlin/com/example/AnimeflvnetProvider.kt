@@ -192,6 +192,7 @@ class AnimeflvnetProvider : MainAPI() {
                     loadExtractor(code, data, subtitleCallback, callback)
                 }
             }
+
         }
         return true
     }

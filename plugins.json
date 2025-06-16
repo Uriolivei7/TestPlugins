@@ -137,5 +137,23 @@
     "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
     "language": "es",
     "fileSize": 19000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
+    "status": 0,
+    "version": 1,
+    "apiVersion": 7,
+    "name": "AnimeFLV",
+    "internalName": "AnimeflvnetProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para www3.animeflv.net",
+    "tvTypes": [
+      "Live"
+    ],
+    "iconUrl": "https://www3.animeflv.net/favicon.ico",
+    "language": "es",
+    "fileSize": 19000
   }
 ]

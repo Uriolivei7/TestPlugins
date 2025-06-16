@@ -152,6 +152,7 @@ class CablevisionhdProvider : MainAPI() {
     ): Boolean {
         // PASO 1: Obtener el SRC del IFRAME principal de la página de detalle del canal.
         val mainChannelPageDoc = app.get(data).document
+        Log.d(name, "HTML COMPLETO de mainChannelPageDoc: ${mainChannelPageDoc.html()}") // DEBUG: Volcar HTML completo
         val firstIframeSrc = mainChannelPageDoc.selectFirst("iframe[name=\"player\"]")?.attr("src")
         Log.d(name, "SRC del PRIMER Iframe (player): $firstIframeSrc")
 
@@ -174,6 +175,7 @@ class CablevisionhdProvider : MainAPI() {
             "Sec-Fetch-Mode" to "navigate",
             "Sec-Fetch-Site" to "same-origin",
         )).document
+        Log.d(name, "HTML COMPLETO de secondIframePageDoc: ${secondIframePageDoc.html()}") // DEBUG: Volcar HTML completo
 
         // PASO 3: Obtener el SRC del SEGUNDO IFRAME dentro de la p??gina del primer iframe.
         val finalStreamIframeSrc = secondIframePageDoc.selectFirst("iframe.embed-responsive-item[name=\"iframe\"]")?.attr("src")
@@ -205,6 +207,7 @@ class CablevisionhdProvider : MainAPI() {
         // Si no, ser? la misma que finalStreamIframeSrc
         val finalResolvedUrl = finalStreamPageResponse.url // Obtener la URL final despu?s de cualquier redirecci?n
         val finalStreamPageDoc = finalStreamPageResponse.document // Obtener el documento del response
+        Log.d(name, "HTML COMPLETO de finalStreamPageDoc: ${finalStreamPageDoc.html()}") // DEBUG: Volcar HTML completo
 
         Log.d(name, "URL de la p??gina de stream resuelta: $finalResolvedUrl")
         Log.d(name, "Contenido de la p??gina de stream resuelta (primeros 500 chars): ${finalStreamPageDoc.html().take(500)}...")
@@ -224,7 +227,7 @@ class CablevisionhdProvider : MainAPI() {
             Log.d(name, "¡embedUrl encontrada!: $embedUrl")
 
             // PASO 5: Solicitar la embedUrl y buscar el m3u8 allí
-            val embedPageDoc = app.get(embedUrl, headers = mapOf(
+            val embedPageResponse = app.get(embedUrl, headers = mapOf(
                 "Host" to URL(embedUrl).host,
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -237,7 +240,9 @@ class CablevisionhdProvider : MainAPI() {
                 "Sec-Fetch-Mode" to "navigate",
                 "Sec-Fetch-Site" to "cross-site",
                 "Accept-Encoding" to "gzip, deflate, br" // A?ADIDO AQU? TAMBI?N
-            )).document
+            ))
+            val embedPageDoc = embedPageResponse.document // Obtenemos el documento del response
+            Log.d(name, "HTML COMPLETO de embedPageDoc: ${embedPageDoc.html()}") // DEBUG: Volcar HTML completo
 
             val embedPageContent = embedPageDoc.html() // Obtenemos todo el HTML de la página de embed
             Log.d(name, "Contenido de la p??gina embed (primeros 500 chars): ${embedPageContent.take(500)}...")
