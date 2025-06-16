@@ -10,12 +10,6 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.net.URL
 
-// Importaciones necesarias (verificar si GdrivePlayer y StreamTape se usan, si no, eliminarlas)
-// import com.lagradost.cloudstream3.extractors.GdrivePlayer
-// import com.lagradost.cloudstream3.extractors.StreamTape
-// Para 'app.get()', 'fixUrl' etc., asumimos que CloudStream3 ya las provee
-// (como lo demuestra el log de que el plugin se carga)
-
 class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.tvporinternet2.com"
@@ -188,27 +182,30 @@ class CablevisionhdProvider : MainAPI() {
         for ((index, sourceOptionUrl) in allPossibleSourcesToProcess.withIndex()) {
             Log.d(name, "Intentando procesar la URL de opción: $sourceOptionUrl (Opción ${index + 1})")
 
-            // **CAMBIO CRÍTICO AQUÍ:** Simular una navegación completa.
-            // Esto implica no enviar headers que delaten que estamos en un iframe.
+            // Restablecer las cabeceras a un conjunto que imite un navegador normal y manejar la compresión.
+            // Es crucial incluir "Accept-Encoding"
             val optionPageResponse = app.get(sourceOptionUrl, headers = mapOf(
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language" to "en-US,en;q=0.5",
                 "Connection" to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                // NO enviar Sec-Fetch-Dest: iframe, Sec-Fetch-Mode, Sec-Fetch-Site: cross-site
-                // NO enviar Referer inicial, ya que es una navegación "top-level"
-                "Accept-Encoding" to "gzip, deflate, br"
-            ), referer = null) // Asegurarse de que no se envíe un referer por defecto si app.get lo hace
+                "Accept-Encoding" to "gzip, deflate, br", // <-- RE-AGREGADO Y ES CLAVE
+                // Considera si "Referer" debería ser nulo o mainUrl aquí, dependiendo de si se accede a
+                // live/panamericana.php directamente o desde la homepage. Para la primera solicitud, a menudo es nulo.
+                // Para simplificar, lo dejaremos en null para la primera carga, asumiendo que CloudStream3
+                // lo maneja si no se especifica.
+            ), referer = null) // Asegurarse de que el Referer no sea un problema inicial
 
             val optionPageDoc = optionPageResponse.document
-            val finalOptionPageUrl = optionPageResponse.url // La URL final después de posibles redirecciones
+            val finalOptionPageUrl = optionPageResponse.url
             Log.d(name, "HTML recibido para ${finalOptionPageUrl} (después de simular navegador): ${optionPageDoc.html().take(500)}...")
 
-            // Verificar si el HTML recibido es el HTML "vacío" de redirección
-            if (optionPageDoc.selectFirst("script[language=\"javascript\"][type=\"text/javascript\"]")?.html()?.contains("if(self==top)") == true) {
+            // Ahora que el HTML es (esperemos) válido, podemos buscar el script de redirección
+            val scriptRedirect = optionPageDoc.selectFirst("script[language=\"javascript\"][type=\"text/javascript\"]")?.html()
+            if (scriptRedirect != null && scriptRedirect.contains("if(self==top)")) {
                 Log.w(name, "Página de opción ${sourceOptionUrl} devolvió el script de redirección 'self==top'. Intentando siguiente opción.")
-                continue // Saltar a la siguiente opción
+                continue
             }
 
             // PASO 3: Encontrar el IFRAME ANIDADO (el que apunta a live.saohgdasregions.fun)
@@ -230,10 +227,10 @@ class CablevisionhdProvider : MainAPI() {
                 "Alt-Used" to URL(playerIframeSrc).host,
                 "Connection" to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "iframe", // Para el iframe del reproductor, sí necesitamos estas cabeceras
+                "Sec-Fetch-Dest" to "iframe",
                 "Sec-Fetch-Mode" to "navigate",
                 "Sec-Fetch-Site" to "cross-site",
-                "Accept-Encoding" to "gzip, deflate, br"
+                "Accept-Encoding" to "gzip, deflate, br" // También clave aquí
             ))
             val finalResolvedPlayerPageUrl = finalStreamPageResponse.url
             val finalStreamPageDoc = finalStreamPageResponse.document
@@ -314,7 +311,7 @@ class CablevisionhdProvider : MainAPI() {
                         type = ExtractorLinkType.M3U8
                     ) {
                         this.quality = getQualityFromName("Normal")
-                        this.referer = finalResolvedPlayerPageUrl // Referer para el M3U8 es la URL de la página del reproductor.
+                        this.referer = finalResolvedPlayerPageUrl
                     }
                 )
                 streamFound = true
