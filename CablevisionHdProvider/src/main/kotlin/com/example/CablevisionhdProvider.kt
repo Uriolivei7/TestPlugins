@@ -4,7 +4,6 @@ import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -155,38 +154,18 @@ class CablevisionhdProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val mainChannelPageDoc = app.get(data, headers = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language" to "en-US,en;q=0.5",
-            "Accept-Encoding" to "gzip, deflate, br",
-            "Connection" to "keep-alive",
-            "Upgrade-Insecure-Requests" to "1"
-        )).document
-        Log.d(name, "HTML COMPLETO de mainChannelPageDoc (Página del canal principal): ${mainChannelPageDoc.html().take(500)}...")
-
-        val optionLinks = mainChannelPageDoc.select("div.flex.flex-wrap.gap-3 a")
-            .mapNotNull { it.attr("href") }
-            .filter { it.isNotBlank() && it != "#" && it != "${mainUrl}" }
-            .distinct()
-
-        Log.d(name, "URLs de opciones encontradas en la página principal: $optionLinks")
-
-        val allPossibleSourcesToProcess = if (optionLinks.isEmpty()) {
-            val firstIframeSrc = mainChannelPageDoc.selectFirst("iframe[name=\"player\"]")?.attr("src")
-            if (!firstIframeSrc.isNullOrBlank()) listOf(firstIframeSrc) else emptyList()
-        } else {
-            optionLinks.map { "$mainUrl/$it" } // Asegurar URLs absolutas
-        }
-
-        if (allPossibleSourcesToProcess.isEmpty()) {
-            Log.w(name, "No se encontró ninguna URL de opción ni iframe 'player' principal en la página: $data")
-            return false
-        }
+        val optionUrls = listOf(
+            "live/panamericana.php",
+            "live2/panamericana.php",
+            "live3/panamericana.php",
+            "live4/panamericana.php",
+            "live5/panamericana.php",
+            "live6/panamericana.php"
+        ).map { "$mainUrl/$it" }
 
         var streamFound = false
 
-        for ((index, sourceOptionUrl) in allPossibleSourcesToProcess.withIndex()) {
+        for ((index, sourceOptionUrl) in optionUrls.withIndex()) {
             Log.d(name, "Intentando procesar la URL de opción: $sourceOptionUrl (Opción ${index + 1})")
 
             val optionPageResponse = app.get(sourceOptionUrl, headers = mapOf(
@@ -196,93 +175,48 @@ class CablevisionhdProvider : MainAPI() {
                 "Accept-Encoding" to "gzip, deflate, br",
                 "Connection" to "keep-alive",
                 "Upgrade-Insecure-Requests" to "1",
-                "Referer" to data // Usar la URL original como referer
+                "Sec-Fetch-Dest" to "document",
+                "Sec-Fetch-Mode" to "navigate",
+                "Sec-Fetch-Site" to "same-origin",
+                "Referer" to data,
+                "Cache-Control" to "no-cache",
+                "Pragma" to "no-cache"
             ), allowRedirects = true)
 
             val optionPageDoc = optionPageResponse.document
             val finalOptionPageUrl = optionPageResponse.url
             Log.d(name, "HTML recibido para ${finalOptionPageUrl} (después de simular navegador): ${optionPageDoc.html().take(500)}...")
 
-            // Verificar si hay redirección o script de JavaScript
-            val scriptRedirect = optionPageDoc.selectFirst("script[language=\"javascript\"][type=\"text/javascript\"]")?.html()
-            if (scriptRedirect != null && scriptRedirect.contains("if(self==top)")) {
-                Log.w(name, "Página de opción ${sourceOptionUrl} devolvió el script de redirección 'self==top'. Intentando siguiente opción.")
-                continue
-            }
+            val scriptContent = optionPageDoc.select("script").joinToString("") { it.html() }
+            Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-            // Buscar iframe anidado
-            val playerIframeSrc = optionPageDoc.selectFirst("iframe[src*=\"live.saohgdasregions.fun\"]")?.attr("src")
-                ?: optionPageDoc.selectFirst("iframe.embed-responsive-item")?.attr("src") // Selector alternativo
-
-            if (playerIframeSrc.isNullOrBlank()) {
-                Log.w(name, "No se encontró el iframe del reproductor (live.saohgdasregions.fun) en la página de opción: $finalOptionPageUrl")
-                continue
-            }
-            Log.d(name, "SRC del iframe del reproductor encontrado: $playerIframeSrc")
-
-            // Solicitar la página del iframe
-            val finalStreamPageResponse = app.get(playerIframeSrc, headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to finalOptionPageUrl,
-                "Accept-Encoding" to "gzip, deflate, br",
-                "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1"
-            ), allowRedirects = true)
-
-            val finalResolvedPlayerPageUrl = finalStreamPageResponse.url
-            val finalStreamPageDoc = finalStreamPageResponse.document
-            Log.d(name, "HTML de la página del reproductor ($finalResolvedPlayerPageUrl): ${finalStreamPageDoc.html().take(500)}...")
-
-            val scriptContent = finalStreamPageDoc.select("script").joinToString("") { it.html() }
-            Log.d(name, "Contenido combinado de scripts (primeros 500 chars) de la página del reproductor: ${scriptContent.take(500)}...")
-
-            var streamSourceUrl: String? = null
-
-            // Estrategia A: Clappr con Base64 anidado
-            val clapprSourceRegex = "source:\\s*(?:atob\\(){1,5}\"(.*?)\"(?:\\)){1,5}".toRegex()
+            val clapprSourceRegex = "source:\\s*atob\\(atob\\(atob\\(atob\\(\"(.*?)\"\\)\\)\\)\\)".toRegex()
             val clapprMatch = clapprSourceRegex.find(scriptContent)
+
             if (clapprMatch != null) {
                 val encodedString = clapprMatch.groupValues[1]
                 Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
-                val decodedStreamUrl = decodeBase64UntilUnchanged(encodedString)
+                val decodedStreamUrl = decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(encodedString))))
                 if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) {
-                    streamSourceUrl = decodedStreamUrl
-                    Log.d(name, "¡URL de stream decodificada de Clappr (Base64) con éxito!: $streamSourceUrl")
+                    Log.d(name, "¡URL de stream decodificada de Clappr (Base64) con éxito!: $decodedStreamUrl")
+                    callback(
+                        newExtractorLink(
+                            source = "TV por Internet",
+                            name = "Canal de TV (Opción ${index + 1})",
+                            url = decodedStreamUrl,
+                            type = ExtractorLinkType.M3U8
+                        ) {
+                            this.quality = getQualityFromName("Normal")
+                            this.referer = finalOptionPageUrl
+                        }
+                    )
+                    streamFound = true
+                    break
                 } else {
                     Log.w(name, "La URL decodificada de Clappr (Base64) está vacía, no es una URL, o no es válida.")
                 }
             } else {
-                Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalResolvedPlayerPageUrl")
-            }
-
-            // Estrategia B: Regex directa .m3u8
-            if (streamSourceUrl.isNullOrBlank()) {
-                val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun(?::\\d+)?/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_.-]+".toRegex()
-                val m3u8Match = m3u8Regex.find(scriptContent)
-                if (m3u8Match != null) {
-                    streamSourceUrl = m3u8Match.value.replace("&", "&")
-                    Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $streamSourceUrl")
-                } else {
-                    Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalResolvedPlayerPageUrl")
-                }
-            }
-
-            if (streamSourceUrl != null) {
-                callback(
-                    newExtractorLink(
-                        source = "TV por Internet",
-                        name = "Canal de TV (Opción ${index + 1})",
-                        url = streamSourceUrl,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.quality = getQualityFromName("Normal")
-                        this.referer = finalResolvedPlayerPageUrl
-                    }
-                )
-                streamFound = true
-                break
+                Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalOptionPageUrl")
             }
         }
 
