@@ -157,138 +157,76 @@ class CablevisionhdProvider : MainAPI() {
         Log.d(name, "SRC del PRIMER Iframe (player): $firstIframeSrc")
 
         if (firstIframeSrc.isNullOrBlank()) {
-            Log.w(name, "No se encontr?? el SRC del primer iframe principal en la p??gina: $data")
+            Log.w(name, "No se encontró el SRC del primer iframe principal en la página: $data")
             return false
         }
 
-        // PASO 2: Solicitar la p??gina que carga el primer iframe.
-        val secondIframePageDoc = app.get(firstIframeSrc, headers = mapOf(
-            "Host" to "www.tvporinternet2.com",
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language" to "en-US,en;q=0.5",
-            "Referer" to data, // El referer es la p??gina de detalle del canal original
-            "Alt-Used" to "www.tvporinternet2.com",
-            "Connection" to "keep-alive",
-            "Upgrade-Insecure-Requests" to "1",
-            "Sec-Fetch-Dest" to "iframe",
-            "Sec-Fetch-Mode" to "navigate",
-            "Sec-Fetch-Site" to "same-origin",
-        )).document
-        Log.d(name, "HTML COMPLETO de secondIframePageDoc: ${secondIframePageDoc.html()}") // DEBUG: Volcar HTML completo
+        // --- CAMBIO CLAVE AQUI ---
+        // El segundo iframe no está en secondIframePageDoc directamente como lo obtenemos con app.get().
+        // La imagen de Elements (image_a28dcc.png) muestra que el SRC real del stream es
+        // https://live.saohgdasregions.fun/stream.php?canal=americatv&target=1
+        // Este es el SRC del iframe que aparece *dentro* del primer iframe cuando lo ve un navegador.
+        // Pero como app.get() no ejecuta JS, el primer app.get() solo trae el HTML inicial, no el inyectado.
+        // Asumiremos que el patrón de la URL del stream es consistente y podemos construirla
+        // o buscarla directamente en el HTML del primer iframe si no tiene JS pesado.
 
-        // PASO 3: Obtener el SRC del SEGUNDO IFRAME dentro de la p??gina del primer iframe.
-        val finalStreamIframeSrc = secondIframePageDoc.selectFirst("iframe.embed-responsive-item[name=\"iframe\"]")?.attr("src")
-        Log.d(name, "SRC del SEGUNDO Iframe (stream): $finalStreamIframeSrc")
+        // Por ahora, y basándonos en la imagen_a28dcc.png, la URL del stream real está directamente ahí.
+        // Vamos a intentar extraerla directamente del primer iframe (firstIframeSrc)
+        // en lugar de buscar un segundo iframe.
+
+        // PASO 2 (Revisado): Ir directamente a la página que contiene el reproductor real.
+        // Esta URL la obtuvimos de la imagen_a28dcc.png, es el src del segundo iframe visible en el navegador.
+        // Necesitamos extraer dinámicamente el "canal" de firstIframeSrc o data.
+        // Ejemplo: firstIframeSrc = https://www.tvporinternet2.com/live/americatv.php
+        // Extraer "americatv"
+        val channelName = firstIframeSrc.split("/").last().replace(".php", "")
+        val finalStreamIframeSrc = "https://live.saohgdasregions.fun/stream.php?canal=$channelName&target=1"
+        Log.d(name, "URL del stream FINAL construida: $finalStreamIframeSrc")
 
         if (finalStreamIframeSrc.isNullOrBlank()) {
-            Log.w(name, "No se encontr?? el SRC del segundo iframe de stream en la p??gina: $firstIframeSrc")
+            Log.w(name, "No se pudo construir la URL final del stream.")
             return false
         }
 
-        // PASO 4: Solicitar la p??gina del segundo iframe para obtener el script con el .m3u8 o la embedUrl
-        // A?ADIMOS Accept-Encoding y ajustamos el Referer con getBaseUrl
+        // PASO 3: Solicitar la página final del stream.
         val finalStreamPageResponse = app.get(finalStreamIframeSrc, headers = mapOf(
             "Host" to URL(finalStreamIframeSrc).host,
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language" to "en-US,en;q=0.5",
-            "Referer" to firstIframeSrc, // EL REFERER sigue siendo la p??gina del primer iframe
+            "Referer" to firstIframeSrc, // EL REFERER ahora es la página del primer iframe
             "Alt-Used" to URL(finalStreamIframeSrc).host,
             "Connection" to "keep-alive",
             "Upgrade-Insecure-Requests" to "1",
             "Sec-Fetch-Dest" to "iframe",
             "Sec-Fetch-Mode" to "navigate",
             "Sec-Fetch-Site" to "cross-site",
-            "Accept-Encoding" to "gzip, deflate, br" // A?ADIDO: Muy com?n que falte y cause problemas
+            "Accept-Encoding" to "gzip, deflate, br"
         ))
+        val finalResolvedUrl = finalStreamPageResponse.url
+        val finalStreamPageDoc = finalStreamPageResponse.document
+        Log.d(name, "HTML COMPLETO de finalStreamPageDoc (página del stream real): ${finalStreamPageDoc.html()}") // DEBUG: Volcar HTML completo
 
-        // Si hay una redirecci?n, finalResolvedUrl ser? la URL final despu?s de la redirecci?n.
-        // Si no, ser? la misma que finalStreamIframeSrc
-        val finalResolvedUrl = finalStreamPageResponse.url // Obtener la URL final despu?s de cualquier redirecci?n
-        val finalStreamPageDoc = finalStreamPageResponse.document // Obtener el documento del response
-        Log.d(name, "HTML COMPLETO de finalStreamPageDoc: ${finalStreamPageDoc.html()}") // DEBUG: Volcar HTML completo
-
-        Log.d(name, "URL de la p??gina de stream resuelta: $finalResolvedUrl")
-        Log.d(name, "Contenido de la p??gina de stream resuelta (primeros 500 chars): ${finalStreamPageDoc.html().take(500)}...")
-
+        Log.d(name, "URL de la página de stream resuelta: $finalResolvedUrl")
+        Log.d(name, "Contenido de la página de stream resuelta (primeros 500 chars): ${finalStreamPageDoc.html().take(500)}...")
 
         val scriptContent = finalStreamPageDoc.select("script").joinToString("") { it.html() }
         Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-        // Intentamos encontrar la embedUrl primero
-        val embedUrlRegex = """const embedUrl = "(https://embed\.saohgdasregions\.fun)";""".toRegex()
-        val embedUrlMatch = embedUrlRegex.find(scriptContent)
+        // La regex para el M3U8 es la que viste en el Network tab
+        val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
+        val m3u8Match = m3u8Regex.find(scriptContent) // Buscamos en el contenido de los scripts
 
         var streamSourceUrl: String? = null
 
-        if (embedUrlMatch != null) {
-            val embedUrl = embedUrlMatch.groupValues[1]
-            Log.d(name, "¡embedUrl encontrada!: $embedUrl")
-
-            // PASO 5: Solicitar la embedUrl y buscar el m3u8 allí
-            val embedPageResponse = app.get(embedUrl, headers = mapOf(
-                "Host" to URL(embedUrl).host,
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Referer" to finalStreamIframeSrc, // El referer es la p??gina anterior
-                "Alt-Used" to URL(embedUrl).host,
-                "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "iframe",
-                "Sec-Fetch-Mode" to "navigate",
-                "Sec-Fetch-Site" to "cross-site",
-                "Accept-Encoding" to "gzip, deflate, br" // A?ADIDO AQU? TAMBI?N
-            ))
-            val embedPageDoc = embedPageResponse.document // Obtenemos el documento del response
-            Log.d(name, "HTML COMPLETO de embedPageDoc: ${embedPageDoc.html()}") // DEBUG: Volcar HTML completo
-
-            val embedPageContent = embedPageDoc.html() // Obtenemos todo el HTML de la página de embed
-            Log.d(name, "Contenido de la p??gina embed (primeros 500 chars): ${embedPageContent.take(500)}...")
-
-            // Regex para buscar el .m3u8 en el contenido de la página embed
-            val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
-            val m3u8Match = m3u8Regex.find(embedPageContent)
-
-            if (m3u8Match != null) {
-                streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
-                Log.d(name, "¡URL de stream .m3u8 encontrada en embed page!: $streamSourceUrl")
-            } else {
-                Log.w(name, "No se encontr?? la URL del stream .m3u8 con el Regex en la p??gina embed: $embedUrl")
-            }
-
+        if (m3u8Match != null) {
+            streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
+            Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa!: $streamSourceUrl")
         } else {
-            Log.w(name, "No se encontr?? la embedUrl en el script content de $finalStreamIframeSrc")
-
-            // Si no se encuentra la embedUrl, intentamos la regex de m3u8 directamente en el scriptContent original
-            val m3u8RegexFallback = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
-            val matchResultFallback = m3u8RegexFallback.find(scriptContent)
-
-            if (matchResultFallback != null) {
-                streamSourceUrl = matchResultFallback.value.replace("&amp;", "&")
-                Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $streamSourceUrl")
-            } else {
-                Log.w(name, "No se encontr?? la URL del stream .m3u8 con el Regex de fallback en la p??gina $finalResolvedUrl")
-            }
-        }
-
-        if (streamSourceUrl != null) {
-            callback(
-                newExtractorLink(
-                    source = "TV por Internet",
-                    name = "Canal de TV",
-                    url = streamSourceUrl,
-                    type = ExtractorLinkType.M3U8
-                ) {
-                    this.quality = getQualityFromName("Normal")
-                    this.referer = finalResolvedUrl
-                }
-            )
-        } else {
-            // Lógica de respaldo (JsUnpacker antigua) si el nuevo método falla
+            Log.w(name, "No se encontr?? la URL del stream .m3u8 con el Regex en la p??gina $finalResolvedUrl")
+            // Si la regex falla, aún podemos intentar con el JsUnpacker si crees que es un fallback
             val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
-            Log.d(name, "Script Packed encontrado (l??gica antigua): ${oldScriptPacked != null}")
+            Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
 
             if (oldScriptPacked != null) {
                 val script = JsUnpacker(oldScriptPacked)
@@ -309,26 +247,35 @@ class CablevisionhdProvider : MainAPI() {
                     Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
 
                     if (extractedurl.isNotBlank()) {
-                        callback(
-                            newExtractorLink(
-                                source = "TV por Internet (Old Method)",
-                                name = "Canal de TV (Old Method)",
-                                url = extractedurl,
-                                type = ExtractorLinkType.M3U8
-                            ) {
-                                this.quality = getQualityFromName("Normal")
-                                this.referer = finalResolvedUrl
-                            }
-                        )
+                        streamSourceUrl = extractedurl
                     } else {
-                        Log.w(name, "extractedurl est?? vac??a o en blanco despu??s de la decodificaci??n (m??todo antiguo) para hash: ${hash.take(50)}...")
+                        Log.w(name, "extractedurl está vacía o en blanco después de la decodificación (método antiguo) para hash: ${hash.take(50)}...")
                     }
                 } else {
-                    Log.w(name, "JsUnpacker no detect?? un script empaquetado (m??todo antiguo) en $finalResolvedUrl")
+                    Log.w(name, "JsUnpacker no detectó un script empaquetado (método antiguo) en $finalResolvedUrl")
                 }
             } else {
-                Log.w(name, "No se encontr?? el script 'function(p,a,c,k,e,d)' ni el patr??n MARIOCSCryptOld para ${finalResolvedUrl}.")
+                Log.w(name, "No se encontró el script 'function(p,a,c,k,e,d)' ni el patrón MARIOCSCryptOld para ${finalResolvedUrl}.")
             }
+        }
+
+
+        if (streamSourceUrl != null) {
+            callback(
+                newExtractorLink(
+                    source = "TV por Internet",
+                    name = "Canal de TV",
+                    url = streamSourceUrl,
+                    type = ExtractorLinkType.M3U8
+                ) {
+                    this.quality = getQualityFromName("Normal")
+                    // El referer para el M3U8 probablemente deba ser la URL de la página que lo aloja directamente.
+                    // En este caso, finalResolvedUrl parece ser la más adecuada.
+                    this.referer = finalResolvedUrl
+                }
+            )
+        } else {
+            Log.w(name, "¡No se pudo encontrar ninguna URL de stream válida para $data!")
         }
         return true
     }
