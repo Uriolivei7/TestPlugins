@@ -119,5 +119,23 @@
     "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
     "language": "es",
     "fileSize": 17000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CablevisionhdProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 7,
+    "name": "CableVisionHD",
+    "internalName": "CablevisionhdProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para cablevisionhd.com",
+    "tvTypes": [
+      "Live"
+    ],
+    "iconUrl": "https://www.cablevisionhd.com/imge/cablevisionhd.png",
+    "language": "es",
+    "fileSize": 17000
   }
 ]
