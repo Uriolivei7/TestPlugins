@@ -161,24 +161,6 @@ class CablevisionhdProvider : MainAPI() {
             return false
         }
 
-        // --- CAMBIO CLAVE AQUI ---
-        // El segundo iframe no está en secondIframePageDoc directamente como lo obtenemos con app.get().
-        // La imagen de Elements (image_a28dcc.png) muestra que el SRC real del stream es
-        // https://live.saohgdasregions.fun/stream.php?canal=americatv&target=1
-        // Este es el SRC del iframe que aparece *dentro* del primer iframe cuando lo ve un navegador.
-        // Pero como app.get() no ejecuta JS, el primer app.get() solo trae el HTML inicial, no el inyectado.
-        // Asumiremos que el patrón de la URL del stream es consistente y podemos construirla
-        // o buscarla directamente en el HTML del primer iframe si no tiene JS pesado.
-
-        // Por ahora, y basándonos en la imagen_a28dcc.png, la URL del stream real está directamente ahí.
-        // Vamos a intentar extraerla directamente del primer iframe (firstIframeSrc)
-        // en lugar de buscar un segundo iframe.
-
-        // PASO 2 (Revisado): Ir directamente a la página que contiene el reproductor real.
-        // Esta URL la obtuvimos de la imagen_a28dcc.png, es el src del segundo iframe visible en el navegador.
-        // Necesitamos extraer dinámicamente el "canal" de firstIframeSrc o data.
-        // Ejemplo: firstIframeSrc = https://www.tvporinternet2.com/live/americatv.php
-        // Extraer "americatv"
         val channelName = firstIframeSrc.split("/").last().replace(".php", "")
         val finalStreamIframeSrc = "https://live.saohgdasregions.fun/stream.php?canal=$channelName&target=1"
         Log.d(name, "URL del stream FINAL construida: $finalStreamIframeSrc")
@@ -188,7 +170,7 @@ class CablevisionhdProvider : MainAPI() {
             return false
         }
 
-        // PASO 3: Solicitar la página final del stream.
+        // PASO 2: Solicitar la página final del stream.
         val finalStreamPageResponse = app.get(finalStreamIframeSrc, headers = mapOf(
             "Host" to URL(finalStreamIframeSrc).host,
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0",
@@ -213,49 +195,67 @@ class CablevisionhdProvider : MainAPI() {
         val scriptContent = finalStreamPageDoc.select("script").joinToString("") { it.html() }
         Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
 
-        // La regex para el M3U8 es la que viste en el Network tab
-        val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
-        val m3u8Match = m3u8Regex.find(scriptContent) // Buscamos en el contenido de los scripts
-
         var streamSourceUrl: String? = null
 
-        if (m3u8Match != null) {
-            streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
-            Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa!: $streamSourceUrl")
+        // Nuevo paso: Extraer y decodificar la cadena Base64 del script de Clappr
+        val clapprSourceRegex = "source:\\s*atob\\(atob\\(atob\\(atob\\(\"(.*?)\"\\)\\)\\)\\)".toRegex()
+        val clapprMatch = clapprSourceRegex.find(scriptContent)
+
+        if (clapprMatch != null) {
+            val encodedString = clapprMatch.groupValues[1]
+            Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
+            val decodedStreamUrl = decodeBase64UntilUnchanged(encodedString)
+            if (decodedStreamUrl.isNotBlank()) {
+                streamSourceUrl = decodedStreamUrl
+                Log.d(name, "¡URL de stream decodificada de Clappr (Base64) con éxito!: $streamSourceUrl")
+            } else {
+                Log.w(name, "La URL decodificada de Clappr (Base64) está vacía o en blanco.")
+            }
         } else {
-            Log.w(name, "No se encontr?? la URL del stream .m3u8 con el Regex en la p??gina $finalResolvedUrl")
-            // Si la regex falla, aún podemos intentar con el JsUnpacker si crees que es un fallback
-            val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
-            Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
+            Log.w(name, "No se encontró el patrón de source de Clappr en la página: $finalResolvedUrl")
+            // Si la regex de Clappr falla, y como fallback (aunque es poco probable que se use ahora),
+            // se puede mantener el intento de la regex .m3u8 directa o JsUnpacker.
+            // La regex para el M3U8 es la que viste en el Network tab
+            val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun:\\d+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_-]+".toRegex()
+            val m3u8Match = m3u8Regex.find(scriptContent) // Buscamos en el contenido de los scripts
 
-            if (oldScriptPacked != null) {
-                val script = JsUnpacker(oldScriptPacked)
-                Log.d(name, "JsUnpacker detect: ${script.detect()}")
+            if (m3u8Match != null) {
+                streamSourceUrl = m3u8Match.value.replace("&amp;", "&")
+                Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $streamSourceUrl")
+            } else {
+                Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalResolvedUrl")
+                val oldScriptPacked = finalStreamPageDoc.select("script").find { it.html().contains("function(p,a,c,k,e,d)") }?.html()
+                Log.d(name, "Script Packed encontrado (lógica antigua): ${oldScriptPacked != null}")
 
-                if (script.detect()) {
-                    val unpackedScript = script.unpack()
-                    Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
+                if (oldScriptPacked != null) {
+                    val script = JsUnpacker(oldScriptPacked)
+                    Log.d(name, "JsUnpacker detect: ${script.detect()}")
 
-                    val mariocRegex = """MARIOCSCryptOld\("(.*?)"\)""".toRegex()
-                    val mariocMatch = mariocRegex.find(unpackedScript ?: "")
-                    Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
+                    if (script.detect()) {
+                        val unpackedScript = script.unpack()
+                        Log.d(name, "Script antiguo desempaquetado: ${unpackedScript?.take(200)}...")
 
-                    val hash = mariocMatch?.groupValues?.get(1) ?: ""
-                    Log.d(name, "Hash extraído (antes de decodificar): ${hash.take(50)}...")
+                        val mariocRegex = """MARIOCSCryptOld\("(.*?)"\)""".toRegex()
+                        val mariocMatch = mariocRegex.find(unpackedScript ?: "")
+                        Log.d(name, "Regex Match found (MARIOCSCryptOld): ${mariocMatch != null}")
 
-                    val extractedurl = decodeBase64UntilUnchanged(hash)
-                    Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
+                        val hash = mariocMatch?.groupValues?.get(1) ?: ""
+                        Log.d(name, "Hash extraído (antes de decodificar): ${hash.take(50)}...")
 
-                    if (extractedurl.isNotBlank()) {
-                        streamSourceUrl = extractedurl
+                        val extractedurl = decodeBase64UntilUnchanged(hash)
+                        Log.d(name, "URL extraída (final, método antiguo): $extractedurl")
+
+                        if (extractedurl.isNotBlank()) {
+                            streamSourceUrl = extractedurl
+                        } else {
+                            Log.w(name, "extractedurl está vacía o en blanco después de la decodificación (método antiguo) para hash: ${hash.take(50)}...")
+                        }
                     } else {
-                        Log.w(name, "extractedurl está vacía o en blanco después de la decodificación (método antiguo) para hash: ${hash.take(50)}...")
+                        Log.w(name, "JsUnpacker no detectó un script empaquetado (método antiguo) en $finalResolvedUrl")
                     }
                 } else {
-                    Log.w(name, "JsUnpacker no detectó un script empaquetado (método antiguo) en $finalResolvedUrl")
+                    Log.w(name, "No se encontró el script 'function(p,a,c,k,e,d)' ni el patrón MARIOCSCryptOld para ${finalResolvedUrl}.")
                 }
-            } else {
-                Log.w(name, "No se encontró el script 'function(p,a,c,k,e,d)' ni el patrón MARIOCSCryptOld para ${finalResolvedUrl}.")
             }
         }
 
@@ -269,9 +269,7 @@ class CablevisionhdProvider : MainAPI() {
                     type = ExtractorLinkType.M3U8
                 ) {
                     this.quality = getQualityFromName("Normal")
-                    // El referer para el M3U8 probablemente deba ser la URL de la página que lo aloja directamente.
-                    // En este caso, finalResolvedUrl parece ser la más adecuada.
-                    this.referer = finalResolvedUrl
+                    this.referer = finalResolvedUrl // Referer para el M3U8 es la URL de la página del stream.
                 }
             )
         } else {
