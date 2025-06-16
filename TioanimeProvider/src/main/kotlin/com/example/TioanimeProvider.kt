@@ -3,18 +3,12 @@ package com.example
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.utils.AppUtils.parseJson
+import com.lagradost.cloudstream3.utils.AppUtils.parseJson // Reutiliza el parser de Cloudstream
 import java.util.*
 import kotlin.collections.ArrayList
-import android.util.Log // Import para Logcat
-
-// NUEVAS IMPORTACIONES PARA JACKSON Y URLDecoder
-import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.databind.json.JsonMapper
-import com.fasterxml.jackson.module.kotlin.KotlinModule
-import com.fasterxml.jackson.module.kotlin.readValue
+import android.util.Log
 import java.net.URLDecoder
-import java.nio.charset.StandardCharsets // Para URLEncoder si lo necesitaras en el futuro, aunque en TioAnime no es directo
+import java.nio.charset.StandardCharsets
 
 class TioanimeProvider:MainAPI() {
     companion object {
@@ -36,11 +30,12 @@ class TioanimeProvider:MainAPI() {
         TvType.Anime,
     )
 
-    // Instancia de JsonMapper para el parseo de JSON
-    private val mapper = JsonMapper.builder()
-        .addModule(KotlinModule())
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-        .build()
+    // ELIMINA LA INICIALIZACIÓN DEL MAPPER MANUAL AQUI:
+    // private val mapper = JsonMapper.builder()
+    //    .addModule(KotlinModule())
+    //    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+    //    .build()
+
 
     override suspend fun getMainPage(page: Int, request : MainPageRequest): HomePageResponse {
         val urls = listOf(
@@ -105,7 +100,7 @@ class TioanimeProvider:MainAPI() {
         val response = app.post("https://tioanime.com/api/search",
             data = mapOf(Pair("value",query))
         ).text
-        val json = parseJson<List<SearchObject>>(response)
+        val json = parseJson<List<SearchObject>>(response) // Usa AppUtils.parseJson
         return json.map { searchr ->
             val title = searchr.title
             val href = "$mainUrl/anime/${searchr.slug}"
@@ -165,7 +160,7 @@ class TioanimeProvider:MainAPI() {
         }
     }
 
-    // FUNCIÓN LOADLINKS MODIFICADA
+    // FUNCIÓN LOADLINKS ADAPTADA PARA USAR AppUtils.parseJson
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -175,7 +170,6 @@ class TioanimeProvider:MainAPI() {
         Log.d("TioAnime", "loadLinks: Iniciando para URL: $data")
         val doc = app.get(data).document
 
-        // Buscar el script que contiene la variable 'videos'
         val scriptContent = doc.select("script").firstOrNull {
             it.data().contains("var videos =")
         }?.data()
@@ -185,17 +179,15 @@ class TioanimeProvider:MainAPI() {
             return false
         }
 
-        // Extraer el JSON de la variable 'videos'
         val jsonString = scriptContent.substringAfter("var videos = ").substringBefore(";")
-            .replace("\\'", "'") // Limpiar posibles escapes de comillas simples
-            .replace("\\", "") // Quitar barras invertidas de escape si no son necesarias para JSON
+            .replace("\\'", "'")
+            .replace("\\", "")
 
-        Log.d("TioAnime", "loadLinks: JSON de videos encontrado: ${jsonString.take(500)}") // Log solo una parte
+        Log.d("TioAnime", "loadLinks: JSON de videos encontrado: ${jsonString.take(500)}")
 
         try {
-            // Tioanime usa una lista de listas, donde cada sub-lista es un servidor
-            // y dentro tiene objetos con {server, title, code, languaje}
-            val videoServers: List<List<TioanimeVideo>> = mapper.readValue(jsonString)
+            // USANDO AppUtils.parseJson para parsear la lista de listas
+            val videoServers: List<List<TioanimeVideo>> = AppUtils.parseJson(jsonString)
 
             Log.d("TioAnime", "loadLinks: Se encontraron ${videoServers.size} grupos de servidores.")
 
@@ -205,28 +197,22 @@ class TioanimeProvider:MainAPI() {
                     val serverName = videoInfo.title
                     Log.d("TioAnime", "loadLinks: Procesando servidor: $serverName, Code: $videoCode")
 
-                    // Tioanime a veces incrusta links de servicios conocidos o IDs que necesitan ser construidos
-                    // Aquí es donde ajustas para los diferentes tipos de servidores que usa Tioanime
                     val urlToExtract = when {
-                        videoCode.contains("fembed.com") -> videoCode // Directamente la URL de fembed
-                        videoCode.contains("sbani.pro") -> videoCode // Directamente la URL de StreamSB
-                        videoCode.contains("ok.ru") -> videoCode // Directamente la URL de Ok.ru
-                        // Añade más casos si Tioanime usa otros dominios directamente.
-                        // SI ves otros dominios en el Logcat (en 'videoCode'), añádelos aquí.
+                        videoCode.contains("fembed.com") -> videoCode
+                        videoCode.contains("sbani.pro") -> videoCode
+                        videoCode.contains("ok.ru") -> videoCode
+                        // Aquí puedes añadir más reglas si Tioanime usa otros dominios
                         else -> {
-                            // Si no es una URL directa, podría ser un ID o una URL codificada o incompleta
-                            // Investiga la estructura de 'videoCode' para otros servidores
                             Log.w("TioAnime", "loadLinks: Formato de videoCode no reconocido para extractor directo: $videoCode")
-                            null // No procesar si no es un formato esperado
+                            null
                         }
                     }
 
                     if (!urlToExtract.isNullOrEmpty()) {
                         Log.d("TioAnime", "loadLinks: Intentando extraer de: $urlToExtract")
-                        // Si necesitas decodificar la URL porque viene con entidades HTML o URL-encoded
                         val decodedUrl = URLDecoder.decode(urlToExtract, StandardCharsets.UTF_8.toString())
-                            .replace("https://embedsb.com/e/","https://watchsb.com/e/") // Normalizar StreamSB
-                            .replace("https://ok.ru","http://ok.ru") // Normalizar Ok.ru
+                            .replace("https://embedsb.com/e/","https://watchsb.com/e/")
+                            .replace("https://ok.ru","http://ok.ru")
 
                         loadExtractor(decodedUrl, subtitleCallback, callback)
                     }
@@ -244,11 +230,6 @@ class TioanimeProvider:MainAPI() {
 data class TioanimeVideo(
     @JsonProperty("server") val server: Int,
     @JsonProperty("title") val title: String,
-    @JsonProperty("code") val code: String, // Esta es la URL o el ID del embed
-    @JsonProperty("languaje") val language: String? // Nota: es "languaje" no "language" en el JSON
+    @JsonProperty("code") val code: String,
+    @JsonProperty("languaje") val language: String?
 )
-
-// Opcional: Si el JSON tuviera una clave raíz para los videos, pero parece ser un array directo
-// data class TioanimeVideosResponse(
-//    @JsonProperty("videos") val videos: List<List<TioanimeVideo>>
-// )
