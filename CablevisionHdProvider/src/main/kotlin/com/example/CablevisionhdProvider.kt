@@ -13,7 +13,7 @@ import java.net.URL
 class CablevisionhdProvider : MainAPI() {
 
     override var mainUrl = "https://www.tvporinternet2.com"
-    override var name = "TVporInternet"
+    override var name = "TVporInternet" // Nombre actualizado para los logs
     override var lang = "es"
 
     override val hasQuickSearch = false
