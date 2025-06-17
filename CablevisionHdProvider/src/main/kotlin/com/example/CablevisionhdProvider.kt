@@ -269,10 +269,6 @@ class CablevisionhdProvider : MainAPI() {
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-                // Si hay una redirección, OkHttp la seguirá automáticamente, y el HTML que recibamos
-                // será el de la URL final después de la redirección.
-                // El log de `finalStreamResponse.code == 302` no es necesario si OkHttp lo sigue.
-                // Lo importante es el HTML resultante y si el Referer es el correcto.
 
                 Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
 
