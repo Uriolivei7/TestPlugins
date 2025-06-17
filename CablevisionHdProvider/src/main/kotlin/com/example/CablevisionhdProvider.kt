@@ -314,18 +314,4 @@ class CablevisionhdProvider : MainAPI() {
         Log.w(name, "No se encontró ninguna URL de stream válida tras analizar la página del canal: $data")
         return false
     }
-
-    fun getBaseUrl(urlString: String): String {
-        val url = URL(urlString)
-        return "${url.protocol}://${url.host}"
-    }
-
-    fun getHostUrl(urlString: String): String {
-        val url = URL(urlString)
-        return url.host
-    }
-
-    fun atob(encodedString: String): String {
-        return String(Base64.decode(encodedString, Base64.DEFAULT), Charsets.UTF_8)
-    }
 }
