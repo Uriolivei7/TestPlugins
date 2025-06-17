@@ -23,7 +23,7 @@ class AnimeflvnetProvider : MainAPI() {
     }
 
     override var mainUrl = "https://www3.animeflv.net"
-    override var name = "Animeflv.net"
+    override var name = "AnimeFLV"
     override var lang = "es"
     override val hasMainPage = true
     override val hasChromecastSupport = true
