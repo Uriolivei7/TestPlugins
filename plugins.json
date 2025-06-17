@@ -140,7 +140,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
-    "status": 0,
+    "status": 1,
     "version": 1,
     "apiVersion": 7,
     "name": "AnimeFLV",
