@@ -101,30 +101,10 @@
     "fileSize": 19000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/TioanimeProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 6,
-    "name": "TioAnime",
-    "internalName": "TioanimeProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para tioanime.com",
-    "tvTypes": [
-      "Anime",
-      "AnimeMovie",
-      "OVA"
-    ],
-    "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
-    "language": "es",
-    "fileSize": 17000
-  },
-  {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CablevisionhdProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 7,
+    "apiVersion": 6,
     "name": "TV por Internet",
     "internalName": "CablevisionhdProvider",
     "authors": [
