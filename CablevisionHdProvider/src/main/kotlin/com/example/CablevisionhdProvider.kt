@@ -3,11 +3,13 @@ package com.example
 import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.net.URL
+import java.nio.charset.StandardCharsets
 
 class CablevisionhdProvider : MainAPI() {
 
@@ -36,8 +38,8 @@ class CablevisionhdProvider : MainAPI() {
                 val cleanedString = decodedString.replace('-', '+').replace('_', '/')
                 val paddedString = if (cleanedString.length % 4 == 0) cleanedString else cleanedString + "====".substring(0, 4 - (cleanedString.length % 4))
                 val decodedBytes = Base64.decode(paddedString, Base64.DEFAULT)
-                String(decodedBytes)
-            } catch (e: IllegalArgumentException) {
+                String(decodedBytes, StandardCharsets.UTF_8)
+            } catch (e: Exception) {
                 Log.e(name, "Error decodificando Base64 (intento ${attempts + 1}): ${e.message} - Cadena: ${decodedString.take(50)}...")
                 return previousDecodedString
             }
@@ -166,44 +168,76 @@ class CablevisionhdProvider : MainAPI() {
         var streamFound = false
 
         for ((index, sourceOptionUrl) in optionUrls.withIndex()) {
-            Log.d(name, "Intentando procesar la URL de opción: $sourceOptionUrl (Opción ${index + 1})")
+            Log.d(name, "Procesando URL opción: $sourceOptionUrl (Opción ${index + 1})")
+            try {
+                val optionPageResponse = app.get(
+                    sourceOptionUrl,
+                    headers = mapOf(
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                        "Accept-Charset" to "UTF-8",
+                        "Accept-Language" to "en-US,en;q=0.5",
+                        "Accept-Encoding" to "gzip, deflate, br",
+                        "Connection" to "keep-alive",
+                        "Upgrade-Insecure-Requests" to "1",
+                        "Sec-Fetch-Dest" to "document",
+                        "Sec-Fetch-Mode" to "navigate",
+                        "Sec-Fetch-Site" to "same-origin",
+                        "Referer" to data,
+                        "Cache-Control" to "no-cache",
+                        "Pragma" to "no-cache"
+                    ),
+                    allowRedirects = true,
+                    timeout = 10000
+                )
 
-            val optionPageResponse = app.get(sourceOptionUrl, headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Accept-Encoding" to "gzip, deflate, br",
-                "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "document",
-                "Sec-Fetch-Mode" to "navigate",
-                "Sec-Fetch-Site" to "same-origin",
-                "Referer" to data,
-                "Cache-Control" to "no-cache",
-                "Pragma" to "no-cache"
-            ), allowRedirects = true, timeout = 10000)
+                val optionPageDoc = optionPageResponse.document
+                val finalOptionPageUrl = optionPageResponse.url
+                Log.d(name, "HTML recibido para $finalOptionPageUrl: ${optionPageDoc.html().take(1000)}...")
 
-            val optionPageDoc = optionPageResponse.document
-            val finalOptionPageUrl = optionPageResponse.url
-            Log.d(name, "HTML recibido para ${finalOptionPageUrl} (después de simular navegador): ${optionPageDoc.html().take(500)}...")
+                val scriptContent = optionPageDoc.select("script").joinToString("") { it.html() }
+                Log.d(name, "Contenido de scripts combinado: ${scriptContent.take(1000)}...")
 
-            val scriptContent = optionPageDoc.select("script").joinToString("") { it.html() }
-            Log.d(name, "Contenido combinado de scripts (primeros 500 chars): ${scriptContent.take(500)}...")
+                // Intentar extraer fuente Clappr
+                val clapprSourceRegex = "source:\\s*atob\\(.*?\\(\"(.*?)\"\\)".toRegex()
+                val clapprMatch = clapprSourceRegex.find(scriptContent)
+                if (clapprMatch != null) {
+                    val encodedString = clapprMatch.groupValues[1]
+                    Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
+                    val decodedStreamUrl = decodeBase64UntilUnchanged(encodedString)
+                    if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) {
+                        Log.d(name, "URL de stream Clappr decodificada con éxito: $decodedStreamUrl")
+                        callback(
+                            newExtractorLink(
+                                source = name,
+                                name = "Canal de TV (Opción ${index + 1})",
+                                url = decodedStreamUrl,
+                                type = ExtractorLinkType.M3U8
+                            ) {
+                                this.quality = getQualityFromName("Normal")
+                                this.referer = finalOptionPageUrl
+                            }
+                        )
+                        streamFound = true
+                        break
+                    } else {
+                        Log.w(name, "URL Clappr decodificada vacía o inválida: $decodedStreamUrl")
+                    }
+                } else {
+                    Log.w(name, "No se encontró el patrón de source de Clappr en la página: $finalOptionPageUrl")
+                }
 
-            // Intentar extraer la fuente Base64 de Clappr
-            val clapprSourceRegex = "source:\\s*atob\\(atob\\(atob\\(atob\\(\"(.*?)\"\\)\\)\\)\\)".toRegex()
-            val clapprMatch = clapprSourceRegex.find(scriptContent)
-            if (clapprMatch != null) {
-                val encodedString = clapprMatch.groupValues[1]
-                Log.d(name, "Cadena Base64 encontrada en Clappr: ${encodedString.take(50)}...")
-                val decodedStreamUrl = decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(decodeBase64UntilUnchanged(encodedString))))
-                if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) {
-                    Log.d(name, "¡URL de stream decodificada de Clappr (Base64) con éxito!: $decodedStreamUrl")
+                // Respaldo: Buscar URLs .m3u8
+                val m3u8Regex = "https?://[^\"'\\s]+\\.m3u8(?:\\?[^\"'\\s]*)?".toRegex()
+                val m3u8Match = m3u8Regex.find(optionPageResponse.text)
+                if (m3u8Match != null) {
+                    val m3u8Url = m3u8Match.value
+                    Log.d(name, "URL de stream .m3u8 encontrada por regex: $m3u8Url")
                     callback(
                         newExtractorLink(
-                            source = "TV por Internet",
+                            source = name,
                             name = "Canal de TV (Opción ${index + 1})",
-                            url = decodedStreamUrl,
+                            url = m3u8Url,
                             type = ExtractorLinkType.M3U8
                         ) {
                             this.quality = getQualityFromName("Normal")
@@ -213,38 +247,15 @@ class CablevisionhdProvider : MainAPI() {
                     streamFound = true
                     break
                 } else {
-                    Log.w(name, "La URL decodificada de Clappr (Base64) está vacía, no es una URL, o no es válida.")
+                    Log.w(name, "No se encontró URL de stream .m3u8 por regex en la página: $finalOptionPageUrl")
                 }
-            } else {
-                Log.w(name, "No se encontró el patrón de source de Clappr con atob(s) anidados en la página: $finalOptionPageUrl")
-            }
-
-            // Fallback: Buscar patrones .m3u8 directamente en la respuesta
-            val m3u8Regex = "https://live\\d*\\.saohgdasregions\\.fun(?::\\d+)?/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+(?:/index)?\\.m3u8\\?token=[a-zA-Z0-9_.-]+".toRegex()
-            val m3u8Match = m3u8Regex.find(optionPageResponse.text)
-            if (m3u8Match != null) {
-                val m3u8Url = m3u8Match.value.replace("&", "&")
-                Log.d(name, "¡URL de stream .m3u8 encontrada por Regex directa (fallback)!: $m3u8Url")
-                callback(
-                    newExtractorLink(
-                        source = "TV por Internet",
-                        name = "Canal de TV (Opción ${index + 1})",
-                        url = m3u8Url,
-                        type = ExtractorLinkType.M3U8
-                    ) {
-                        this.quality = getQualityFromName("Normal")
-                        this.referer = finalOptionPageUrl
-                    }
-                )
-                streamFound = true
-                break
-            } else {
-                Log.w(name, "No se encontró la URL del stream .m3u8 con el Regex en la página $finalOptionPageUrl")
+            } catch (e: Exception) {
+                Log.e(name, "Error al procesar $sourceOptionUrl: ${e.message}")
             }
         }
 
         if (!streamFound) {
-            Log.w(name, "¡No se pudo encontrar ninguna URL de stream válida después de probar todas las opciones para $data!")
+            Log.w(name, "No se encontró ninguna URL de stream válida tras probar todas las opciones para $data")
         }
         return streamFound
     }
