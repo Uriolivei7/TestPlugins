@@ -1,26 +1,26 @@
 // settings.gradle.kts
+@file:Suppress("UnstableApiUsage")
+
 pluginManagement {
     repositories {
-        google()
+        google() // Asegúrate de que esté aquí (ya lo tienes, ¡bien!)
         mavenCentral()
         gradlePluginPortal()
-        // ¡ESTA ES LA LÍNEA QUE DEBES AÑADIR!
-        maven("https://jitpack.io") // JitPack es donde se aloja el plugin de CloudStream
-        // Asegúrate de que este sea el repositorio correcto para el plugin de CloudStream
-        // Si el plugin estuviera en otro lugar, la URL sería diferente.
-        // A veces también es: maven { url "https://plugins.gradle.org/m2/" }
+        maven("https://jitpack.io")
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        google() // <-- ¡AÑADE ESTA LÍNEA! Es crucial para dependencias como desugar_jdk_libs
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
     }
 }
-rootProject.name = "TestPlugins" // O "TestPlugins" si así se llama tu carpeta raíz
+rootProject.name = "TestPlugins"
 
-// Resto del código de auto-inclusión:
+// Resto del código de auto-inclusión (no necesita cambios para este problema):
 val disabled = listOf<String>()
 
 File(rootDir, ".").eachDir { dir ->

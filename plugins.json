@@ -98,7 +98,7 @@
     ],
     "iconUrl": "https://img.icons8.com/?size=100&id=h9SssDMkJ1d2&format=png",
     "language": "en",
-    "fileSize": 19000
+    "fileSize": 22000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
@@ -122,7 +122,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CrunchyrollProvider.cs3",
-    "status": 1,
+    "status": 0,
     "version": 1,
     "apiVersion": 6,
     "name": "Crunchyroll",
@@ -142,7 +142,7 @@
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/TvporinternetProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 6,
+    "apiVersion": 7,
     "name": "TVporInternet",
     "internalName": "TvporinternetProvider",
     "authors": [
@@ -153,6 +153,24 @@
       "Live"
     ],
     "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
+    "language": "es",
+    "fileSize": 22000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/YoutubeProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 7,
+    "name": "YouTube",
+    "internalName": "YoutubeProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para Youtube",
+    "tvTypes": [
+      "Live"
+    ],
+    "iconUrl": "https://www.youtube.com/s/desktop/aba54451/img/logos/favicon_32x32.png",
     "language": "es",
     "fileSize": 22000
   }
