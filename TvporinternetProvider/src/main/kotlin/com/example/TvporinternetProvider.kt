@@ -3,18 +3,13 @@ package com.example
 import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import java.net.URL
 import java.nio.charset.StandardCharsets
 import com.lagradost.cloudstream3.utils.Qualities // Importación para Qualities
-import org.jsoup.nodes.Document
-import org.jsoup.select.Elements
 
-class CablevisionhdProvider : MainAPI() {
+class TvporinternetProvider : MainAPI() {
 
     override var mainUrl = "https://www.tvporinternet2.com"
     override var name = "TVporInternet"
