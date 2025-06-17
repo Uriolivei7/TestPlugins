@@ -96,27 +96,9 @@
       "Anime",
       "AnimeMovie"
     ],
-    "iconUrl": "https://img.icons8.com/?size=96&id=sGxCEkuQ0MGf&format=png",
+    "iconUrl": "https://img.icons8.com/?size=100&id=h9SssDMkJ1d2&format=png",
     "language": "en",
     "fileSize": 19000
-  },
-  {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CunchyrollProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 6,
-    "name": "Crunchyroll",
-    "internalName": "KrunchyProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para Crunchyroll",
-    "tvTypes": [
-      "Live"
-    ],
-    "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
-    "language": "es",
-    "fileSize": 18000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
@@ -130,10 +112,30 @@
     ],
     "description": "Plugin para www3.animeflv.net",
     "tvTypes": [
-      "Live"
+      "Anime",
+      "AnimeMovie",
+      "OVA"
     ],
     "iconUrl": "https://www3.animeflv.net/favicon.ico",
     "language": "es",
     "fileSize": 18000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CrunchyrollProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 6,
+    "name": "Crunchyroll",
+    "internalName": "KrunchyProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para Crunchyroll",
+    "tvTypes": [
+      "Live"
+    ],
+    "iconUrl": "https://img.icons8.com/?size=96&id=sGxCEkuQ0MGf&format=png",
+    "language": "es",
+    "fileSize": 29000
   }
 ]
