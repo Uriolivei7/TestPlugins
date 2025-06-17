@@ -27,7 +27,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
-import android.util.Log // Importa la clase Log para depuración
+import android.util.Log
 import okhttp3.RequestBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -35,6 +35,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class AnizoneProvider : MainAPI() {
 
@@ -62,35 +65,38 @@ class AnizoneProvider : MainAPI() {
         "wireSnapshot" to "",
         "token" to ""
     )
-    // Nueva variable para controlar si Livewire ha sido inicializado exitosamente
     private var isLivewireInitialized = false
 
-    // NOTA: El bloque 'init {}' original ha sido eliminado.
-    // La inicialización se realizará de forma condicional al inicio de las operaciones que lo requieran.
+    // Mutex para sincronizar el acceso a la inicialización de Livewire
+    private val livewireInitMutex = Mutex()
 
     /**
      * Inicializa las credenciales de Livewire (cookies, token, snapshot) desde la página principal.
+     * Utiliza un Mutex para asegurar que solo un hilo la ejecute a la vez.
      * Si falla, la bandera isLivewireInitialized se mantendrá en false.
      */
     private suspend fun initializeLivewire() {
-        Log.d(name, "initializeLivewire: Intentando inicializar Livewire...")
-        try {
-            val initReq = app.get("$mainUrl/anime")
-            this.cookies = initReq.cookies.toMutableMap()
-            val doc = initReq.document
-            wireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
-            wireData["wireSnapshot"] = getSnapshot(doc)
+        livewireInitMutex.withLock { // Asegura que solo un hilo pueda ejecutar este bloque a la vez
+            if (isLivewireInitialized && !wireData["token"].isNullOrBlank() && !wireData["wireSnapshot"].isNullOrBlank()) {
+                Log.d(name, "initializeLivewire: Livewire ya inicializado y credenciales válidas. Saltando inicialización.")
+                return // Ya inicializado, salimos
+            }
 
-            // No es necesario llamar a sortAnimeLatest aquí en la inicialización global.
-            // Si la home page necesita un orden específico, se manejará en getMainPage.
-            // sortAnimeLatest() // -> Esto fue removido para agilizar la inicialización general
+            Log.d(name, "initializeLivewire: Intentando inicializar Livewire (dentro de Mutex)...")
+            try {
+                val initReq = app.get("$mainUrl/anime")
+                this.cookies = initReq.cookies.toMutableMap()
+                val doc = initReq.document
+                wireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
+                wireData["wireSnapshot"] = getSnapshot(doc)
 
-            isLivewireInitialized = true // Marcamos que la inicialización fue exitosa
-            Log.d(name, "initializeLivewire: Livewire inicializado exitosamente.")
-        } catch (e: Exception) {
-            isLivewireInitialized = false // La inicialización falló
-            Log.e(name, "initializeLivewire: Error durante la inicialización de Livewire: ${e.message}", e)
-            throw e // Relanzar la excepción para que el llamador maneje el fallo
+                isLivewireInitialized = true // Marcamos que la inicialización fue exitosa
+                Log.d(name, "initializeLivewire: Livewire inicializado exitosamente (dentro de Mutex).")
+            } catch (e: Exception) {
+                isLivewireInitialized = false // La inicialización falló
+                Log.e(name, "initializeLivewire: Error durante la inicialización de Livewire (dentro de Mutex): ${e.message}", e)
+                throw e // Relanzar la excepción para que el llamador maneje el fallo
+            }
         }
     }
 
@@ -139,12 +145,13 @@ class AnizoneProvider : MainAPI() {
         biscuit : MutableMap<String, String>,
         wireCreds : MutableMap<String,String>,
         remember : Boolean,
-        retryCount: Int = 0 // Contador de reintentos
+        retryCount: Int = 0
     ): JSONObject {
-        val maxRetries = 1 // Permitimos un reintento (total de 2 intentos, el original + 1 reintento)
+        val maxRetries = 2 // Aumentamos a 2 reintentos (total de 3 intentos: original + 2 reintentos)
 
         try {
             // 1. Verificar si Livewire está inicializado. Si no, intentar inicializarlo.
+            // Siempre intentamos inicializar si no está inicializado, o si las credenciales parecen vacías.
             if (!isLivewireInitialized || wireCreds["token"].isNullOrBlank() || wireCreds["wireSnapshot"].isNullOrBlank()) {
                 Log.d(name, "liveWireBuilder: Livewire no inicializado o credenciales vacías. Intentando inicializar (reintento: $retryCount)...")
                 initializeLivewire() // Intenta inicializar. Si falla, lanzará una excepción.
@@ -182,7 +189,6 @@ class AnizoneProvider : MainAPI() {
             Log.d(name, "liveWireBuilder: Respuesta de Livewire (parcial, si es muy larga): ${responseText.take(500)}")
 
             // *** Detección de Token/Snapshot Inválido/Expirado ***
-            // DEBES CONFIRMAR ESTOS MENSAJES INSPECCIONANDO LAS RESPUESTAS REALES DEL SITIO.
             // Si la respuesta es un HTML de error o un JSON que no contiene 'snapshot' en la estructura esperada
             if (!req.isSuccessful || responseText.contains("This page has expired", ignoreCase = true) ||
                 responseText.contains("token mismatch", ignoreCase = true) ||
@@ -209,7 +215,7 @@ class AnizoneProvider : MainAPI() {
                     Log.e(name, "liveWireBuilder: No se pudo obtener el nuevo snapshot de la respuesta JSON, pero la respuesta parecía válida. ${e.message}", e)
                     // Si no hay nuevo snapshot pero la llamada fue exitosa, no actualizamos.
                     // Esto podría indicar un problema de parsing o un cambio en la estructura de Livewire.
-                    throw e // O manejar de forma diferente si esto no es crítico para algunas llamadas.
+                    throw e
                 }
                 wireCreds["wireSnapshot"] = newSnapshot
                 biscuit.putAll(req.cookies.toMutableMap())
@@ -222,50 +228,51 @@ class AnizoneProvider : MainAPI() {
         } catch (e: Exception) {
             Log.e(name, "liveWireBuilder: Error general al ejecutar Livewire (no relacionado con token/snapshot directamente): ${e.message}", e)
             isLivewireInitialized = false // Forzamos la re-inicialización para el próximo intento por precaución
-            throw e // Relanza la excepción para que el llamador maneje el error
+            throw e
         }
     }
-
-    // `sortAnimeLatest()` no es llamado en init, así que no es crítico aquí.
-    // Si lo usas en getMainPage, asegúrate de que getMainPage llame a initializeLivewire() primero.
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         try {
             // Asegurarse de que Livewire esté inicializado antes de hacer la primera llamada a liveWireBuilder
+            // La función initializeLivewire() ahora maneja la concurrencia internamente.
             if (!isLivewireInitialized) {
                 Log.d(name, "getMainPage: Livewire no inicializado. Llamando a initializeLivewire()...")
                 initializeLivewire()
             }
 
-            val doc = getHtmlFromWire(
-                liveWireBuilder(
-                    mutableMapOf("type" to request.data),
-                    mutableListOf(),
-                    this.cookies,
-                    this.wireData,
-                    true
-                )
+            // Realizar la primera llamada para obtener la página principal o aplicar el tipo
+            var initialLivewireResponse = liveWireBuilder(
+                mutableMapOf("type" to request.data),
+                mutableListOf(),
+                this.cookies,
+                this.wireData,
+                true
             )
+            var doc = getHtmlFromWire(initialLivewireResponse)
+            var home: List<Element> = doc.select("div[wire:key]")
 
-            var home : List<Element> = doc.select("div[wire:key]")
-
-            // NOTA: Tu lógica actual para page > 1 simplemente toma los últimos 12 elementos,
-            // lo cual NO ES una paginación real basada en Livewire.
-            // Para una paginación real, necesitarías encontrar el método Livewire para "next page"
-            // y llamarlo con liveWireBuilder.
+            // Manejo de paginación si se solicita una página mayor a 1
             if (page > 1) {
-                Log.w(name, "getMainPage: La paginación para la página principal puede no ser real. Solo se toman los últimos 12 elementos. Revisa la paginación de Anizone.to.")
-                // Podrías intentar una llamada a loadMore aquí si el sitio lo permite de forma general para la home
-                // Por ejemplo, repetir la llamada a liveWireBuilder x veces para simular el desplazamiento
+                Log.w(name, "getMainPage: Paginación para página principal, intentando cargar más páginas. Página solicitada: $page")
+                // Iterar para cargar las páginas adicionales
                 for (i in 1 until page) {
-                    val paginationResponse = liveWireBuilder(
-                        mutableMapOf(), mutableListOf(
-                            mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())
-                        ), this.cookies, this.wireData, true
+                    val loadMoreResponse = liveWireBuilder(
+                        mutableMapOf(),
+                        mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
+                        this.cookies,
+                        this.wireData,
+                        true
                     )
-                    val newDoc = getHtmlFromWire(paginationResponse)
-                    home = newDoc.select("div[wire:key]") // Obtener los nuevos elementos de la página paginada
-                    if (home.isEmpty()) break // Salir si no hay más elementos
+                    val newDoc = getHtmlFromWire(loadMoreResponse)
+                    val newElements = newDoc.select("div[wire:key]")
+                    if (newElements.isEmpty()) {
+                        Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
+                        break // Salir si no hay más elementos
+                    }
+                    home = newElements // Sobrescribimos 'home' con los elementos de la nueva página.
+                    // Si quieres acumularlos, deberías hacer home.plus(newElements)
+                    // Pero para una 'página' específica, generalmente solo quieres los elementos de esa página.
                 }
             }
 
@@ -273,12 +280,10 @@ class AnizoneProvider : MainAPI() {
             Log.d(name, "getMainPage: Se encontraron ${home.size} resultados para ${request.name}.")
             return newHomePageResponse(
                 HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
-                // Asumiendo que el selector de loadMore es para la paginación continua
                 hasNext = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
             )
         } catch (e: Exception) {
             Log.e(name, "getMainPage: Error al cargar la página principal: ${e.message}", e)
-            // Relanza la excepción para que Cloudstream la maneje y notifique al usuario
             throw e
         }
     }
@@ -295,13 +300,12 @@ class AnizoneProvider : MainAPI() {
 
     override suspend fun quickSearch(query: String): List<SearchResponse> {
         Log.d(name, "quickSearch: Ejecutando búsqueda rápida para: $query")
-        return search(query) // QuickSearch delega a search
+        return search(query)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(name, "search: Intentando búsqueda directa por URL para: $query")
         try {
-            // Asegurarse de que Livewire esté inicializado si la búsqueda Livewire se convierte en el fallback
             if (!isLivewireInitialized) {
                 Log.d(name, "search: Livewire no inicializado. Llamando a initializeLivewire()...")
                 initializeLivewire()
@@ -324,7 +328,6 @@ class AnizoneProvider : MainAPI() {
             Log.w(name, "search: Cayendo a búsqueda Livewire debido a error en búsqueda directa.")
         }
 
-        // --- Lógica de búsqueda Livewire (fallback o principal si la directa no funciona) ---
         try {
             val doc = getHtmlFromWire(
                 liveWireBuilder(
@@ -344,7 +347,7 @@ class AnizoneProvider : MainAPI() {
             return results
         } catch (e: Exception) {
             Log.e(name, "search: Error al ejecutar la búsqueda Livewire: ${e.message}", e)
-            throw e // Relanza la excepción para que Cloudstream la muestre
+            throw e
         }
     }
 
@@ -353,9 +356,6 @@ class AnizoneProvider : MainAPI() {
             val r = app.get(url)
             var doc = r.document
 
-            // NOTA: Se inicializan nuevas cookies y wireData aquí para asegurar que 'load' funciona de forma aislada
-            // y no depende de las credenciales globales que podrían haber caducado si se navegó mucho.
-            // Esto es crucial para la estabilidad al cargar un anime específico.
             val localCookies = r.cookies.toMutableMap()
             val localWireData = mutableMapOf(
                 "wireSnapshot" to getSnapshot(doc=doc),
@@ -377,28 +377,25 @@ class AnizoneProvider : MainAPI() {
             val genres = doc.select("a[wire:navigate][wire:key]").map { it.text() }
 
             var loadMoreCount = 0
-            val maxLoadMoreRetries = 5 // Limita los reintentos de loadMore para evitar bucles.
-            // Loop para cargar más episodios usando Livewire
+            val maxLoadMoreRetries = 5
             while (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null && loadMoreCount < maxLoadMoreRetries) {
                 Log.d(name, "load: Detectado 'Load More', intentando cargar más episodios. Intento: ${loadMoreCount + 1}")
                 try {
-                    // Usar localCookies y localWireData para esta secuencia de Livewire
                     val liveWireResponse = liveWireBuilder(
                         mutableMapOf(), mutableListOf(
                             mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())
-                        ), localCookies, localWireData, true // Recuerda actualizar localWireData y localCookies
+                        ), localCookies, localWireData, true
                     )
-                    doc = getHtmlFromWire(liveWireResponse) // Actualiza el documento con el nuevo HTML
+                    doc = getHtmlFromWire(liveWireResponse)
                     loadMoreCount++
                 } catch (e: Exception) {
                     Log.e(name, "load: Error al cargar más episodios con Livewire: ${e.message}", e)
-                    break // Salir del bucle si falla la carga de más
+                    break
                 }
             }
             if (loadMoreCount >= maxLoadMoreRetries) {
                 Log.w(name, "load: Se alcanzó el límite de carga de más episodios ($maxLoadMoreRetries veces). Podrían faltar episodios.")
             }
-
 
             val epiElms = doc.select("li[x-data]")
             Log.d(name, "load: Se encontraron ${epiElms.size} elementos de episodio después de cargar más.")
@@ -421,7 +418,7 @@ class AnizoneProvider : MainAPI() {
 
                         this.date = elt.selectFirst("span.span-tiempo")?.text()?.let { dateText ->
                             try {
-                                SimpleDateFormat("dd MMM.yyyy", Locale.US).parse(dateText)?.time // Formato de fecha del sitio
+                                SimpleDateFormat("dd MMM.yyyy", Locale.US).parse(dateText)?.time
                             } catch (e: Exception) {
                                 Log.e(name, "load: Error al analizar la fecha '$dateText': ${e.message}", e)
                                 null
@@ -446,7 +443,7 @@ class AnizoneProvider : MainAPI() {
             }
         } catch (e: Exception) {
             Log.e(name, "load: Error al cargar los detalles del anime: ${e.message}", e)
-            throw e // Relanza la excepción para que Cloudstream la muestre
+            throw e
         }
     }
 
