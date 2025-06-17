@@ -248,7 +248,8 @@ class TvporinternetProvider : MainAPI() {
             val finalIframeMatch = finalStreamIframeSrcRegex.find(videoIframeHtml)
 
             if (finalIframeMatch != null) {
-                val finalStreamIframeSrc = finalIframeMatch.groupValues[1]
+                val finalStreamIframeSrcWithAmp = finalIframeMatch.groupValues[1]
+                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&")
                 Log.d(name, "Segundo iframe de stream encontrado: $finalStreamIframeSrc")
 
                 // El Referer para el iframe final del stream debe ser el mainUrl del sitio.
