@@ -45,12 +45,19 @@ class KrunchyGeoBypasser {
 
     private suspend fun getSessionId(): Boolean {
         return try {
+            println("KrunchyGeoBypasser: Intentando obtener Session ID de $BYPASS_SERVER")
             val response = app.get(BYPASS_SERVER, params = mapOf("version" to "1.1")).text
             val json = parseJson<KrunchySession>(response)
             sessionId = json.data?.sessionId
-            true
+            if (sessionId != null) {
+                println("KrunchyGeoBypasser: Session ID obtenido: $sessionId")
+            } else {
+                println("KrunchyGeoBypasser: Falló al obtener Session ID, respuesta: $response")
+            }
+            sessionId != null // Retorna true si sessionId no es nulo
         } catch (e: Exception) {
             sessionId = null
+            println("KrunchyGeoBypasser: ERROR al obtener Session ID: ${e.message}")
             false
         }
     }
@@ -64,8 +71,15 @@ class KrunchyGeoBypasser {
     }
 
     suspend fun geoBypassRequest(url: String): NiceResponse {
-        autoLoadSession()
-        return session.get(url, headers = headers, cookies = mapOf("session_id" to sessionId!!))
+        println("KrunchyGeoBypasser: Realizando solicitud a $url")
+        val sessionObtained = autoLoadSession()
+        if (!sessionObtained) {
+            println("KrunchyGeoBypasser: No se pudo obtener Session ID. Lanzando excepción.")
+            throw IllegalStateException("Session ID not obtained for geo bypass request.")
+        }
+        val currentSessionId = sessionId!! // Ya que autoLoadSession asegura que no es nulo o lanza excepción
+        println("KrunchyGeoBypasser: Usando Session ID: $currentSessionId para $url")
+        return session.get(url, headers = headers, cookies = mapOf("session_id" to currentSessionId))
     }
 }
 
