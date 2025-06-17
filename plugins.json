@@ -101,16 +101,16 @@
     "fileSize": 19000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CablevisionhdProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/CunchyrollProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 6,
-    "name": "TV por Internet",
-    "internalName": "CablevisionhdProvider",
+    "name": "Crunchyroll",
+    "internalName": "KrunchyProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para www.tvporinternet2.com",
+    "description": "Plugin para Crunchyroll",
     "tvTypes": [
       "Live"
     ],
