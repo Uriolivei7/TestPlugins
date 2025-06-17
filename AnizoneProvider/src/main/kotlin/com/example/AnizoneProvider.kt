@@ -60,42 +60,46 @@ class AnizoneProvider : MainAPI() {
         "6" to "Últimas Web"
     )
 
-    private var cookies = mutableMapOf<String, String>()
-    private var wireData = mutableMapOf(
+    // Estas variables de instancia serán inicializadas una vez,
+    // pero las funciones que usan Livewire ahora pasarán copias mutables para trabajar localmente.
+    // Aunque se mantendrán como variables de instancia para el mutext y la referencia inicial.
+    private var initialCookies = mutableMapOf<String, String>()
+    private var initialWireData = mutableMapOf(
         "wireSnapshot" to "",
         "token" to ""
     )
-    private var isLivewireInitialized = false
+    private var isLivewireInitializedOnce = false // Indica si la inicialización inicial ha ocurrido.
 
-    // Mutex para sincronizar el acceso a la inicialización de Livewire
+    // Mutex para sincronizar el acceso a la inicialización de Livewire (solo la primera vez que se accede)
     private val livewireInitMutex = Mutex()
 
     /**
      * Inicializa las credenciales de Livewire (cookies, token, snapshot) desde la página principal.
-     * Utiliza un Mutex para asegurar que solo un hilo la ejecute a la vez.
-     * Si falla, la bandera isLivewireInitialized se mantendrá en false.
+     * Esta función solo se ejecutará realmente una vez. Las llamadas posteriores usarán los datos cacheados.
+     * Si necesitas una inicialización "fresca" para cada operación (getMainPage, search, load),
+     * entonces los datos de `cookies` y `wireData` deben ser gestionados localmente por esas funciones.
      */
-    private suspend fun initializeLivewire() {
-        livewireInitMutex.withLock { // Asegura que solo un hilo pueda ejecutar este bloque a la vez
-            if (isLivewireInitialized && !wireData["token"].isNullOrBlank() && !wireData["wireSnapshot"].isNullOrBlank()) {
-                Log.d(name, "initializeLivewire: Livewire ya inicializado y credenciales válidas. Saltando inicialización.")
-                return // Ya inicializado, salimos
+    private suspend fun initializeLivewireGlobal() {
+        livewireInitMutex.withLock {
+            if (isLivewireInitializedOnce && !initialWireData["token"].isNullOrBlank() && !initialWireData["wireSnapshot"].isNullOrBlank()) {
+                Log.d(name, "initializeLivewireGlobal: Livewire ya inicializado globalmente. Saltando.")
+                return // Ya inicializado globalmente, salimos
             }
 
-            Log.d(name, "initializeLivewire: Intentando inicializar Livewire (dentro de Mutex)...")
+            Log.d(name, "initializeLivewireGlobal: Intentando inicializar Livewire globalmente...")
             try {
                 val initReq = app.get("$mainUrl/anime")
-                this.cookies = initReq.cookies.toMutableMap()
+                this.initialCookies = initReq.cookies.toMutableMap()
                 val doc = initReq.document
-                wireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
-                wireData["wireSnapshot"] = getSnapshot(doc)
+                this.initialWireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
+                this.initialWireData["wireSnapshot"] = getSnapshot(doc)
 
-                isLivewireInitialized = true // Marcamos que la inicialización fue exitosa
-                Log.d(name, "initializeLivewire: Livewire inicializado exitosamente (dentro de Mutex).")
+                isLivewireInitializedOnce = true
+                Log.d(name, "initializeLivewireGlobal: Livewire inicializado globalmente exitosamente.")
             } catch (e: Exception) {
-                isLivewireInitialized = false // La inicialización falló
-                Log.e(name, "initializeLivewire: Error durante la inicialización de Livewire (dentro de Mutex): ${e.message}", e)
-                throw e // Relanzar la excepción para que el llamador maneje el fallo
+                isLivewireInitializedOnce = false
+                Log.e(name, "initializeLivewireGlobal: Error durante la inicialización global de Livewire: ${e.message}", e)
+                throw e
             }
         }
     }
@@ -127,13 +131,14 @@ class AnizoneProvider : MainAPI() {
 
     /**
      * Constructor principal para las peticiones Livewire.
-     * Incorpora lógica de reintento si el token o snapshot parecen inválidos.
+     * Ahora recibe `currentCookies` y `currentWireCreds` para trabajar con un estado local,
+     * en lugar de modificar variables de instancia globales directamente.
      *
      * @param updates Un mapa de actualizaciones de estado para el componente Livewire.
      * @param calls Una lista de llamadas a métodos de Livewire.
-     * @param biscuit El mapa de cookies actual que se enviará con la petición.
-     * @param wireCreds El mapa que contiene wireSnapshot y _token.
-     * @param remember Si es true, actualizará wireCreds y biscuit con la nueva respuesta.
+     * @param currentCookies El mapa de cookies actual que se enviará con la petición. Será modificado por referencia si `remember` es true.
+     * @param currentWireCreds El mapa que contiene wireSnapshot y _token. Será modificado por referencia si `remember` es true.
+     * @param remember Si es true, actualizará `currentWireCreds` y `currentCookies` con la nueva respuesta.
      * @param retryCount Contador de reintentos para evitar bucles infinitos.
      * @return El objeto JSONObject de la respuesta de Livewire.
      * @throws IllegalStateException Si el token o snapshot faltan después de la inicialización, o si se exceden los reintentos.
@@ -142,25 +147,17 @@ class AnizoneProvider : MainAPI() {
     private suspend fun liveWireBuilder (
         updates : Map<String,String>,
         calls: List<Map<String, Any>>,
-        biscuit : MutableMap<String, String>,
-        wireCreds : MutableMap<String,String>,
+        currentCookies : MutableMap<String, String>,
+        currentWireCreds : MutableMap<String,String>,
         remember : Boolean,
         retryCount: Int = 0
     ): JSONObject {
-        val maxRetries = 2 // Aumentamos a 2 reintentos (total de 3 intentos: original + 2 reintentos)
+        val maxRetries = 2
 
         try {
-            // 1. Verificar si Livewire está inicializado. Si no, intentar inicializarlo.
-            // Siempre intentamos inicializar si no está inicializado, o si las credenciales parecen vacías.
-            if (!isLivewireInitialized || wireCreds["token"].isNullOrBlank() || wireCreds["wireSnapshot"].isNullOrBlank()) {
-                Log.d(name, "liveWireBuilder: Livewire no inicializado o credenciales vacías. Intentando inicializar (reintento: $retryCount)...")
-                initializeLivewire() // Intenta inicializar. Si falla, lanzará una excepción.
-                // Si la inicialización fue exitosa, isLivewireInitialized será true y wireCreds estará actualizado.
-            }
-
-            // Asegurarse de que las credenciales no sean nulas después de la inicialización (o re-inicialización)
-            val currentToken = wireCreds["token"] ?: throw IllegalStateException("Livewire token is missing after initialization.")
-            val currentSnapshot = wireCreds["wireSnapshot"] ?: throw IllegalStateException("Livewire snapshot is missing after initialization.")
+            // Asegurarse de que las credenciales no sean nulas antes de usarlas
+            val currentToken = currentWireCreds["token"] ?: throw IllegalStateException("Livewire token is missing.")
+            val currentSnapshot = currentWireCreds["wireSnapshot"] ?: throw IllegalStateException("Livewire snapshot is missing.")
 
             val payloadMap: Map<String, Any> = mapOf(
                 "_token" to currentToken,
@@ -182,43 +179,43 @@ class AnizoneProvider : MainAPI() {
                 "$mainUrl/livewire/update",
                 requestBody = requestBody,
                 headers = mapOf("Content-Type" to "application/json"),
-                cookies = biscuit,
+                cookies = currentCookies,
             )
 
             val responseText = req.text
             Log.d(name, "liveWireBuilder: Respuesta de Livewire (parcial, si es muy larga): ${responseText.take(500)}")
 
-            // *** Detección de Token/Snapshot Inválido/Expirado ***
-            // Si la respuesta es un HTML de error o un JSON que no contiene 'snapshot' en la estructura esperada
             if (!req.isSuccessful || responseText.contains("This page has expired", ignoreCase = true) ||
                 responseText.contains("token mismatch", ignoreCase = true) ||
-                !responseText.contains("\"snapshot\"") // Buscar la clave "snapshot" en la respuesta JSON
+                !responseText.contains("\"snapshot\"")
             ) {
                 Log.w(name, "liveWireBuilder: Posible token Livewire o snapshot expirado/inválido. Estado HTTP: ${req.code}. Reintentando (intento: ${retryCount + 1})...")
-                isLivewireInitialized = false // Forzamos la re-inicialización
+                // Forzar la re-inicialización para el siguiente intento
                 if (retryCount < maxRetries) {
-                    // Reintentar la llamada recursivamente después de forzar la re-inicialización
-                    return liveWireBuilder(updates, calls, biscuit, wireCreds, remember, retryCount + 1)
+                    val freshState = initializeLivewireForOperation(mainUrl) // Obtener un nuevo estado fresco
+                    currentCookies.clear()
+                    currentCookies.putAll(freshState.first)
+                    currentWireCreds.clear()
+                    currentWireCreds.putAll(freshState.second)
+
+                    return liveWireBuilder(updates, calls, currentCookies, currentWireCreds, remember, retryCount + 1)
                 } else {
                     Log.e(name, "liveWireBuilder: Se excedió el número máximo de reintentos para Livewire. El token/snapshot sigue inválido o hay un problema persistente.")
                     throw IllegalStateException("Demasiados reintentos para Livewire, token/snapshot sigue inválido o hay un problema persistente.")
                 }
             }
 
-            val jsonResponse = JSONObject(responseText) // Intentar parsear la respuesta a JSON
+            val jsonResponse = JSONObject(responseText)
 
             if (remember) {
-                // Asegurarse de que el nuevo snapshot exista en la respuesta antes de intentar obtenerlo
                 val newSnapshot = try {
                     getSnapshot(jsonResponse)
                 } catch (e: Exception) {
                     Log.e(name, "liveWireBuilder: No se pudo obtener el nuevo snapshot de la respuesta JSON, pero la respuesta parecía válida. ${e.message}", e)
-                    // Si no hay nuevo snapshot pero la llamada fue exitosa, no actualizamos.
-                    // Esto podría indicar un problema de parsing o un cambio en la estructura de Livewire.
                     throw e
                 }
-                wireCreds["wireSnapshot"] = newSnapshot
-                biscuit.putAll(req.cookies.toMutableMap())
+                currentWireCreds["wireSnapshot"] = newSnapshot
+                currentCookies.putAll(req.cookies.toMutableMap()) // Actualizar las cookies con las últimas
                 Log.d(name, "liveWireBuilder: Cookies y wireSnapshot actualizados (remember=true).")
             } else {
                 Log.d(name, "liveWireBuilder: Cookies y wireSnapshot NO actualizados (remember=false).")
@@ -227,27 +224,45 @@ class AnizoneProvider : MainAPI() {
             return jsonResponse
         } catch (e: Exception) {
             Log.e(name, "liveWireBuilder: Error general al ejecutar Livewire (no relacionado con token/snapshot directamente): ${e.message}", e)
-            isLivewireInitialized = false // Forzamos la re-inicialización para el próximo intento por precaución
             throw e
         }
     }
 
+    /**
+     * Función para obtener un estado de Livewire fresco para una operación.
+     * Devuelve un par: (cookies, wireData)
+     */
+    private suspend fun initializeLivewireForOperation(url: String): Pair<MutableMap<String, String>, MutableMap<String, String>> {
+        Log.d(name, "initializeLivewireForOperation: Obteniendo un nuevo estado Livewire para $url")
+        val cookies = mutableMapOf<String, String>()
+        val wireData = mutableMapOf<String, String>()
+        try {
+            val initReq = app.get(url)
+            cookies.putAll(initReq.cookies)
+            val doc = initReq.document
+            wireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
+            wireData["wireSnapshot"] = getSnapshot(doc)
+            Log.d(name, "initializeLivewireForOperation: Nuevo estado Livewire obtenido exitosamente.")
+        } catch (e: Exception) {
+            Log.e(name, "initializeLivewireForOperation: Error al obtener estado Livewire: ${e.message}", e)
+            throw e
+        }
+        return Pair(cookies, wireData)
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         try {
-            // Asegurarse de que Livewire esté inicializado antes de hacer la primera llamada a liveWireBuilder
-            // La función initializeLivewire() ahora maneja la concurrencia internamente.
-            if (!isLivewireInitialized) {
-                Log.d(name, "getMainPage: Livewire no inicializado. Llamando a initializeLivewire()...")
-                initializeLivewire()
-            }
+            // Obtener un estado Livewire fresco para esta operación de página principal
+            val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
+            Log.d(name, "getMainPage: Iniciando con estado Livewire fresco para ${request.name}.")
 
             // Realizar la primera llamada para obtener la página principal o aplicar el tipo
             var initialLivewireResponse = liveWireBuilder(
                 mutableMapOf("type" to request.data),
                 mutableListOf(),
-                this.cookies,
-                this.wireData,
-                true
+                localCookies, // Usar las cookies locales
+                localWireData, // Usar los datos de Livewire locales
+                true // Recordar para futuras llamadas dentro de esta operación
             )
             var doc = getHtmlFromWire(initialLivewireResponse)
             var home: List<Element> = doc.select("div[wire:key]")
@@ -260,19 +275,17 @@ class AnizoneProvider : MainAPI() {
                     val loadMoreResponse = liveWireBuilder(
                         mutableMapOf(),
                         mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
-                        this.cookies,
-                        this.wireData,
+                        localCookies, // Seguir usando las cookies locales
+                        localWireData, // Seguir usando los datos de Livewire locales
                         true
                     )
                     val newDoc = getHtmlFromWire(loadMoreResponse)
                     val newElements = newDoc.select("div[wire:key]")
                     if (newElements.isEmpty()) {
                         Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
-                        break // Salir si no hay más elementos
+                        break
                     }
-                    home = newElements // Sobrescribimos 'home' con los elementos de la nueva página.
-                    // Si quieres acumularlos, deberías hacer home.plus(newElements)
-                    // Pero para una 'página' específica, generalmente solo quieres los elementos de esa página.
+                    home = newElements // Reemplazar con los elementos de la nueva página.
                 }
             }
 
@@ -306,47 +319,44 @@ class AnizoneProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(name, "search: Intentando búsqueda directa por URL para: $query")
         try {
-            if (!isLivewireInitialized) {
-                Log.d(name, "search: Livewire no inicializado. Llamando a initializeLivewire()...")
-                initializeLivewire()
-            }
+            // Obtener un estado Livewire fresco para esta operación de búsqueda
+            val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
+            Log.d(name, "search: Iniciando con estado Livewire fresco para búsqueda de '$query'.")
+
 
             val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-            val searchUrl = "$mainUrl/anime?search=$encodedQuery"
-            val r = app.get(searchUrl)
-            val doc = r.document
-            val directResults = doc.select("div[wire:key]").mapNotNull { toResult(it) }
+            // Intentar una búsqueda directa por URL primero, ya que es más simple y a menudo funciona.
+            val searchUrlDirect = "$mainUrl/anime?search=$encodedQuery"
+            val rDirect = app.get(searchUrlDirect)
+            val docDirect = rDirect.document
+            val directResults = docDirect.select("div[wire:key]").mapNotNull { toResult(it) }
 
             if (directResults.isNotEmpty()) {
                 Log.d(name, "search: Búsqueda directa por URL exitosa, se encontraron ${directResults.size} resultados.")
                 return directResults
             } else {
-                Log.w(name, "search: Búsqueda directa por URL no encontró resultados. Cayendo a búsqueda Livewire...")
+                Log.w(name, "search: Búsqueda directa por URL no encontró resultados o no es el método principal. Cayendo a búsqueda Livewire...")
             }
-        } catch (e: Exception) {
-            Log.e(name, "search: Error en búsqueda directa por URL: ${e.message}", e)
-            Log.w(name, "search: Cayendo a búsqueda Livewire debido a error en búsqueda directa.")
-        }
 
-        try {
-            val doc = getHtmlFromWire(
+            // Si la búsqueda directa no funcionó o no es el método principal, usar Livewire.
+            val docLivewire = getHtmlFromWire(
                 liveWireBuilder(
                     mutableMapOf("search" to query),
                     mutableListOf(),
-                    this.cookies,
-                    this.wireData,
+                    localCookies, // Usar las cookies locales
+                    localWireData, // Usar los datos de Livewire locales
                     true
                 )
             )
-            val results = doc.select("div[wire:key]").mapNotNull { toResult(it) }
-            Log.d(name, "search: Se encontraron ${results.size} resultados Livewire para '$query'.")
-            if (results.isEmpty()) {
+            val resultsLivewire = docLivewire.select("div[wire:key]").mapNotNull { toResult(it) }
+            Log.d(name, "search: Se encontraron ${resultsLivewire.size} resultados Livewire para '$query'.")
+            if (resultsLivewire.isEmpty()) {
                 Log.w(name, "search: Livewire no encontró resultados. Verificar el selector 'div[wire:key]' o la respuesta Livewire.")
-                Log.d(name, "search: HTML devuelto por Livewire (parcial): ${doc.html().take(1000)}")
+                Log.d(name, "search: HTML devuelto por Livewire (parcial): ${docLivewire.html().take(1000)}")
             }
-            return results
+            return resultsLivewire
         } catch (e: Exception) {
-            Log.e(name, "search: Error al ejecutar la búsqueda Livewire: ${e.message}", e)
+            Log.e(name, "search: Error general al ejecutar la búsqueda: ${e.message}", e)
             throw e
         }
     }
@@ -356,6 +366,7 @@ class AnizoneProvider : MainAPI() {
             val r = app.get(url)
             var doc = r.document
 
+            // Aquí ya estás creando localCookies y localWireData, lo cual es correcto para 'load'.
             val localCookies = r.cookies.toMutableMap()
             val localWireData = mutableMapOf(
                 "wireSnapshot" to getSnapshot(doc=doc),
