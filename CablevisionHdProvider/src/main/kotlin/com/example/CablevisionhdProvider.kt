@@ -180,7 +180,6 @@ class CablevisionhdProvider : MainAPI() {
         )
 
         // 1. Obtener la página principal (donde se encuentra el iframe del video)
-        // Para la solicitud de la página principal, el Referer es el mainUrl del sitio.
         val mainPageRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Cache-Control", "max-age=0")
             put("Priority", "u=0, i")
@@ -206,13 +205,12 @@ class CablevisionhdProvider : MainAPI() {
         Log.d(name, "URL del iframe del video encontrada: $videoIframeSrc")
 
         // 2. Obtener el contenido del iframe del video
-        // El Referer para este iframe es la URL de la página principal del canal (data)
         val videoIframeRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Priority", "u=0, i")
-            put("Referer", data) // ¡CRÍTICO: Referer es la URL de la página principal del canal!
+            put("Referer", data) // Referer es la URL de la página principal del canal
             put("Sec-Fetch-Dest", "iframe")
             put("Sec-Fetch-Mode", "navigate")
-            put("Sec-Fetch-Site", "same-origin") // Asumiendo que live/americatv.php está en tvporinternet2.com
+            put("Sec-Fetch-Site", "same-origin")
         }
 
         val videoIframeHtml = app.get(videoIframeSrc, headers = videoIframeRequestHeaders).document.html()
@@ -227,7 +225,7 @@ class CablevisionhdProvider : MainAPI() {
             Log.d(name, "Cadena Clappr codificada (4 capas) encontrada en primer iframe: $encodedSource")
 
             try {
-                val finalUrl = decodeBase64MultipleTimes(encodedSource, 4) // Usar la función multi-decodificación
+                val finalUrl = decodeBase64MultipleTimes(encodedSource, 4)
 
                 Log.d(name, "URL de stream decodificada: $finalUrl")
 
@@ -258,18 +256,24 @@ class CablevisionhdProvider : MainAPI() {
                 val finalStreamIframeSrc = finalIframeMatch.groupValues[1]
                 Log.d(name, "Segundo iframe de stream encontrado: $finalStreamIframeSrc")
 
-                // El Referer para el iframe final del stream debe ser la URL de la página principal del sitio (`mainUrl`).
-                // Esto se observó en los comandos cURL exitosos para la URL m3u8.
+                // El Referer para el iframe final del stream debe ser el mainUrl del sitio.
                 val finalStreamIframeRequestHeaders = commonHeaders.toMutableMap().apply {
                     put("Connection", "keep-alive")
-                    put("Referer", mainUrl) // ¡CRÍTICO: Referer es el mainUrl del sitio!
+                    put("Referer", mainUrl) // ¡AQUÍ ESTÁ LA CORRECCIÓN CLAVE! Referer es el mainUrl.
                     put("Sec-Fetch-Dest", "iframe")
                     put("Sec-Fetch-Mode", "navigate")
-                    put("Sec-Fetch-Site", "cross-site") // Porque es un dominio diferente (saohgdasregions.fun)
+                    put("Sec-Fetch-Site", "cross-site")
                     put("Sec-Fetch-Storage-Access", "active")
                 }
 
-                val finalStreamHtml = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders).document.html()
+                val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
+                val finalStreamHtml = finalStreamResponse.document.html()
+
+                // Si hay una redirección, OkHttp la seguirá automáticamente, y el HTML que recibamos
+                // será el de la URL final después de la redirección.
+                // El log de `finalStreamResponse.code == 302` no es necesario si OkHttp lo sigue.
+                // Lo importante es el HTML resultante y si el Referer es el correcto.
+
                 Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
 
                 val finalCombinedScripts = finalStreamHtml.substringAfter("<head>").substringBefore("</body>")
@@ -296,8 +300,9 @@ class CablevisionhdProvider : MainAPI() {
                                 type = ExtractorLinkType.M3U8
                             ) {
                                 quality = Qualities.Unknown.ordinal
-                                referer = finalStreamIframeSrc // ¡CORREGIDO! El referer para el stream final es la URL del iframe que lo contiene
-                                headers = mapOf("Referer" to finalStreamIframeSrc) // ¡CORREGIDO!
+                                // El referer para el stream final es la URL del iframe que lo contiene (que es la URL final de la redirección)
+                                referer = finalStreamIframeSrc
+                                headers = mapOf("Referer" to finalStreamIframeSrc)
                             })
                             return true
                         }
