@@ -10,6 +10,9 @@ import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import com.lagradost.cloudstream3.utils.Qualities
+import org.jsoup.nodes.Document
+import org.jsoup.select.Elements
 
 class CablevisionhdProvider : MainAPI() {
 
@@ -153,80 +156,190 @@ class CablevisionhdProvider : MainAPI() {
         }
     }
 
+    // Asumiendo que `data` es la URL inicial del canal: https://www.tvporinternet2.com/panamericana-en-vivo-por-internet.html
+
     override suspend fun loadLinks(
-        data: String, // Esta es la URL de la página del canal, ej: https://www.tvporinternet2.com/panamericana-en-vivo-por-internet.html
+        data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d(name, "Iniciando loadLinks para la URL del canal: $data")
 
-        val channelPageResponse = app.get(
-            data,
-            headers = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Charset" to "UTF-8",
-                "Accept-Language" to "en-US,en;q=0.5",
-                "Accept-Encoding" to "gzip, deflate, br",
-                "Connection" to "keep-alive",
-                "Upgrade-Insecure-Requests" to "1",
-                "Sec-Fetch-Dest" to "document",
-                "Sec-Fetch-Mode" to "navigate",
-                "Sec-Fetch-Site" to "same-origin",
-                "Referer" to mainUrl,
-                "Cache-Control" to "no-cache",
-                "Pragma" to "no-cache"
-            ),
-            allowRedirects = true,
-            timeout = 10000
+        // Headers para la página principal, basados en el cURL que proporcionaste anteriormente
+        val mainPageHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language" to "es-ES,es;q=0.8",
+            "Cache-Control" to "max-age=0",
+            "Priority" to "u=0, i",
+            "Referer" to mainUrl, // Reemplaza mainUrl con "https://www.tvporinternet2.com/" si es una constante
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\"",
+            "Sec-Fetch-Dest" to "document",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "same-origin",
+            "Sec-Fetch-User" to "?1",
+            "Sec-GPC" to "1",
+            "Upgrade-Insecure-Requests" to "1"
         )
 
-        val channelPageDoc = channelPageResponse.document
-        val finalChannelPageUrl = channelPageResponse.url
-        Log.d(name, "HTML recibido para la página del canal $finalChannelPageUrl: ${channelPageDoc.html().take(1000)}...")
+        // 1. Obtener la página principal (donde se encuentra el iframe del video)
+        val mainPageResponse = app.get(data, headers = mainPageHeaders)
+        val mainPageHtml = mainPageResponse.document.html()
+        Log.d(name, "HTML recibido para la página del canal (principal): ${mainPageHtml.take(500)}...") // Log solo un fragmento
 
-        val scriptContent = channelPageDoc.select("script").joinToString("") { it.html() }
-        Log.d(name, "Contenido de scripts combinado de la página del canal: ${scriptContent.take(1000)}...")
 
-        var streamFound = false
+        // Buscar el iframe que contiene el video
+        // Utiliza el selector CSS que identifica el iframe en la imagen:
+        val videoIframeElement = mainPageResponse.document.selectFirst("iframe[name=player]") // Selector CSS: busca un <iframe> con el atributo name="player"
+        val videoIframeSrc = videoIframeElement?.attr("src")
 
-        // Regex para encontrar la cadena Base64 anidada en la propiedad 'source' de Clappr
-        val clapprSourceRegex = "source:\\s*atob\\(atob\\(atob\\(atob\\(\"(.*?)\"\\)\\)\\)\\)".toRegex()
-        val clapprMatch = clapprSourceRegex.find(scriptContent)
 
-        if (clapprMatch != null) {
-            val encodedString = clapprMatch.groupValues[1]
-            Log.d(name, "Cadena Base64 anidada encontrada: ${encodedString.take(50)}...")
+        if (videoIframeSrc.isNullOrBlank()) {
+            Log.w(name, "No se encontró la URL del iframe del video en la página principal.")
+            return false
+        }
 
-            // Decodificar 4 veces
-            val decodedStreamUrl = decodeBase64MultipleTimes(encodedString, 4)
+        Log.d(name, "URL del iframe del video encontrada: $videoIframeSrc")
 
-            if (decodedStreamUrl.isNotBlank() && decodedStreamUrl.startsWith("http")) {
-                Log.d(name, "URL de stream Clappr decodificada con éxito (4 capas): $decodedStreamUrl")
-                callback(
-                    newExtractorLink(
-                        source = name,
-                        name = "Canal de TV (Clappr Decoded)",
-                        url = decodedStreamUrl,
-                        type = ExtractorLinkType.M3U8
+        // 2. Obtener el contenido del iframe del video
+        val videoIframeHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language" to "es-ES,es;q=0.8",
+            "Priority" to "u=0, i",
+            "Referer" to data, // ¡REFERER ES LA URL DE LA PÁGINA PRINCIPAL!
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\"",
+            "Sec-Fetch-Dest" to "iframe",
+            "Sec-Fetch-Mode" to "navigate",
+            "Sec-Fetch-Site" to "same-origin", // Porque `live/panamericana.php` está en el mismo dominio
+            "Sec-GPC" to "1",
+            "Upgrade-Insecure-Requests" to "1"
+        )
+
+        val videoIframeHtml = app.get(videoIframeSrc, headers = videoIframeHeaders).document.html()
+        Log.d(name, "HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
+
+
+        // A partir de aquí, el código para buscar el Clappr y decodificar sigue siendo el mismo.
+        // Solo necesitarás revisar si el Clappr con 4 capas de atob está en este HTML,
+        // o si este HTML de `panamericana.php` carga *otro* iframe.
+        // Si carga otro iframe, entonces necesitarás un tercer paso similar.
+
+        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""")
+        val match = clapprSourceRegex.find(videoIframeHtml) // Buscar en el HTML del primer iframe
+
+        if (match != null) {
+            val encodedSource = match.groupValues[1]
+            Log.d(name, "Cadena Clappr codificada (4 capas) encontrada: $encodedSource")
+
+            try {
+                // Decodificar 4 veces Base64
+                val decoded1 = atob(encodedSource)
+                val decoded2 = atob(decoded1)
+                val decoded3 = atob(decoded2)
+                val finalUrl = atob(decoded3)
+
+                Log.d(name, "URL de stream decodificada: $finalUrl")
+
+                if (finalUrl.startsWith("http")) {
+                    callback(newExtractorLink(
+                        source = this.name, // El source de ExtractorLink
+                        name = this.name,   // El nombre que aparecerá en la UI (ej: "Panamericana")
+                        url = finalUrl,     // La URL final del stream
+                        type = ExtractorLinkType.M3U8 // El tipo de enlace (M3U8, STREAM, etc.)
                     ) {
-                        this.quality = getQualityFromName("Normal")
-                        this.referer = finalChannelPageUrl // El referer debe ser la página que contiene el reproductor.
-                    }
-                )
-                streamFound = true
-            } else {
-                Log.w(name, "URL Clappr decodificada vacía o inválida (4 capas): $decodedStreamUrl")
+                        // Este es el bloque 'initializer'
+                        // Aquí asignas las propiedades del ExtractorLink
+                        quality = Qualities.Unknown.ordinal // O simplemente 0 si Quality no se resuelve
+                        referer = videoIframeSrc          // El referer
+                        headers = mapOf("Referer" to videoIframeSrc) // Los headers
+                        // Otros campos si ExtractorLink los tiene y los necesitas, ej: isDash = true
+                    })
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.e(name, "Error al decodificar la URL Base64 de Clappr: ${e.message}", e)
             }
         } else {
-            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en la página del canal: $finalChannelPageUrl")
+            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc")
+
+            // Aquí iría la lógica para buscar el tercer iframe si `panamericana.php` lo carga.
+            // Basado en tu anterior cURL: 'https://live.saohgdasregions.fun/tvporinternet.php?stream=463_'
+            val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
+            val finalIframeMatch = finalStreamIframeSrcRegex.find(videoIframeHtml)
+
+            if (finalIframeMatch != null) {
+                val finalStreamIframeSrc = finalIframeMatch.groupValues[1]
+                Log.d(name, "Segundo iframe de stream encontrado: $finalStreamIframeSrc")
+
+                val finalStreamIframeHeaders = mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language" to "es-ES,es;q=0.8",
+                    "Connection" to "keep-alive",
+                    "Referer" to mainUrl, // Confirmar si el referer es la página principal o el primer iframe
+                    "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+                    "sec-ch-ua-mobile" to "?0",
+                    "sec-ch-ua-platform" to "\"Windows\"",
+                    "Sec-Fetch-Dest" to "iframe",
+                    "Sec-Fetch-Mode" to "navigate",
+                    "Sec-Fetch-Site" to "cross-site",
+                    "Sec-GPC" to "1",
+                    "Upgrade-Insecure-Requests" to "1"
+                )
+
+                val finalStreamHtml = app.get(finalStreamIframeSrc, headers = finalStreamIframeHeaders).document.html()
+                Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
+
+                // Buscar el patrón de Clappr en este HTML final
+                val finalCombinedScripts = finalStreamHtml.substringAfter("<head>").substringBefore("</body>")
+                    .replace("\\n", "")
+                    .replace("\\t", "")
+                    .replace("\\r", "")
+
+                val finalMatch = clapprSourceRegex.find(finalCombinedScripts)
+
+                if (finalMatch != null) {
+                    val finalEncodedSource = finalMatch.groupValues[1]
+                    Log.d(name, "Cadena Clappr codificada (4 capas) encontrada en iframe final: $finalEncodedSource")
+
+                    try {
+                        val decoded1 = atob(finalEncodedSource)
+                        val decoded2 = atob(decoded1)
+                        val decoded3 = atob(decoded2)
+                        val finalUrl = atob(decoded3)
+
+                        Log.d(name, "URL de stream decodificada del iframe final: $finalUrl")
+
+                        if (finalUrl.startsWith("http")) {
+                            callback(newExtractorLink(
+                                source = this.name,
+                                name = this.name,
+                                url = finalUrl,
+                                type = ExtractorLinkType.M3U8 // O ExtractorLinkType.STREAM
+                            ) {
+                                quality = Qualities.Unknown.ordinal // O simplemente 0
+                                referer = finalStreamIframeSrc
+                                headers = mapOf("Referer" to finalStreamIframeSrc)
+                            })
+                            return true
+                        }
+                    } catch (e: Exception) {
+                        Log.e(name, "Error al decodificar la URL Base64 de Clappr desde iframe final: ${e.message}", e)
+                    }
+                } else {
+                    Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc")
+                }
+            }
         }
 
-        if (!streamFound) {
-            Log.w(name, "No se encontró ninguna URL de stream válida tras analizar la página del canal: $data")
-        }
-        return streamFound
+        Log.w(name, "No se encontró ninguna URL de stream válida tras analizar la página del canal: $data")
+        return false
     }
 
     fun getBaseUrl(urlString: String): String {
@@ -237,5 +350,9 @@ class CablevisionhdProvider : MainAPI() {
     fun getHostUrl(urlString: String): String {
         val url = URL(urlString)
         return url.host
+    }
+
+    fun atob(encodedString: String): String {
+        return String(Base64.decode(encodedString, Base64.DEFAULT), Charsets.UTF_8)
     }
 }
