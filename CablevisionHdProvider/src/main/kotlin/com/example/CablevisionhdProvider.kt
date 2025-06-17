@@ -4,10 +4,10 @@ import android.util.Base64
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.AppUtils
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.getQualityFromName
-import com.lagradost.cloudstream3.utils.newExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink // Importación para la clase ExtractorLink
+import com.lagradost.cloudstream3.utils.getQualityFromName // Importación para la función getQualityFromName
+import com.lagradost.cloudstream3.utils.newExtractorLink // Importación para la función newExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType // ¡Importación CLAVE para el tipo 'Type'!
 import java.net.URL
 import java.nio.charset.StandardCharsets
 
@@ -212,7 +212,7 @@ class CablevisionhdProvider : MainAPI() {
                                 source = name,
                                 name = "Canal de TV (Opción ${index + 1})",
                                 url = decodedStreamUrl,
-                                type = ExtractorLinkType.M3U8
+                                type = ExtractorLinkType.M3U8 // ¡CORREGIDO AQUÍ! Se usa ExtractorLinkType.M3U8
                             ) {
                                 this.quality = getQualityFromName("Normal")
                                 this.referer = finalOptionPageUrl
@@ -238,7 +238,7 @@ class CablevisionhdProvider : MainAPI() {
                             source = name,
                             name = "Canal de TV (Opción ${index + 1})",
                             url = m3u8Url,
-                            type = ExtractorLinkType.M3U8
+                            type = ExtractorLinkType.M3U8 // ¡CORREGIDO AQUÍ! Se usa ExtractorLinkType.M3U8
                         ) {
                             this.quality = getQualityFromName("Normal")
                             this.referer = finalOptionPageUrl

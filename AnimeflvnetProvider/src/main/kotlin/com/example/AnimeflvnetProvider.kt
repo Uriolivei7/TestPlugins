@@ -180,19 +180,37 @@ class AnimeflvnetProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        app.get(data).document.select("script").apmap { script ->
-            if (script.data().contains("var videos = {") || script.data()
-                    .contains("var anime_id =") || script.data().contains("server")
-            ) {
-                val serversRegex = Regex("var videos = (\\{\"SUB\":\\[\\{.*?\\}\\]\\});")
-                val serversplain = serversRegex.find(script.data())?.destructured?.component1() ?: ""
-                val json = parseJson<MainServers>(serversplain)
-                json.sub.apmap {
-                    val code = it.code
-                    loadExtractor(code, data, subtitleCallback, callback)
+        try {
+            app.get(data).document.select("script").apmap { script ->
+                if (script.data().contains("var videos = {") || script.data()
+                        .contains("var anime_id =") || script.data().contains("server")
+                ) {
+                    // Imprimir el contenido del script para depuración
+                    println("Script encontrado: ${script.data().substring(0, minOf(script.data().length, 500))}")
+
+                    val serversRegex = Regex("var videos = (\\{\"SUB\":\\[\\{.*?\\}\\]\\});")
+                    val serversplain = serversRegex.find(script.data())?.destructured?.component1() ?: ""
+
+                    if (serversplain.isBlank()) {
+                        println("No se encontró JSON válido en el script")
+                        return@apmap
+                    }
+
+                    try {
+                        val json = parseJson<MainServers>(serversplain)
+                        json.sub.apmap {
+                            val code = it.code
+                            println("Procesando servidor con código: $code")
+                            loadExtractor(code, data, subtitleCallback, callback)
+                        }
+                    } catch (e: Exception) {
+                        println("Error al analizar JSON: ${e.message}, JSON: $serversplain")
+                    }
                 }
             }
-
+        } catch (e: Exception) {
+            println("Error general en loadLinks: ${e.message}")
+            return false
         }
         return true
     }
