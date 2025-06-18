@@ -151,11 +151,10 @@
     "description": "Plugin para www.veronline.cfd",
     "tvTypes": [
       "TvSeries",
-      "Movie",
       "Anime"
     ],
     "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
     "language": "es",
-    "fileSize": 20000
+    "fileSize": 24000
   }
 ]
