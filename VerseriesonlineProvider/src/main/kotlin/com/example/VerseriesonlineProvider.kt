@@ -2,7 +2,7 @@ package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.* // Asegúrate de que esto incluye lo necesario
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -92,13 +92,21 @@ class VeronlineProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/recherche?q=$query"
         val doc = app.get(url).document
-        return doc.select("div.result-item").mapNotNull {
+        // IMPORTANTE: Revisa este log en Logcat para verificar la estructura HTML de la página de búsqueda
+        // y ajustar los selectores CSS si es necesario.
+        Log.d("Veronline", "SEARCH_DOC_HTML - (Primeros 1000 chars) ${doc.html().take(1000)}")
+
+        // Ajusta estos selectores basándote en la inspección de la página de resultados de búsqueda.
+        // Los selectores actuales son los que tenías, pero es posible que necesiten cambio.
+        return doc.select("div.result-item").mapNotNull { // Este selector (div.result-item) es el contenedor de cada resultado.
             val tvType = TvType.TvSeries
-            val title = it.selectFirst("h3.title a")?.text() ?: ""
-            val link = it.selectFirst("h3.title a")?.attr("href") ?: ""
-            val img = it.selectFirst("img")?.attr("src") ?: ""
+            val title = it.selectFirst("h3.title a")?.text() ?: "" // Selector del título.
+            val link = it.selectFirst("h3.title a")?.attr("href") ?: "" // Selector del enlace.
+            val img = it.selectFirst("img")?.attr("src") // Selector de la imagen principal.
+                ?: it.selectFirst("img")?.attr("data-src") ?: "" // O el atributo data-src si se usa.
 
             if (title.isNotBlank() && link.isNotBlank()) {
+                Log.d("Veronline", "SEARCH_ITEM_FOUND: Title=$title, Link=$link, Img=$img")
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
@@ -106,7 +114,10 @@ class VeronlineProvider : MainAPI() {
                     this.type = tvType
                     this.posterUrl = fixUrl(img)
                 }
-            } else null
+            } else {
+                Log.w("Veronline", "SEARCH_ITEM_SKIPPED: Missing info. Title=$title, Link=$link")
+                null
+            }
         }
     }
 
@@ -312,34 +323,36 @@ class VeronlineProvider : MainAPI() {
 
         Log.d("Veronline", "LOADLINKS_DOC - Contenido de la página del episodio (primeros 500 chars): ${doc.html().take(500)}")
 
-        // --- INICIO DE LA LÓGICA REVISADA PARA EXTRAER LA DATA-URL DE LOS REPRODUCTORES ---
-
         val playerDivs = doc.select("div.player[data-url]")
         Log.d("Veronline", "LOADLINKS_PLAYERS - Encontrados ${playerDivs.size} elementos 'div.player' con 'data-url'.")
 
-        // 'results' recolectará un Boolean por cada playerDivElement procesado, indicando si se encontró un enlace.
         val results = playerDivs.apmap { playerDivElement ->
             val encodedUrl = playerDivElement.attr("data-url")
             val serverName = playerDivElement.selectFirst("span[id^=player_v_DIV_5]")?.text() ?: "Unknown Server"
             Log.d("Veronline", "LOADLINKS_PLAYERS - Procesando servidor: $serverName, encodedUrl: $encodedUrl")
 
-            if (encodedUrl.isNotBlank() && encodedUrl.startsWith("/streamer/")) {
+            // Ajuste para manejar '/streamer/' y '/telecharger/'
+            if (encodedUrl.isNotBlank() && (encodedUrl.startsWith("/streamer/") || encodedUrl.startsWith("/telecharger/"))) {
                 try {
-                    val base64Part = encodedUrl.substringAfter("/streamer/")
+                    val base64Part = if (encodedUrl.startsWith("/streamer/")) {
+                        encodedUrl.substringAfter("/streamer/")
+                    } else { // Asumimos que es /telecharger/
+                        encodedUrl.substringAfter("/telecharger/")
+                    }
+
                     val decodedBytes = Base64.decode(base64Part, Base64.DEFAULT)
                     val decodedUrl = String(decodedBytes, UTF_8)
 
                     val fullIframeUrl = if (decodedUrl.startsWith("http")) {
                         decodedUrl
                     } else {
-                        // Si la URL decodificada es relativa, la combinamos con mainUrl
                         "$mainUrl$decodedUrl"
                     }
 
                     Log.d("Veronline", "LOADLINKS_PLAYERS - Decoded URL for $serverName: $fullIframeUrl")
 
-                    // Toda esta expresión devuelve un Boolean, que será un elemento en 'results'
-                    if (fullIframeUrl.contains("uqload.net")) {
+                    // Lógica para Uqload o delegar a ExtractorApi para otros servicios conocidos
+                    if (fullIframeUrl.contains("uqload.net")) { // Asumiendo que "uqload.net" es el dominio para Uqload
                         Log.d("Veronline", "LOADLINKS_UQLOAD - URL decodificada es de uqload.net. Procesando específicamente.")
                         try {
                             val uqloadIframeDoc = app.get(fullIframeUrl).document
@@ -356,14 +369,14 @@ class VeronlineProvider : MainAPI() {
                                         source = name,
                                         name = "Uqload MP4 ($serverName)",
                                         url = directMp4Url,
-                                        referer = mainUrl,
+                                        referer = mainUrl, // Podrías usar fullIframeUrl aquí si prefieres un referer más específico
                                         quality = estimatedQuality,
                                         headers = mapOf(),
                                         extractorData = null,
                                         type = ExtractorLinkType.VIDEO
                                     )
                                 )
-                                true // Éxito en Uqload: se encontró y envió el enlace
+                                true // Éxito en Uqload
                             } else {
                                 Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net en los scripts del iframe ($fullIframeUrl).")
                                 false // Fallo en Uqload: no se encontró el MP4
@@ -373,31 +386,29 @@ class VeronlineProvider : MainAPI() {
                             false // Fallo en Uqload: error al obtener el documento o procesarlo
                         }
                     } else {
-                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net. Delegando a extractor general: $fullIframeUrl")
-                        // loadExtractor devuelve Boolean, que será el resultado de esta rama
+                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net. Delegando a CloudStream's loadExtractor: $fullIframeUrl")
+                        // Intentar invocar el extractor de CloudStream.
+                        // loadExtractor ya devuelve un Boolean, así que simplemente lo devolvemos aquí.
                         loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
                     }
 
                 } catch (e: Exception) {
                     Log.e("Veronline", "LOADLINKS_PLAYERS_ERROR - Error al decodificar o procesar data-url para $serverName ($encodedUrl): ${e.message}", e)
-                    false // Si hay cualquier error en la decodificación/procesamiento, este elemento falla
+                    false // En caso de cualquier error, devuelve false para este elemento
                 }
             } else {
-                Log.w("Veronline", "LOADLINKS_PLAYERS_WARN - data-url vacía o no comienza con '/streamer/' para servidor $serverName: $encodedUrl")
-                false // Si el data-url no es válido, este elemento falla
+                Log.w("Veronline", "LOADLINKS_PLAYERS_WARN - data-url vacía o no comienza con '/streamer/' o '/telecharger/' para servidor $serverName: $encodedUrl")
+                false // Si el data-url no es válido o no tiene el formato esperado, este elemento falla
             }
         } // Fin de playerDivs.apmap
 
-        // Después de que todas las operaciones asíncronas de apmap hayan terminado:
-        // Verificamos si al menos uno de los resultados fue true.
-        val finalLinksFound = results.any { it } // 'any { it }' devuelve true si hay al menos un 'true' en la lista
+        // Verifica si al menos una de las llamadas a extractores o la lógica de Uqload fue exitosa.
+        val finalLinksFound = results.any { it }
 
         if (finalLinksFound) {
             Log.d("Veronline", "LOADLINKS_END - Se encontraron y procesaron enlaces de video.")
             return true
         }
-
-        // --- FIN DE LA LÓGICA REVISADA PARA DATA-URL ---
 
         Log.w("Veronline", "LOADLINKS_WARN - No se encontraron enlaces de video válidos después de todas las comprobaciones.")
         return false
