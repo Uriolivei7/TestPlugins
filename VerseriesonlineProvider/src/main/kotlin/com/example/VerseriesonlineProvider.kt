@@ -35,7 +35,7 @@ class VeronlineProvider : MainAPI() {
         )
 
         val homePageLists = urls.apmap { (name, url) ->
-            val tvType = TvType.TvSeries // Define tvType aquí
+            val tvType = TvType.TvSeries
             val doc = app.get(url).document
             val homeItems = doc.select("div.movs article.item").mapNotNull {
                 val title = it.selectFirst("a div.data h3")?.text() ?: ""
@@ -49,7 +49,7 @@ class VeronlineProvider : MainAPI() {
                         title,
                         fixUrl(link)
                     ) {
-                        this.type = tvType // <-- CORRECCIÓN: Usas la variable tvType definida arriba
+                        this.type = tvType
                         this.posterUrl = fixUrl(img)
                     }
                 } else {
@@ -63,8 +63,7 @@ class VeronlineProvider : MainAPI() {
 
         val mainPageDoc = app.get(mainUrl).document
         val sliderItems = mainPageDoc.select("div#owl-slider div.owl-item div.shortstory").mapNotNull {
-            // El slider también debería ser TvType.TvSeries, o el tipo adecuado
-            val tvType = TvType.TvSeries // Define tvType aquí también para slider
+            val tvType = TvType.TvSeries
             val title = it.selectFirst("h4.short-link a")?.text() ?: ""
             val link = it.selectFirst("h4.short-link a")?.attr("href") ?: ""
             val img = it.selectFirst("div.short-images a img")?.attr("src") ?: ""
@@ -74,7 +73,7 @@ class VeronlineProvider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = tvType // <-- CORRECCIÓN
+                    this.type = tvType
                     this.posterUrl = fixUrl(img)
                 }
             } else {
@@ -97,7 +96,7 @@ class VeronlineProvider : MainAPI() {
         val url = "$mainUrl/recherche?q=$query"
         val doc = app.get(url).document
         return doc.select("div.result-item").mapNotNull {
-            val tvType = TvType.TvSeries // Define tvType aquí para search
+            val tvType = TvType.TvSeries
             val title = it.selectFirst("h3.title a")?.text() ?: ""
             val link = it.selectFirst("h3.title a")?.attr("href") ?: ""
             val img = it.selectFirst("img")?.attr("src") ?: ""
@@ -107,7 +106,7 @@ class VeronlineProvider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = tvType // <-- CORRECCIÓN
+                    this.type = tvType
                     this.posterUrl = fixUrl(img)
                 }
             } else null
@@ -153,17 +152,23 @@ class VeronlineProvider : MainAPI() {
         val description = doc.selectFirst("div.block-infos p")?.text() ?: ""
         val tags = doc.select("div.finfo-block a[href*='/series-online/']").map { it.text() }
 
+        // CORRECCIÓN: Extracción de actores
         val actors = doc.select("div.finfo-block:has(span:contains(Actores)) a[href*='/series-online/actor/']").mapNotNull {
             val actorName = it.text().trim()
             if (actorName.isNotBlank()) {
-                val actorObject = Actor(name = actorName)
-                ActorData(actor = actorObject)
+                ActorData(actor = Actor(actorName)) // Crear ActorData con un objeto Actor
             } else {
                 null
             }
         }
+        Log.d("Veronline", "LOAD_ACTORS - Extracted ${actors.size} actors.")
 
-        val directors = doc.select("div.finfo-block:has(span:contains(director)) a[href*='/series-online/director/']").map { it.text().trim() }
+        // CORRECCIÓN: Extracción de directores
+        val directors = doc.select("div.finfo-block:has(span:contains(director)) a[href*='/series-online/director/']").mapNotNull {
+            it.text().trim()
+        }
+        Log.d("Veronline", "LOAD_DIRECTORS - Extracted ${directors.size} directors.")
+
 
         val allEpisodes = ArrayList<Episode>()
 
@@ -173,7 +178,8 @@ class VeronlineProvider : MainAPI() {
         if (seasonElements.isEmpty() && doc.select("div#serie-episodes").isNotEmpty()) {
             Log.d("Veronline", "LOAD_EPISODES - No se encontraron elementos de temporada, intentando extraer episodios directamente de la página principal.")
             val defaultSeasonNumber = 1 // Asumimos Temporada 1 por defecto
-            val mainPageEpisodes = doc.select("div#serie-episodes div.episode-list div.saisian_LI").mapNotNull { element ->
+            // CORRECCIÓN: Cambiado 'saisian_LI' a 'saision_LI2'
+            val mainPageEpisodes = doc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
                 val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
                 val epTitle = element.selectFirst("a span")?.text() ?: ""
                 val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
@@ -224,7 +230,8 @@ class VeronlineProvider : MainAPI() {
 
                     Log.d("Veronline", "LOAD_SEASON_DOC - Contenido de seasonDoc (primeros 500 chars): ${seasonDoc.html().take(500)}")
 
-                    val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saisian_LI").mapNotNull { element ->
+                    // CORRECCIÓN: Cambiado 'saisian_LI' a 'saision_LI2'
+                    val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
                         val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
                         val epTitle = element.selectFirst("a span")?.text() ?: ""
                         val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
@@ -265,7 +272,7 @@ class VeronlineProvider : MainAPI() {
             this.backgroundPosterUrl = fixUrl(poster)
             this.plot = description
             this.tags = tags
-            this.actors = actors
+            this.actors = actors // Asignar la lista de ActorData
             if (directors.isNotEmpty()) {
                 this.plot = this.plot + "\n\nDirectores: " + directors.joinToString(", ")
             }
@@ -284,6 +291,7 @@ class VeronlineProvider : MainAPI() {
         val sortedEmbeds: List<SortedEmbed>
     )
 
+    // ¡¡¡IMPORTANTE!!! Reemplaza "TuClaveSecretaAqui" con la clave AES REAL que encuentres.
     private val AES_SECRET_KEY = "TuClaveSecretaAqui"
 
     private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
