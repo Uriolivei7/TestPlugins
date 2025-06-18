@@ -104,7 +104,7 @@
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 7,
+    "apiVersion": 6,
     "name": "AnimeFLV",
     "internalName": "AnimeflvnetProvider",
     "authors": [
@@ -139,23 +139,23 @@
     "fileSize": 22000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlayhubProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/VerseriesonlineProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 7,
-    "name": "PlayHUB",
-    "internalName": "PlayhubProvider",
+    "apiVersion": 8,
+    "name": "VerOnline",
+    "internalName": "VeronlineProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para playhublite.com",
+    "description": "Plugin para www.veronline.cfd",
     "tvTypes": [
       "TvSeries",
       "Movie",
       "Anime"
     ],
-    "iconUrl": "https://playhublite.com/favicon.ico",
+    "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
     "language": "es",
-    "fileSize": 42000
+    "fileSize": 20000
   }
 ]
