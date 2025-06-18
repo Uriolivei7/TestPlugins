@@ -2,9 +2,7 @@ package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -17,10 +15,9 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
-// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class VeronlineProvider : MainAPI() {
     override var mainUrl = "https://www.veronline.cfd"
-    override var name = "Veronline" // Nombre más amigable para el usuario
+    override var name = "Veronline"
     override val supportedTypes = setOf(
         TvType.TvSeries,
     )
@@ -35,80 +32,80 @@ class VeronlineProvider : MainAPI() {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
             Pair("Últimas Series Agregadas", "$mainUrl/series-online.html"),
-            // Puedes añadir más si hay secciones específicas en la página principal, por ejemplo:
-            // Pair("Series Populares", "$mainUrl/series-populares.html")
         )
 
         val homePageLists = urls.apmap { (name, url) ->
-            // Definir tvType aquí para que esté en el ámbito de este bloque
             val tvType = TvType.TvSeries
             val doc = app.get(url).document
-            // Ajuste del selector para los elementos de la página principal (últimas series agregadas)
             val homeItems = doc.select("div.movs article.item").mapNotNull {
-                val title = it.selectFirst("a div.data h3")?.text()
-                val link = it.selectFirst("a")?.attr("href")
-                // El atributo de la imagen puede variar. 'data-src' es común para lazyload.
-                // Si no es 'data-src', es 'src'. Probar con ambos.
+                val title = it.selectFirst("a div.data h3")?.text() ?: ""
+                val link = it.selectFirst("a")?.attr("href") ?: ""
                 val img = it.selectFirst("div.poster img")?.attr("data-src")
-                    ?: it.selectFirst("div.poster img")?.attr("src")
+                    ?: it.selectFirst("div.poster img")?.attr("src") ?: ""
 
-                if (title != null && link != null) {
+                if (title.isNotBlank() && link.isNotBlank()) {
+                    Log.d("Veronline", "Home Item found: $title, Link: $link, Img: $img")
                     newAnimeSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
                         this.type = tvType
-                        this.posterUrl = img
+                        this.posterUrl = fixUrl(img)
                     }
-                } else null
+                } else {
+                    Log.w("Veronline", "Missing title or link for a home item. Title: $title, Link: $link")
+                    null
+                }
             }
+            Log.d("Veronline", "Total Home Items for $name: ${homeItems.size}")
             HomePageList(name, homeItems)
         }
 
-        // Además de las "últimas agregadas", vamos a intentar extraer el "Slider" de la página principal
-        // que parece estar en <div id="owl-slider">
         val mainPageDoc = app.get(mainUrl).document
         val sliderItems = mainPageDoc.select("div#owl-slider div.owl-item div.shortstory").mapNotNull {
-            val title = it.selectFirst("h4.short-link a")?.text()
-            val link = it.selectFirst("h4.short-link a")?.attr("href")
-            val img = it.selectFirst("div.short-images a img")?.attr("src")
+            val title = it.selectFirst("h4.short-link a")?.text() ?: ""
+            val link = it.selectFirst("h4.short-link a")?.attr("href") ?: ""
+            val img = it.selectFirst("div.short-images a img")?.attr("src") ?: ""
 
-            if (title != null && link != null) {
+            if (title.isNotBlank() && link.isNotBlank()) {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
                     this.type = TvType.TvSeries
-                    this.posterUrl = img
+                    this.posterUrl = fixUrl(img)
                 }
-            } else null
+            } else {
+                Log.w("Veronline", "Missing title or link for a slider item. Title: $title, Link: $link")
+                null
+            }
         }
+        Log.d("Veronline", "Total Slider Items: ${sliderItems.size}")
+
         if (sliderItems.isNotEmpty()) {
             items.add(0, HomePageList("Destacadas", sliderItems))
         }
-
-
         items.addAll(homePageLists)
 
+        Log.d("Veronline", "Final number of HomePageLists: ${items.size}")
         return newHomePageResponse(items, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/recherche?q=$query"
         val doc = app.get(url).document
-        // Selector para los resultados de búsqueda
         return doc.select("div.result-item").mapNotNull {
-            val title = it.selectFirst("h3.title a")?.text()
-            val link = it.selectFirst("h3.title a")?.attr("href")
-            val img = it.selectFirst("img")?.attr("src")
+            val title = it.selectFirst("h3.title a")?.text() ?: ""
+            val link = it.selectFirst("h3.title a")?.attr("href") ?: ""
+            val img = it.selectFirst("img")?.attr("src") ?: ""
 
-            if (title != null && link != null) {
+            if (title.isNotBlank() && link.isNotBlank()) {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
                     this.type = TvType.TvSeries
-                    this.posterUrl = img
+                    this.posterUrl = fixUrl(img)
                 }
             } else null
         }
@@ -142,38 +139,39 @@ class VeronlineProvider : MainAPI() {
 
         val doc = app.get(cleanUrl).document
         val tvType = TvType.TvSeries
-        // Selectores actualizados para los detalles de la serie
+
         val title = doc.selectFirst("div.fstory-infos h1.fstory-h1")?.text()?.replace("ver serie ", "")?.replace(" Online gratis HD", "") ?: ""
         val poster = doc.selectFirst("div.fstory-poster-in img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.block-infos p")?.text() ?: ""
         val tags = doc.select("div.finfo-block a[href*='/series-online/']").map { it.text() }
 
-        // Extracción de actores y directores
-        val actors = doc.select("div.finfo-block:has(span:contains(Actores)) a[href*='/series-online/actor/']").map {
-            // CORRECCIÓN CONFIRMADA: Constructor de ActorData solo acepta 'name'
-            //ActorData(name = it.text().trim())
+        // ***** SECCIÓN DE ACTORES CON LA POSIBLE CORRECCIÓN *****
+        val actors = doc.select("div.finfo-block:has(span:contains(Actores)) a[href*='/series-online/actor/']").mapNotNull {
+            val actorName = it.text().trim()
+            if (actorName.isNotBlank()) {
+                // PRIMERA CORRECCIÓN: Crea un objeto Actor primero, asumiendo Actor(name = String)
+                // Esto es provisional hasta que me des la definición de 'Actor'
+                val actorObject = Actor(name = actorName)
+                ActorData(actor = actorObject) // Usa el parámetro nombrado 'actor'
+            } else {
+                null
+            }
         }
-        // Para directores, LoadResponse no tiene un campo directo, así que los concatenaremos en el plot si es necesario,
-        // o simplemente los ignoramos para evitar el error 'Unresolved reference'.
-        // Si CloudStream añade un campo 'director' en el futuro, se podría usar.
+
         val directors = doc.select("div.finfo-block:has(span:contains(director)) a[href*='/series-online/director/']").map { it.text().trim() }
 
-        // Extracción de Temporadas y Episodios
         val seasons = doc.select("div#full-video div#serie-seasons div.shortstory-in").mapNotNull { seasonElement ->
-            val seasonTitle = seasonElement.selectFirst("h4.short-link a")?.text()
-            val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href")
-            val seasonPoster = seasonElement.selectFirst("div.short-images a img")?.attr("src")
+            val seasonTitle = seasonElement.selectFirst("h4.short-link a")?.text() ?: ""
+            val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href") ?: ""
+            val seasonPoster = seasonElement.selectFirst("div.short-images a img")?.attr("src") ?: ""
 
-            if (seasonLink != null && seasonTitle != null) {
-                // Navegar a la página de la temporada para obtener los episodios
+            if (seasonLink.isNotBlank() && seasonTitle.isNotBlank()) {
                 val seasonDoc = app.get(fixUrl(seasonLink)).document
                 val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saisian_LI").mapNotNull { element ->
                     val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
                     val epTitle = element.selectFirst("a span")?.text() ?: ""
-                    val episodeNumber = epTitle.replace("Capítulo ", "").toIntOrNull()
+                    val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
 
-                    // Extraer el número de temporada del título de la temporada.
-                    // Asumimos que el formato es "Merlín Temporada N"
                     val seasonNumber = seasonTitle.replace(Regex(".*Temporada\\s*"), "").toIntOrNull()
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
@@ -183,7 +181,7 @@ class VeronlineProvider : MainAPI() {
                             this.name = epTitle
                             this.season = seasonNumber
                             this.episode = episodeNumber
-                            this.posterUrl = seasonPoster
+                            this.posterUrl = fixUrl(seasonPoster)
                         }
                     } else null
                 }
@@ -197,14 +195,11 @@ class VeronlineProvider : MainAPI() {
             type = tvType,
             episodes = seasons,
         ) {
-            this.posterUrl = poster
-            this.backgroundPosterUrl = poster
+            this.posterUrl = fixUrl(poster)
+            this.backgroundPosterUrl = fixUrl(poster)
             this.plot = description
             this.tags = tags
-            //this.actors = actors // <-- Esta es la línea 154 (o cercana). La asignación es correcta aquí.
-            // No se asigna 'director' directamente porque no es una propiedad de TvSeriesLoadResponse.
-            // Si quieres mostrar los directores, podrías añadirlos a la descripción (plot)
-            // o a un campo CustomData si CloudStream lo permite y tu UI lo renderiza.
+            this.actors = actors // Esta línea espera List<ActorData>
             if (directors.isNotEmpty()) {
                 this.plot = this.plot + "\n\nDirectores: " + directors.joinToString(", ")
             }
@@ -281,14 +276,12 @@ class VeronlineProvider : MainAPI() {
         }
 
         val doc = app.get(targetUrl).document
-        // Selector para los iframes principales de los reproductores en la página del episodio
         val iframeSrc = doc.selectFirst("div#player iframe")?.attr("src")
 
         if (iframeSrc.isNullOrBlank()) {
             Log.d("Veronline", "No se encontró iframe del reproductor con el selector específico. Intentando buscar en scripts de la página.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-            // Regex más robusta para encontrar URLs directas de reproductores o embeds en scripts
             val directRegex = """(https?:\/\/[^'"]+?(?:.m3u8|.mp4|embed|player|file|stream)[^'"]*)""".toRegex()
             val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
@@ -305,10 +298,6 @@ class VeronlineProvider : MainAPI() {
 
         Log.d("Veronline", "Iframe encontrado: $iframeSrc")
 
-        // La lógica de `loadLinks` para Veronline.cfd se basa en que el `iframeSrc`
-        // o los enlaces directos encontrados en los scripts pueden ser manejados por los extractores de CloudStream.
-        // No hay necesidad de lógica específica para "xupalace.org", "re.sololatino.net" o "embed69.org" a menos que
-        // se identifiquen embeds específicos de Veronline.cfd que requieran un manejo particular.
         Log.d("Veronline", "Cargando extractor para el iframe principal: $iframeSrc")
         return loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
     }
