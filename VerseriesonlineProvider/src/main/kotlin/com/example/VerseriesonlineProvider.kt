@@ -145,14 +145,14 @@ class VeronlineProvider : MainAPI() {
         val description = doc.selectFirst("div.block-infos p")?.text() ?: ""
         val tags = doc.select("div.finfo-block a[href*='/series-online/']").map { it.text() }
 
-        // ***** SECCIÓN DE ACTORES CON LA POSIBLE CORRECCIÓN *****
+        // ***** SECCIÓN CORREGIDA PARA ACTORES *****
         val actors = doc.select("div.finfo-block:has(span:contains(Actores)) a[href*='/series-online/actor/']").mapNotNull {
             val actorName = it.text().trim()
             if (actorName.isNotBlank()) {
-                // PRIMERA CORRECCIÓN: Crea un objeto Actor primero, asumiendo Actor(name = String)
-                // Esto es provisional hasta que me des la definición de 'Actor'
-                val actorObject = Actor(name = actorName)
-                ActorData(actor = actorObject) // Usa el parámetro nombrado 'actor'
+                // Creamos un objeto Actor con el nombre
+                val actorObject = Actor(name = actorName) // Asumiendo que Actor tiene constructor con 'name'
+                // Luego creamos ActorData usando el objeto Actor
+                ActorData(actor = actorObject)
             } else {
                 null
             }
@@ -160,34 +160,67 @@ class VeronlineProvider : MainAPI() {
 
         val directors = doc.select("div.finfo-block:has(span:contains(director)) a[href*='/series-online/director/']").map { it.text().trim() }
 
+        // ***** SECCIÓN DE CARGA DE EPISODIOS ACTUALIZADA *****
+        // Esta lógica asume que todos los episodios de todas las temporadas están presentes en la página principal
+        // y que solo necesitas agruparlos por temporada.
         val seasons = doc.select("div#full-video div#serie-seasons div.shortstory-in").mapNotNull { seasonElement ->
             val seasonTitle = seasonElement.selectFirst("h4.short-link a")?.text() ?: ""
-            val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href") ?: ""
+            val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href") ?: "" // Puede que no necesitemos usar seasonLink si los episodios están en la página principal
             val seasonPoster = seasonElement.selectFirst("div.short-images a img")?.attr("src") ?: ""
 
-            if (seasonLink.isNotBlank() && seasonTitle.isNotBlank()) {
-                val seasonDoc = app.get(fixUrl(seasonLink)).document
-                val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saisian_LI").mapNotNull { element ->
-                    val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-                    val epTitle = element.selectFirst("a span")?.text() ?: ""
-                    val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
+            Log.d("Veronline", "Procesando Temporada: $seasonTitle, Link de Temporada: $seasonLink")
 
-                    val seasonNumber = seasonTitle.replace(Regex(".*Temporada\\s*"), "").toIntOrNull()
+            // Extrae el número de la temporada del título (ej. "Merlin Temporada 1" -> 1)
+            val seasonNumber = seasonTitle.replace(Regex(".*Temporada\\s*"), "").toIntOrNull()
 
-                    if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                        newEpisode(
-                            EpisodeLoadData(epTitle, epurl).toJson()
-                        ) {
-                            this.name = epTitle
-                            this.season = seasonNumber
-                            this.episode = episodeNumber
-                            this.posterUrl = fixUrl(seasonPoster)
-                        }
-                    } else null
+            if (seasonNumber == null) {
+                Log.w("Veronline", "No se pudo extraer el número de temporada de: $seasonTitle. Saltando esta temporada.")
+                return@mapNotNull null // Salta si no se puede determinar el número de temporada
+            }
+
+            // Selecciona todos los episodios en la página principal y filtra por la temporada actual.
+            // Para esto, asumimos que los enlaces de episodios contienen el número de temporada o que el orden es consecutivo.
+            // Una forma más robusta sería que el HTML agrupe los episodios claramente por temporada.
+            // Dada tu HTML (image_b81e44.png), los episodios están bajo #serie-episodes sin una clara división por temporada en el HTML de los episodios.
+            // Necesitamos asegurarnos de que el 'seasonNumber' se asigne correctamente a los episodios.
+
+            // IMPORTANTE: Si todos los episodios están en la misma página y no hay un indicador claro de temporada
+            // en cada elemento <li> del episodio, esta lógica puede asignar la misma temporada a todos los episodios
+            // o agruparlos incorrectamente.
+            // Revisa el HTML de los episodios: ¿Hay alguna indicación de a qué temporada pertenece cada "saisian_LI"?
+            // Si no la hay, el 'seasonNumber' de arriba sólo será el de la 'seasonElement' actual.
+            // Si el sitio no separa los episodios por URL de temporada, entonces NO DEBES hacer `app.get(seasonLink)`
+            // y debes iterar sobre TODOS los episodios de la `doc` principal y asignarles su temporada.
+
+            // Por ahora, asumo que `doc` ya tiene todos los episodios y que debemos asignarles el `seasonNumber`
+            // que estamos procesando. Esto implica que el orden de `shortstory-in` para temporadas coincide
+            // con el orden de los episodios en `div#serie-episodes`. Esto es una suposición.
+            val episodesInSeason = doc.select("div#serie-episodes div.episode-list div.saisian_LI").mapNotNull { element ->
+                val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
+                val epTitle = element.selectFirst("a span")?.text() ?: ""
+                val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
+
+                if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
+                    Log.d("Veronline", "  Episodio: $epTitle (URL: $epurl, T: $seasonNumber, E: $episodeNumber)")
+                    newEpisode(
+                        EpisodeLoadData(epTitle, epurl).toJson()
+                    ) {
+                        this.name = epTitle
+                        this.season = seasonNumber // Asigna el número de temporada que estamos iterando
+                        this.episode = episodeNumber
+                        this.posterUrl = fixUrl(seasonPoster)
+                    }
+                } else {
+                    Log.w("Veronline", "  Episodio incompleto o con datos inválidos. Título: $epTitle, URL: $epurl, Número: $episodeNumber. Saltando.")
+                    null
                 }
-                episodesInSeason
-            } else null
-        }.flatten()
+            }
+            episodesInSeason
+        }.flatten() // Usa flatten para convertir List<List<Episode>> a List<Episode>
+
+        // Log para ver cuántos episodios se encontraron
+        Log.d("Veronline", "Total de episodios encontrados: ${seasons.size}")
+
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -199,7 +232,7 @@ class VeronlineProvider : MainAPI() {
             this.backgroundPosterUrl = fixUrl(poster)
             this.plot = description
             this.tags = tags
-            this.actors = actors // Esta línea espera List<ActorData>
+            this.actors = actors
             if (directors.isNotEmpty()) {
                 this.plot = this.plot + "\n\nDirectores: " + directors.joinToString(", ")
             }
