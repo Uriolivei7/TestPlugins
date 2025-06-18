@@ -9,9 +9,6 @@ import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import android.util.Base64
-import javax.crypto.Cipher // Ya no necesario para uqload.net directo, pero lo dejamos si otros servidores lo usan
-import javax.crypto.spec.IvParameterSpec // Ya no necesario
-import javax.crypto.spec.SecretKeySpec // Ya no necesario
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
@@ -122,13 +119,11 @@ class VeronlineProvider : MainAPI() {
         Log.d("Veronline", "LOAD_START - URL de entrada: $url")
 
         var cleanUrl = url
-        // Intento de limpiar la URL si viene con formato JSON (CloudStream a veces lo hace)
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("Veronline", "LOAD_URL - URL limpia por JSON Regex: $cleanUrl")
         } else {
-            // Asegura que la URL tenga https:// si no la tiene
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                 cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("Veronline", "LOAD_URL - URL limpiada con HTTPS: $cleanUrl")
@@ -183,7 +178,6 @@ class VeronlineProvider : MainAPI() {
                 val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
 
                 if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
-                    Log.d("Veronline", "LOAD_EPISODES - Episodio directo: Título='$epTitle', URL='$epurl', Temporada=$defaultSeasonNumber, Episodio=$episodeNumber")
                     newEpisode(
                         EpisodeLoadData(epTitle, epurl).toJson()
                     ) {
@@ -234,7 +228,6 @@ class VeronlineProvider : MainAPI() {
                         val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
 
                         if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
-                            Log.d("Veronline", "LOAD_EPISODE_DETAIL - Episodio encontrado: Título='$epTitle', URL='$epurl', Temporada=$seasonNumber, Episodio=$episodeNumber")
                             newEpisode(
                                 EpisodeLoadData(epTitle, epurl).toJson()
                             ) {
@@ -276,16 +269,6 @@ class VeronlineProvider : MainAPI() {
         }
     }
 
-    // `decryptLink` y las clases `DataLinkEntry`, `SortedEmbed`
-    // Ya no son necesarias para uqload.net directo.
-    // Si otros servidores en Veronline usan AES u otra lógica compleja,
-    // deberías mantener estas partes y usarlas condicionalmente.
-    // Por ahora, las comento para centrarme en la solución de uqload.net.
-
-    // data class SortedEmbed(val servername: String, val link: String, val type: String)
-    // data class DataLinkEntry(val file_id: String, val video_language: String, val sortedEmbeds: List<SortedEmbed>)
-    // private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? { /* ... */ }
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -296,7 +279,7 @@ class VeronlineProvider : MainAPI() {
 
         var cleanedData = data
         val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
-        val match = regexExtractUrl.find(data)
+        val match = regexExtractUrl.find(cleanedData)
 
         if (match != null) {
             cleanedData = match.groupValues[1]
@@ -329,84 +312,92 @@ class VeronlineProvider : MainAPI() {
 
         Log.d("Veronline", "LOADLINKS_DOC - Contenido de la página del episodio (primeros 500 chars): ${doc.html().take(500)}")
 
-        // --- INICIO DE LA LÓGICA REVISADA PARA EXTRAER EL VIDEO DE UQLOAD.NET ---
+        // --- INICIO DE LA LÓGICA REVISADA PARA EXTRAER LA DATA-URL DE LOS REPRODUCTORES ---
 
-        // Primero, busca el iframe principal del reproductor
-        val iframeSrc = doc.selectFirst("div#player iframe")?.attr("src")
+        val playerDivs = doc.select("div.player[data-url]")
+        Log.d("Veronline", "LOADLINKS_PLAYERS - Encontrados ${playerDivs.size} elementos 'div.player' con 'data-url'.")
 
-        if (!iframeSrc.isNullOrBlank()) {
-            Log.d("Veronline", "LOADLINKS_UQLOAD - Iframe principal encontrado: $iframeSrc")
+        // 'results' recolectará un Boolean por cada playerDivElement procesado, indicando si se encontró un enlace.
+        val results = playerDivs.apmap { playerDivElement ->
+            val encodedUrl = playerDivElement.attr("data-url")
+            val serverName = playerDivElement.selectFirst("span[id^=player_v_DIV_5]")?.text() ?: "Unknown Server"
+            Log.d("Veronline", "LOADLINKS_PLAYERS - Procesando servidor: $serverName, encodedUrl: $encodedUrl")
 
-            // Verificar si el iframe es de uqload.net
-            if (iframeSrc.contains("uqload.net")) {
-                Log.d("Veronline", "LOADLINKS_UQLOAD - Iframe es de uqload.net. Intentando extraer el enlace directo del MP4.")
-                val uqloadIframeDoc = try {
-                    app.get(fixUrl(iframeSrc)).document // Acceder al contenido del iframe
+            if (encodedUrl.isNotBlank() && encodedUrl.startsWith("/streamer/")) {
+                try {
+                    val base64Part = encodedUrl.substringAfter("/streamer/")
+                    val decodedBytes = Base64.decode(base64Part, Base64.DEFAULT)
+                    val decodedUrl = String(decodedBytes, UTF_8)
+
+                    val fullIframeUrl = if (decodedUrl.startsWith("http")) {
+                        decodedUrl
+                    } else {
+                        // Si la URL decodificada es relativa, la combinamos con mainUrl
+                        "$mainUrl$decodedUrl"
+                    }
+
+                    Log.d("Veronline", "LOADLINKS_PLAYERS - Decoded URL for $serverName: $fullIframeUrl")
+
+                    // Toda esta expresión devuelve un Boolean, que será un elemento en 'results'
+                    if (fullIframeUrl.contains("uqload.net")) {
+                        Log.d("Veronline", "LOADLINKS_UQLOAD - URL decodificada es de uqload.net. Procesando específicamente.")
+                        try {
+                            val uqloadIframeDoc = app.get(fullIframeUrl).document
+                            val scriptContent = uqloadIframeDoc.select("script").map { it.html() }.joinToString("\n")
+                            val uqloadMp4Regex = Regex("""(https?:\/\/[a-z0-9]+\.uqload\.net\/[a-zA-Z0-9]+\/v\.mp4)""")
+                            val uqloadMp4Match = uqloadMp4Regex.find(scriptContent)
+
+                            if (uqloadMp4Match != null) {
+                                val directMp4Url = uqloadMp4Match.groupValues[1]
+                                Log.d("Veronline", "LOADLINKS_UQLOAD_SUCCESS - ¡URL de MP4 de uqload.net encontrada!: $directMp4Url")
+                                val estimatedQuality = 720
+                                callback.invoke(
+                                    ExtractorLink(
+                                        source = name,
+                                        name = "Uqload MP4 ($serverName)",
+                                        url = directMp4Url,
+                                        referer = mainUrl,
+                                        quality = estimatedQuality,
+                                        headers = mapOf(),
+                                        extractorData = null,
+                                        type = ExtractorLinkType.VIDEO
+                                    )
+                                )
+                                true // Éxito en Uqload: se encontró y envió el enlace
+                            } else {
+                                Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net en los scripts del iframe ($fullIframeUrl).")
+                                false // Fallo en Uqload: no se encontró el MP4
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Veronline", "LOADLINKS_UQLOAD_ERROR - No se pudo obtener el documento del iframe de uqload ($fullIframeUrl) o error al procesarlo: ${e.message}", e)
+                            false // Fallo en Uqload: error al obtener el documento o procesarlo
+                        }
+                    } else {
+                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net. Delegando a extractor general: $fullIframeUrl")
+                        // loadExtractor devuelve Boolean, que será el resultado de esta rama
+                        loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
+                    }
+
                 } catch (e: Exception) {
-                    Log.e("Veronline", "LOADLINKS_UQLOAD_ERROR - No se pudo obtener el documento del iframe de uqload: $iframeSrc. ${e.message}", e)
-                    return false
-                }
-
-                // Buscar la URL del MP4 dentro del script del iframe de uqload.net
-                val scriptContent = uqloadIframeDoc.select("script").map { it.html() }.joinToString("\n")
-                Log.d("Veronline", "LOADLINKS_UQLOAD - Script content del iframe (primeros 500 chars): ${scriptContent.take(500)}")
-
-                // REGEX para encontrar el patrón de URL del MP4 de uqload.net
-                // m40.uqload.net/CADENA_LARGA/v.mp4
-                val uqloadMp4Regex = Regex("""(https?:\/\/[a-z0-9]+\.uqload\.net\/[a-zA-Z0-9]+\/v\.mp4)""")
-                val uqloadMp4Match = uqloadMp4Regex.find(scriptContent)
-
-                if (uqloadMp4Match != null) {
-                    val directMp4Url = uqloadMp4Match.groupValues[1]
-                    Log.d("Veronline", "LOADLINKS_UQLOAD_SUCCESS - ¡URL de MP4 de uqload.net encontrada!: $directMp4Url")
-
-                    // --- CAMBIO AQUÍ: Uso del constructor de ExtractorLink con Int para quality y ExtractorLinkType ---
-                    // Estimamos una calidad de 720p (puedes ajustarla si sabes la calidad real)
-                    val estimatedQuality = 720
-
-                    callback.invoke(
-                        ExtractorLink(
-                            source = name, // Nombre de tu proveedor ("Veronline")
-                            name = "Uqload MP4", // Un nombre descriptivo para el enlace
-                            url = directMp4Url,
-                            referer = mainUrl, // O puedes usar iframeSrc como referer si prefieres
-                            quality = estimatedQuality, // Calidad como Int
-                            headers = mapOf(), // No se necesitan encabezados personalizados por ahora
-                            extractorData = null,
-                            type = ExtractorLinkType.VIDEO // Tipo de enlace VIDEO para MP4 directo
-                        )
-                    )
-                    return true
-                } else {
-                    Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net en los scripts del iframe.")
+                    Log.e("Veronline", "LOADLINKS_PLAYERS_ERROR - Error al decodificar o procesar data-url para $serverName ($encodedUrl): ${e.message}", e)
+                    false // Si hay cualquier error en la decodificación/procesamiento, este elemento falla
                 }
             } else {
-                Log.d("Veronline", "LOADLINKS_IFRAME - El iframe principal no es de uqload.net, intentando cargarlo como un extractor general: $iframeSrc")
-                // Si no es uqload.net, se intentará cargar con los extractores predeterminados de CloudStream
-                loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
-                return true
+                Log.w("Veronline", "LOADLINKS_PLAYERS_WARN - data-url vacía o no comienza con '/streamer/' para servidor $serverName: $encodedUrl")
+                false // Si el data-url no es válido, este elemento falla
             }
-        } else {
-            Log.w("Veronline", "LOADLINKS_IFRAME_WARN - No se encontró iframe del reproductor con el selector 'div#player iframe'.")
-        }
+        } // Fin de playerDivs.apmap
 
-        // --- FIN DE LA LÓGICA REVISADA PARA UQLOAD.NET ---
+        // Después de que todas las operaciones asíncronas de apmap hayan terminado:
+        // Verificamos si al menos uno de los resultados fue true.
+        val finalLinksFound = results.any { it } // 'any { it }' devuelve true si hay al menos un 'true' en la lista
 
-        // Lógica anterior para otros enlaces directos si se encuentran en los scripts de la página principal
-        val scriptContentPage = doc.select("script").map { it.html() }.joinToString("\n")
-
-        val directRegex = """(https?:\/\/[^'"]+?(?:.m3u8|.mp4|embed|player|file|stream)[^'"]*)""".toRegex()
-        val directMatches = directRegex.findAll(scriptContentPage).map { it.groupValues[1] }.toList()
-
-        if (directMatches.isNotEmpty()) {
-            Log.d("Veronline", "LOADLINKS_DIRECT - Encontrados ${directMatches.size} enlaces directos potenciales en scripts de la página principal.")
-            directMatches.apmap { directUrl ->
-                Log.d("Veronline", "LOADLINKS_DIRECT - Intentando cargar extractor para enlace directo: $directUrl")
-                loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
-            }
+        if (finalLinksFound) {
+            Log.d("Veronline", "LOADLINKS_END - Se encontraron y procesaron enlaces de video.")
             return true
         }
-        Log.d("Veronline", "LOADLINKS_DIRECT - No se encontraron enlaces directos en scripts de la página principal.")
+
+        // --- FIN DE LA LÓGICA REVISADA PARA DATA-URL ---
 
         Log.w("Veronline", "LOADLINKS_WARN - No se encontraron enlaces de video válidos después de todas las comprobaciones.")
         return false
