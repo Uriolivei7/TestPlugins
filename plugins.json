@@ -139,23 +139,23 @@
     "fileSize": 22000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/RetrotveProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlayhubProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 7,
-    "name": "RetroTVE",
-    "internalName": "RetrotveProvider",
+    "name": "PlayHUB",
+    "internalName": "PlayhubProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para retrotve.com",
+    "description": "Plugin para playhublite.com",
     "tvTypes": [
       "TvSeries",
       "Movie",
       "Anime"
     ],
-    "iconUrl": "https://retrotve.com/wp-content/uploads/2024/11/cropped-android-chrome-512x512-1-32x32.png",
+    "iconUrl": "https://playhublite.com/favicon.ico",
     "language": "es",
-    "fileSize": 20000
+    "fileSize": 42000
   }
 ]

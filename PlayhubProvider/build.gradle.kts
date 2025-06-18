@@ -17,8 +17,10 @@ cloudstream {
      * */
     status = 1 // will be 3 if unspecified
     tvTypes = listOf(
+        "Movie",
         "TvSeries",
         "Cartoon",
+        "Anime"
     )
 
     //iconUrl = "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/NetflixMirrorProvider/icon.png"
