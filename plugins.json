@@ -137,5 +137,25 @@
     "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
     "language": "es",
     "fileSize": 22000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/RetrotveProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 7,
+    "name": "RetroTVE",
+    "internalName": "RetrotveProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para retrotve.com",
+    "tvTypes": [
+      "TvSeries",
+      "Movie",
+      "Anime"
+    ],
+    "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
+    "language": "es",
+    "fileSize": 21000
   }
 ]
