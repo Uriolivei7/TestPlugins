@@ -24,7 +24,7 @@ class VerseriesonlinePlugin : Plugin() {
 
         // Registra tu SoloLatinoProvider.
         // Asegúrate de que SoloLatinoProvider no tenga la anotación @CloudstreamPlugin.
-        registerMainAPI(VeronlineProvider())
+        registerMainAPI(VerseriesonlineProvider())
 
         // Si tuvieras otros proveedores, los registrarías aquí también:
         // registerMainAPI(OtroProveedor())

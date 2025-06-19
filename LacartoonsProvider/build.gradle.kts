@@ -19,7 +19,6 @@ cloudstream {
     tvTypes = listOf(
         "TvSeries",
         "Cartoon",
-        "Anime"
     )
 
     //iconUrl = "https://github.com/SaurabhKaperwan/CSX/raw/refs/heads/master/NetflixMirrorProvider/icon.png"
