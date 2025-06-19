@@ -35,14 +35,14 @@ class VerseriesonlineProvider : MainAPI() {
             val tvType = TvType.TvSeries
             val doc = app.get(url).document
             val homeItems = doc.select("div.movs article.item").mapNotNull {
-                val title = it.selectFirst("a div.data h3")?.text()?.trim().orEmpty() // Usar .orEmpty()
-                val link = it.selectFirst("a")?.attr("href")?.trim().orEmpty() // Usar .orEmpty()
+                val title = it.selectFirst("a div.data h3")?.text()?.trim().orEmpty()
+                val link = it.selectFirst("a")?.attr("href")?.trim().orEmpty()
                 val img = it.selectFirst("div.poster img")?.attr("data-src")
-                    ?: it.selectFirst("div.poster img")?.attr("src")?.trim().orEmpty() // Usar .orEmpty()
+                    ?: it.selectFirst("div.poster img")?.attr("src")?.trim().orEmpty()
 
                 if (title.isNotBlank() && link.isNotBlank()) {
                     Log.d("Veronline", "Home Item found: $title, Link: $link, Img: $img")
-                    newTvSeriesSearchResponse( // Cambiado a newTvSeriesSearchResponse
+                    newTvSeriesSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
@@ -61,12 +61,12 @@ class VerseriesonlineProvider : MainAPI() {
         val mainPageDoc = app.get(mainUrl).document
         val sliderItems = mainPageDoc.select("div#owl-slider div.owl-item div.shortstory").mapNotNull {
             val tvType = TvType.TvSeries
-            val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty() // Usar .orEmpty()
-            val link = it.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty() // Usar .orEmpty()
-            val img = it.selectFirst("div.short-images a img")?.attr("src")?.trim().orEmpty() // Usar .orEmpty()
+            val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
+            val link = it.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty()
+            val img = it.selectFirst("div.short-images a img")?.attr("src")?.trim().orEmpty()
 
             if (title.isNotBlank() && link.isNotBlank()) {
-                newTvSeriesSearchResponse( // Cambiado a newTvSeriesSearchResponse
+                newTvSeriesSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
@@ -92,25 +92,20 @@ class VerseriesonlineProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/recherche?q=$query"
         val doc = app.get(url).document
-        // IMPORTANTE: Revisa este log en Logcat para verificar la estructura HTML de la página de búsqueda
-        // y ajustar los selectores CSS si es necesario.
         Log.d("Veronline", "SEARCH_DOC_HTML - (Primeros 1000 chars) ${doc.html().take(1000)}")
 
-        // Ajusta estos selectores basándote en la inspección de la página de resultados de búsqueda.
-        return doc.select("div.shortstory-in").mapNotNull { // Este selector es el contenedor de cada resultado.
-            val tvType = TvType.TvSeries // Ya está definido como TvSeries en supportedTypes
+        return doc.select("div.shortstory-in").mapNotNull {
+            val tvType = TvType.TvSeries
 
-            // Selector del título y enlace.
-            val titleElement = it.selectFirst("h4.short-link a") //
-            val title = titleElement?.text()?.trim().orEmpty() // Usar .orEmpty()
-            val link = titleElement?.attr("href")?.trim().orEmpty() // Usar .orEmpty()
+            val titleElement = it.selectFirst("h4.short-link a")
+            val title = titleElement?.text()?.trim().orEmpty()
+            val link = titleElement?.attr("href")?.trim().orEmpty()
 
-            // Selector de la imagen principal.
-            val img = it.selectFirst("div.short-images img")?.attr("src")?.trim().orEmpty() //
+            val img = it.selectFirst("div.short-images img")?.attr("src")?.trim().orEmpty()
 
             if (title.isNotBlank() && link.isNotBlank()) {
                 Log.d("Veronline", "SEARCH_ITEM_FOUND: Title=$title, Link=$link, Img=$img")
-                newTvSeriesSearchResponse( // Cambiado a newTvSeriesSearchResponse
+                newTvSeriesSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
@@ -158,10 +153,10 @@ class VerseriesonlineProvider : MainAPI() {
         }
         val tvType = TvType.TvSeries
 
-        val title = doc.selectFirst("div.fstory-infos h1.fstory-h1")?.text()?.replace("ver serie ", "")?.replace(" Online gratis HD", "")?.trim().orEmpty() // Usar .orEmpty()
-        val poster = doc.selectFirst("div.fstory-poster-in img")?.attr("src")?.trim().orEmpty() // Usar .orEmpty()
-        val description = doc.selectFirst("div.block-infos p")?.text()?.trim().orEmpty() // Usar .orEmpty()
-        val tags = doc.select("div.finfo-block a[href*='/series-online/']").map { it.text().trim().orEmpty() } // Usar .orEmpty()
+        val title = doc.selectFirst("div.fstory-infos h1.fstory-h1")?.text()?.replace("ver serie ", "")?.replace(" Online gratis HD", "")?.trim().orEmpty()
+        val poster = doc.selectFirst("div.fstory-poster-in img")?.attr("src")?.trim().orEmpty()
+        val description = doc.selectFirst("div.block-infos p")?.text()?.trim().orEmpty()
+        val tags = doc.select("div.finfo-block a[href*='/series-online/']").map { it.text().trim().orEmpty() }
 
         val actors = doc.select("div.finfo-block:has(span:contains(Actores)) a[href*='/series-online/actor/']").mapNotNull {
             val actorName = it.text().trim()
@@ -174,7 +169,7 @@ class VerseriesonlineProvider : MainAPI() {
         Log.d("Veronline", "LOAD_ACTORS - Extracted ${actors.size} actors.")
 
         val directors = doc.select("div.finfo-block:has(span:contains(director)) a[href*='/series-online/director/']").mapNotNull {
-            it.text().trim().orEmpty() // Usar .orEmpty()
+            it.text().trim().orEmpty()
         }
         Log.d("Veronline", "LOAD_DIRECTORS - Extracted ${directors.size} directors.")
 
@@ -187,8 +182,8 @@ class VerseriesonlineProvider : MainAPI() {
             Log.d("Veronline", "LOAD_EPISODES - No se encontraron elementos de temporada, intentando extraer episodios directamente de la página principal.")
             val defaultSeasonNumber = 1
             val mainPageEpisodes = doc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
-                val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty()) // Usar .orEmpty()
-                val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty() // Usar .orEmpty()
+                val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty())
+                val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty()
                 val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
 
                 if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
@@ -210,9 +205,9 @@ class VerseriesonlineProvider : MainAPI() {
 
         } else {
             seasonElements.apmap { seasonElement ->
-                val seasonTitle = seasonElement.selectFirst("h4.short-link a")?.text()?.trim().orEmpty() // Usar .orEmpty()
-                val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty() // Usar .orEmpty()
-                val seasonPoster = seasonElement.selectFirst("div.short-images a img")?.attr("src")?.trim().orEmpty() // Usar .orEmpty()
+                val seasonTitle = seasonElement.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
+                val seasonLink = seasonElement.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty()
+                val seasonPoster = seasonElement.selectFirst("div.short-images a img")?.attr("src")?.trim().orEmpty()
 
                 Log.d("Veronline", "LOAD_SEASON - Procesando elemento de temporada: Título='$seasonTitle', Enlace='$seasonLink'")
 
@@ -237,8 +232,8 @@ class VerseriesonlineProvider : MainAPI() {
                     Log.d("Veronline", "LOAD_SEASON_DOC - Contenido de seasonDoc (primeros 500 chars): ${seasonDoc.html().take(500)}")
 
                     val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
-                        val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty()) // Usar .orEmpty()
-                        val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty() // Usar .orEmpty()
+                        val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty())
+                        val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty()
                         val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
 
                         if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
@@ -329,16 +324,15 @@ class VerseriesonlineProvider : MainAPI() {
         Log.d("Veronline", "LOADLINKS_PLAYERS - Encontrados ${playerDivs.size} elementos 'div.player' con 'data-url'.")
 
         val results = playerDivs.apmap { playerDivElement ->
-            val encodedUrl = playerDivElement.attr("data-url").orEmpty() // Usar .orEmpty()
-            val serverName = playerDivElement.selectFirst("span[id^=player_v_DIV_5]")?.text()?.trim().orEmpty() // Usar .orEmpty()
+            val encodedUrl = playerDivElement.attr("data-url").orEmpty()
+            val serverName = playerDivElement.selectFirst("span[id^=player_v_DIV_5]")?.text()?.trim().orEmpty()
             Log.d("Veronline", "LOADLINKS_PLAYERS - Procesando servidor: $serverName, encodedUrl: $encodedUrl")
 
-            // Ajuste para manejar '/streamer/' y '/telecharger/'
             if (encodedUrl.isNotBlank() && (encodedUrl.startsWith("/streamer/") || encodedUrl.startsWith("/telecharger/"))) {
                 try {
                     val base64Part = if (encodedUrl.startsWith("/streamer/")) {
                         encodedUrl.substringAfter("/streamer/")
-                    } else { // Asumimos que es /telecharger/
+                    } else {
                         encodedUrl.substringAfter("/telecharger/")
                     }
 
@@ -353,57 +347,21 @@ class VerseriesonlineProvider : MainAPI() {
 
                     Log.d("Veronline", "LOADLINKS_PLAYERS - Decoded URL for $serverName: $fullIframeUrl")
 
-                    // Lógica para Uqload o delegar a ExtractorApi para otros servicios conocidos
-                    if (fullIframeUrl.contains("uqload.net") || fullIframeUrl.contains("uqload.com")) {
-                        Log.d("Veronline", "LOADLINKS_UQLOAD - URL decodificada es de uqload.net o uqload.com. Procesando específicamente.")
-                        try {
-                            val uqloadIframeDoc = app.get(fullIframeUrl).document
-                            val scriptContent = uqloadIframeDoc.select("script").map { it.html() }.joinToString("\n")
-                            val uqloadMp4Regex = Regex("""(https?:\/\/[a-z0-9]+\.uqload\.(net|com)\/[a-zA-Z0-9]+\/v\.mp4)""")
-                            val uqloadMp4Match = uqloadMp4Regex.find(scriptContent)
-
-                            if (uqloadMp4Match != null) {
-                                val directMp4Url = uqloadMp4Match.groupValues[1]
-                                Log.d("Veronline", "LOADLINKS_UQLOAD_SUCCESS - ¡URL de MP4 de uqload.net/com encontrada!: $directMp4Url")
-                                val estimatedQuality = 720
-                                callback.invoke(
-                                    ExtractorLink(
-                                        source = name,
-                                        name = "Uqload MP4 ($serverName)",
-                                        url = directMp4Url,
-                                        referer = mainUrl,
-                                        quality = estimatedQuality,
-                                        headers = mapOf(),
-                                        extractorData = null,
-                                        type = ExtractorLinkType.VIDEO
-                                    )
-                                )
-                                true
-                            } else {
-                                Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net/com en los scripts del iframe ($fullIframeUrl). Intentando loadExtractor.")
-                                loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
-                            }
-                        } catch (e: Exception) {
-                            Log.e("Veronline", "LOADLINKS_UQLOAD_ERROR - No se pudo obtener el documento del iframe de uqload ($fullIframeUrl) o error al procesarlo: ${e.message}", e)
-                            loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
-                        }
-                    } else {
-                        // Este bloque maneja TODOS los demás enlaces que NO son Uqload
-                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net o uqload.com. Delegando a CloudStream's loadExtractor: $fullIframeUrl")
-                        loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
-                    }
+                    // ****** CAMBIO CLAVE AQUI: SIEMPRE DELEGA A loadExtractor ******
+                    // Se elimina la lógica específica de Uqload para que loadExtractor la maneje.
+                    Log.d("Veronline", "LOADLINKS_DELEGATING - Delegando a CloudStream's loadExtractor: $fullIframeUrl")
+                    loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
 
                 } catch (e: Exception) {
                     Log.e("Veronline", "LOADLINKS_PLAYERS_ERROR - Error al decodificar o procesar data-url para $serverName ($encodedUrl): ${e.message}", e)
-                    false // En caso de cualquier error, devuelve false para este elemento
+                    false
                 }
             } else {
                 Log.w("Veronline", "LOADLINKS_PLAYERS_WARN - data-url vacía o no comienza con '/streamer/' o '/telecharger/' para servidor $serverName: $encodedUrl")
-                false // Si el data-url no es válido o no tiene el formato esperado, este elemento falla
+                false
             }
-        } // Fin de playerDivs.apmap
+        }
 
-        // Verifica si al menos una de las llamadas a extractores o la lógica de Uqload fue exitosa.
         val finalLinksFound = results.any { it }
 
         if (finalLinksFound) {
