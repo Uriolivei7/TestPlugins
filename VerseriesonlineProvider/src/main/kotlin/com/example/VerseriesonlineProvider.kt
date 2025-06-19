@@ -352,43 +352,47 @@ class VeronlineProvider : MainAPI() {
                     Log.d("Veronline", "LOADLINKS_PLAYERS - Decoded URL for $serverName: $fullIframeUrl")
 
                     // Lógica para Uqload o delegar a ExtractorApi para otros servicios conocidos
-                    if (fullIframeUrl.contains("uqload.net")) { // Asumiendo que "uqload.net" es el dominio para Uqload
-                        Log.d("Veronline", "LOADLINKS_UQLOAD - URL decodificada es de uqload.net. Procesando específicamente.")
+                    if (fullIframeUrl.contains("uqload.net") || fullIframeUrl.contains("uqload.com")) { // <-- CAMBIO AQUÍ
+                        Log.d("Veronline", "LOADLINKS_UQLOAD - URL decodificada es de uqload.net o uqload.com. Procesando específicamente.")
                         try {
                             val uqloadIframeDoc = app.get(fullIframeUrl).document
                             val scriptContent = uqloadIframeDoc.select("script").map { it.html() }.joinToString("\n")
-                            val uqloadMp4Regex = Regex("""(https?:\/\/[a-z0-9]+\.uqload\.net\/[a-zA-Z0-9]+\/v\.mp4)""")
+                            // Asegúrate de que el regex sea robusto para ambos dominios si es necesario,
+                            // o si la URL de MP4 siempre es .net incluso si el embed es .com
+                            // Si el MP4 directo SIEMPRE es .net, mantén el regex como está.
+                            // Si el MP4 directo puede ser .com, el regex debería ser:
+                            val uqloadMp4Regex = Regex("""(https?:\/\/[a-z0-9]+\.uqload\.(net|com)\/[a-zA-Z0-9]+\/v\.mp4)""") // <-- AJUSTE DE REGEX SI ES NECESARIO
                             val uqloadMp4Match = uqloadMp4Regex.find(scriptContent)
 
                             if (uqloadMp4Match != null) {
                                 val directMp4Url = uqloadMp4Match.groupValues[1]
-                                Log.d("Veronline", "LOADLINKS_UQLOAD_SUCCESS - ¡URL de MP4 de uqload.net encontrada!: $directMp4Url")
+                                Log.d("Veronline", "LOADLINKS_UQLOAD_SUCCESS - ¡URL de MP4 de uqload.net/com encontrada!: $directMp4Url")
                                 val estimatedQuality = 720
                                 callback.invoke(
                                     ExtractorLink(
                                         source = name,
                                         name = "Uqload MP4 ($serverName)",
                                         url = directMp4Url,
-                                        referer = mainUrl, // Podrías usar fullIframeUrl aquí si prefieres un referer más específico
+                                        referer = mainUrl,
                                         quality = estimatedQuality,
                                         headers = mapOf(),
                                         extractorData = null,
                                         type = ExtractorLinkType.VIDEO
                                     )
                                 )
-                                true // Éxito en Uqload
+                                true
                             } else {
-                                Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net en los scripts del iframe ($fullIframeUrl).")
-                                false // Fallo en Uqload: no se encontró el MP4
+                                Log.w("Veronline", "LOADLINKS_UQLOAD_WARN - No se encontró la URL de MP4 de uqload.net/com en los scripts del iframe ($fullIframeUrl).")
+                                // Si no encuentra el MP4, intenta delegar a loadExtractor como fallback
+                                loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
                             }
                         } catch (e: Exception) {
                             Log.e("Veronline", "LOADLINKS_UQLOAD_ERROR - No se pudo obtener el documento del iframe de uqload ($fullIframeUrl) o error al procesarlo: ${e.message}", e)
-                            false // Fallo en Uqload: error al obtener el documento o procesarlo
+                            // Si hay un error, intenta delegar a loadExtractor como fallback
+                            loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
                         }
                     } else {
-                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net. Delegando a CloudStream's loadExtractor: $fullIframeUrl")
-                        // Intentar invocar el extractor de CloudStream.
-                        // loadExtractor ya devuelve un Boolean, así que simplemente lo devolvemos aquí.
+                        Log.d("Veronline", "LOADLINKS_GENERAL - URL decodificada NO es de uqload.net o uqload.com. Delegando a CloudStream's loadExtractor: $fullIframeUrl")
                         loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
                     }
 
