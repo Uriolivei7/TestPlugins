@@ -156,5 +156,23 @@
     "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
     "language": "es",
     "fileSize": 21000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 9,
+    "name": "LACartoons",
+    "internalName": "LacartoonsProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para www.lacartoons.com",
+    "tvTypes": [
+      "Cartoons"
+    ],
+    "iconUrl": "https://img.icons8.com/?size=200&id=tlzsVoeHOw9V&format=png",
+    "language": "es",
+    "fileSize": 12000
   }
 ]
