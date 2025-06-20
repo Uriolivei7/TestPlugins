@@ -174,5 +174,26 @@
     "iconUrl": "https://img.icons8.com/?size=200&id=tlzsVoeHOw9V&format=png",
     "language": "es",
     "fileSize": 12000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/Cuevana3Provider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 9,
+    "name": "Cuevana3",
+    "internalName": "Cuevana3Provider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para ww8.cuevana3.to",
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Cartoons",
+      "Anime"
+    ],
+    "iconUrl": "https://img.icons8.com/?size=200&id=40670&format=png",
+    "language": "es",
+    "fileSize": 19000
   }
 ]
