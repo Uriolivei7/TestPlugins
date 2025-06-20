@@ -42,7 +42,7 @@ class Cuevana3Provider : MainAPI() {
                 ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
             if (title.isNotBlank() && link.isNotBlank()) {
-                newTvSeriesSearchResponse(
+                newTvSeriesSearchResponse( // Usar newTvSeriesSearchResponse es correcto aquí
                     title,
                     fixUrl(link)
                 ) {
@@ -62,12 +62,10 @@ class Cuevana3Provider : MainAPI() {
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
-        // MODIFICACIÓN CLAVE: Cambiado el selector de "article.item" a "ul.MovieList li.TPostMv"
-        // para que coincida con la estructura esperada de los ítems de series en la página principal.
+        // CORRECCIÓN APLICADA: Selector confirmado por las imágenes para series en la página principal
         val seriesItems = seriesContainer?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
-            // El título (h2.Title) está dentro del linkElement (el 'a')
             val title = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty()
             val img = item.selectFirst("div.Image img")?.attr("data-src")
                 ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
@@ -77,7 +75,7 @@ class Cuevana3Provider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries // Asegurarse de que el tipo sea TvSeries
+                    this.type = TvType.TvSeries // ¡CRÍTICO! Asegurarse de que el tipo sea TvSeries
                     this.posterUrl = fixUrl(img)
                 }
             } else {
@@ -160,7 +158,8 @@ class Cuevana3Provider : MainAPI() {
             it.text().trim().orEmpty()
         }
 
-        val isSeries = url.contains("/series/")
+        // CORRECCIÓN APLICADA: isSeries ahora verifica si la URL contiene "/serie/" o "/series/"
+        val isSeries = url.contains("/serie/", ignoreCase = true) || url.contains("/series/", ignoreCase = true)
         Log.d("Cuevana3Provider", "LOAD_DEBUG_URL: $url, isSeries: $isSeries")
 
         val episodesList = ArrayList<Episode>()
@@ -274,7 +273,7 @@ class Cuevana3Provider : MainAPI() {
             return newTvSeriesLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.TvSeries, // Asegura que el tipo sea TvSeries
+                type = TvType.TvSeries,
                 episodes = episodesList
             ) {
                 this.posterUrl = fixUrl(poster)
@@ -303,7 +302,7 @@ class Cuevana3Provider : MainAPI() {
             return newMovieLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.Movie, // Asegura que el tipo sea Movie
+                type = TvType.Movie,
                 dataUrl = EpisodeLoadData(title, url).toJson()
             ) {
                 this.posterUrl = fixUrl(poster)
