@@ -33,6 +33,7 @@ class Cuevana3Provider : MainAPI() {
 
         // --- Sección de Películas Online ---
         val moviesSection = doc.selectFirst("section.home-movies")
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_MOVIES - Movies section found: ${moviesSection != null}")
         val moviesItems = moviesSection?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
@@ -52,16 +53,21 @@ class Cuevana3Provider : MainAPI() {
                 null
             }
         }
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_MOVIES - Movies items parsed: ${moviesItems?.size ?: 0}")
         if (!moviesItems.isNullOrEmpty()) {
             items.add(HomePageList("Películas Online", moviesItems))
         }
 
         // --- Sección de Series Online ---
-        val seriesSection = doc.selectFirst("section.home-series")
-        val seriesItems = seriesSection?.select("div#tabserie-1 article.item")?.mapNotNull { item ->
+        // CORRECCIÓN: Ir directamente al contenedor de la primera pestaña de series
+        val seriesContainer = doc.selectFirst("div#tabserie-1")
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
+
+        val seriesItems = seriesContainer?.select("article.item")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
-            val title = item.selectFirst("h2.Title")?.text()?.trim().orEmpty()
+            // CORRECCIÓN: El título (h2) está dentro del linkElement (el 'a') y sin la clase '.Title'
+            val title = linkElement?.selectFirst("h2")?.text()?.trim().orEmpty()
             val img = item.selectFirst("div.Image img")?.attr("data-src")
                 ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
@@ -77,8 +83,11 @@ class Cuevana3Provider : MainAPI() {
                 null
             }
         }
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series items parsed: ${seriesItems?.size ?: 0}")
         if (!seriesItems.isNullOrEmpty()) {
             items.add(HomePageList("Series Online", seriesItems))
+        } else {
+            Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - 'Series Online' list is empty or null, not added to HomePage.")
         }
 
         Log.d("Cuevana3Provider", "Final number of HomePageLists: ${items.size}")
@@ -152,35 +161,53 @@ class Cuevana3Provider : MainAPI() {
         }
 
         val isSeries = url.contains("/series/")
-        val episodesList = ArrayList<Episode>() // Renombrado a episodesList (antes episodeDocs)
+        Log.d("Cuevana3Provider", "LOAD_DEBUG_URL: $url, isSeries: $isSeries") // Log para verificar si se detecta como serie
+
+        val episodesList = ArrayList<Episode>()
 
         if (isSeries) {
             val seasonOptions = doc.select("select#select-season option")
+            Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG - Number of season options found: ${seasonOptions.size}")
 
             if (seasonOptions.isNotEmpty()) {
                 seasonOptions.apmapIndexed { index, seasonOption ->
                     val seasonNumber = seasonOption.attr("value").toIntOrNull() ?: (index + 1)
                     val seasonTitle = seasonOption.text().trim()
-                    Log.d("Cuevana3Provider", "LOAD_SERIES_SEASON - Processing season: $seasonTitle (Value: $seasonNumber)")
+                    Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG - Processing Season: $seasonNumber ($seasonTitle)")
 
                     val episodesInSection = doc.select("ul#season-$seasonNumber li.TPostMv")
-                    Log.d("Cuevana3Provider", "LOAD_SERIES_EPISODES_IN_SEASON - Found ${episodesInSection.size} episodes for season $seasonNumber.")
+                    Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG - Episodes in season $seasonNumber found: ${episodesInSection.size}")
 
                     episodesInSection.mapNotNull { item ->
                         val linkElement = item.selectFirst("a")
                         val epUrl = linkElement?.attr("href")?.trim().orEmpty()
-                        val epTitleFull = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty()
+                        val epTitleFull = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty() // h2.Title es correcto aquí, según tu imagen
                         val epImage = item.selectFirst("div.Image img")?.attr("data-src")
                             ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
-                        val episodeNumberMatch = epTitleFull.lowercase().split("x").lastOrNull()?.toIntOrNull()
-                            ?: item.selectFirst("span.Year")?.text()?.trim()?.lowercase()?.split("x")?.lastOrNull()?.toIntOrNull()
+                        // Lógica mejorada para extraer el número de episodio
+                        val episodeNumberFromSpan = item.selectFirst("span.Year")?.text()?.trim()?.lowercase()
+                        val episodeNumberMatch = if (episodeNumberFromSpan != null && (episodeNumberFromSpan.contains("x") || episodeNumberFromSpan.matches(Regex("\\d+")))) {
+                            // Intenta parsear "1x1" o solo "1" del span.Year
+                            // Asegura que "1x1" -> "1" y "Episodio 1" -> "1"
+                            episodeNumberFromSpan.split("x").lastOrNull()?.toIntOrNull()
+                                ?: episodeNumberFromSpan.replace(Regex("[^0-9]"), "").toIntOrNull() // Elimina todo lo que no sea número y parsea
+                        } else {
+                            // Fallback al título completo si el span.Year no tiene el formato esperado
+                            epTitleFull.lowercase().split("x").lastOrNull()?.toIntOrNull()
+                                ?: epTitleFull.lowercase().replace(Regex(".*episodio\\s*"), "").replace(Regex("[^0-9].*"), "").toIntOrNull() // Intenta extraer el número después de "episodio"
+                        }
 
-                        val episodeName = if (epTitleFull.contains("x")) {
+                        // Lógica refinada para el nombre del episodio
+                        val episodeName = if (epTitleFull.contains("episodio", ignoreCase = true)) {
+                            epTitleFull.substringAfter("episodio", "").trim().removePrefix(".").trim() // Elimina "episodio" y posibles puntos
+                        } else if (epTitleFull.contains("x")) {
                             epTitleFull.substringAfterLast("x").trim()
                         } else {
                             epTitleFull
                         }
+
+                        Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG_EPISODE_PARSE - Title: '$epTitleFull', Span.Year: '$episodeNumberFromSpan', Parsed Episode Num: $episodeNumberMatch, Name: '$episodeName', URL: '$epUrl'")
 
                         if (epUrl.isNotBlank() && episodeNumberMatch != null) {
                             newEpisode(
@@ -195,12 +222,13 @@ class Cuevana3Provider : MainAPI() {
                                 }
                             }
                         } else {
+                            Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG_EPISODE_SKIP - Skipping episode due to missing URL ($epUrl) or number ($episodeNumberMatch) for title: $epTitleFull")
                             null
                         }
                     }
-                }.flatten().also { episodesList.addAll(it) } // Usar episodesList
+                }.flatten().also { episodesList.addAll(it) }
             } else {
-                Log.d("Cuevana3Provider", "LOAD_SERIES_NO_SEASONS - No season options found, attempting direct episode listing.")
+                Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG - No explicit season options, trying direct episode list.")
                 val directEpisodes = doc.select("ul.all-episodes li.TPostMv").mapNotNull { item ->
                     val linkElement = item.selectFirst("a")
                     val epUrl = linkElement?.attr("href")?.trim().orEmpty()
@@ -208,21 +236,31 @@ class Cuevana3Provider : MainAPI() {
                     val epImage = item.selectFirst("div.Image img")?.attr("data-src")
                         ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
-                    val episodeNumberMatch = epTitleFull.lowercase().split("x").lastOrNull()?.toIntOrNull()
-                        ?: item.selectFirst("span.Year")?.text()?.trim()?.lowercase()?.split("x")?.lastOrNull()?.toIntOrNull()
+                    val episodeNumberFromSpan = item.selectFirst("span.Year")?.text()?.trim()?.lowercase()
+                    val episodeNumberMatch = if (episodeNumberFromSpan != null && (episodeNumberFromSpan.contains("x") || episodeNumberFromSpan.matches(Regex("\\d+")))) {
+                        episodeNumberFromSpan.split("x").lastOrNull()?.toIntOrNull()
+                            ?: episodeNumberFromSpan.replace(Regex("[^0-9]"), "").toIntOrNull()
+                    } else {
+                        epTitleFull.lowercase().split("x").lastOrNull()?.toIntOrNull()
+                            ?: epTitleFull.lowercase().replace(Regex(".*episodio\\s*"), "").replace(Regex("[^0-9].*"), "").toIntOrNull()
+                    }
 
-                    val episodeName = if (epTitleFull.contains("x")) {
+                    val episodeName = if (epTitleFull.contains("episodio", ignoreCase = true)) {
+                        epTitleFull.substringAfter("episodio", "").trim().removePrefix(".").trim()
+                    } else if (epTitleFull.contains("x")) {
                         epTitleFull.substringAfterLast("x").trim()
                     } else {
                         epTitleFull
                     }
+
+                    Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG_DIRECT_EPISODE_PARSE - Title: '$epTitleFull', Span.Year: '$episodeNumberFromSpan', Parsed Episode Num: $episodeNumberMatch, Name: '$episodeName', URL: '$epUrl'")
 
                     if (epUrl.isNotBlank() && episodeNumberMatch != null) {
                         newEpisode(
                             EpisodeLoadData(epTitleFull, epUrl).toJson()
                         ) {
                             this.name = episodeName
-                            this.season = 1
+                            this.season = 1 // Asumir temporada 1
                             this.episode = episodeNumberMatch
                             this.posterUrl = fixUrl(epImage)
                             if (this.posterUrl.isNullOrBlank()) {
@@ -230,17 +268,19 @@ class Cuevana3Provider : MainAPI() {
                             }
                         }
                     } else {
+                        Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG_DIRECT_EPISODE_SKIP - Skipping direct episode due to missing URL ($epUrl) or number ($episodeNumberMatch) for title: $epTitleFull")
                         null
                     }
                 }
-                episodesList.addAll(directEpisodes) // Usar episodesList
+                episodesList.addAll(directEpisodes)
             }
+            Log.d("Cuevana3Provider", "LOAD_SERIES_DEBUG - Total episodes collected for series: ${episodesList.size}")
 
             return newTvSeriesLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.TvSeries, // Mantener como parámetro nombrado, según stub
-                episodes = episodesList // *** CORRECCIÓN: Cambiado de this.episodeDocs a episodes como parámetro ***
+                type = TvType.TvSeries,
+                episodes = episodesList // Se asegura de que la lista de episodios se pasa
             ) {
                 this.posterUrl = fixUrl(poster)
                 this.backgroundPosterUrl = fixUrl(poster)
@@ -248,13 +288,13 @@ class Cuevana3Provider : MainAPI() {
                 this.tags = tags
                 this.year = year
                 this.actors = actors
-                // this.episodeDocs = episodeDocs // ELIMINADO
                 if (directors.isNotEmpty()) {
                     this.plot = (this.plot ?: "") + "\n\nDirectores: " + directors.joinToString(", ")
                 }
             }
         } else {
             // Lógica para Películas
+            Log.d("Cuevana3Provider", "LOAD_DEBUG_TREATED_AS_MOVIE - URL: $url")
             val movieEpisodes = ArrayList<Episode>()
             movieEpisodes.add(
                 newEpisode(
@@ -268,8 +308,8 @@ class Cuevana3Provider : MainAPI() {
             return newMovieLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.Movie, // Mantener como parámetro nombrado, según stub
-                dataUrl = EpisodeLoadData(title, url).toJson() // Añadimos dataUrl como segundo parámetro
+                type = TvType.Movie,
+                dataUrl = EpisodeLoadData(title, url).toJson()
             ) {
                 this.posterUrl = fixUrl(poster)
                 this.backgroundPosterUrl = fixUrl(poster)
@@ -277,14 +317,12 @@ class Cuevana3Provider : MainAPI() {
                 this.tags = tags
                 this.year = year
                 this.actors = actors
-                // this.episodeDocs = movieEpisodes // *** CORRECCIÓN: ELIMINADO, la API de películas no usa episodeDocs/episodes en el LoadResponse ***
                 if (directors.isNotEmpty()) {
                     this.plot = (this.plot ?: "") + "\n\nDirectores: " + directors.joinToString(", ")
                 }
             }
         }
     }
-
 
     override suspend fun loadLinks(
         data: String,
@@ -332,11 +370,6 @@ class Cuevana3Provider : MainAPI() {
                         name = "Descarga ($linkName)",
                         url = downloadUrl
                     ) {
-                        // Estas líneas se eliminaron en la versión anterior.
-                        // Si regresaron, por favor, asegúrate de que el código sea EXACTAMENTE este.
-                        // this.referer = targetUrl
-                        // this.quality = Qualities.Unknown.value
-
                         this.type = if (downloadUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     }
                 )
