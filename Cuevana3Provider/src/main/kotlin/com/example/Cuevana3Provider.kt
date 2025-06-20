@@ -59,15 +59,16 @@ class Cuevana3Provider : MainAPI() {
         }
 
         // --- Sección de Series Online ---
-        // CORRECCIÓN: Ir directamente al contenedor de la primera pestaña de series
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
-        val seriesItems = seriesContainer?.select("article.item")?.mapNotNull { item ->
+        // MODIFICACIÓN CLAVE: Cambiado el selector de "article.item" a "ul.MovieList li.TPostMv"
+        // para que coincida con la estructura esperada de los ítems de series en la página principal.
+        val seriesItems = seriesContainer?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
-            // CORRECCIÓN: El título (h2) está dentro del linkElement (el 'a') y sin la clase '.Title'
-            val title = linkElement?.selectFirst("h2")?.text()?.trim().orEmpty()
+            // El título (h2.Title) está dentro del linkElement (el 'a')
+            val title = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty()
             val img = item.selectFirst("div.Image img")?.attr("data-src")
                 ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
@@ -76,7 +77,7 @@ class Cuevana3Provider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries
+                    this.type = TvType.TvSeries // Asegurarse de que el tipo sea TvSeries
                     this.posterUrl = fixUrl(img)
                 }
             } else {
@@ -101,7 +102,6 @@ class Cuevana3Provider : MainAPI() {
         val doc = app.get(searchUrl).document
         Log.d("Cuevana3Provider", "SEARCH_DOC_HTML - (Primeros 1000 chars) ${doc.html().take(1000)}")
 
-        // Basado en image_bf42a4.png, image_bf45eb.png y image_bf4d4b.png, los resultados de búsqueda son consistentes
         return doc.select("ul.MovieList li.TPostMv").mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
@@ -161,7 +161,7 @@ class Cuevana3Provider : MainAPI() {
         }
 
         val isSeries = url.contains("/series/")
-        Log.d("Cuevana3Provider", "LOAD_DEBUG_URL: $url, isSeries: $isSeries") // Log para verificar si se detecta como serie
+        Log.d("Cuevana3Provider", "LOAD_DEBUG_URL: $url, isSeries: $isSeries")
 
         val episodesList = ArrayList<Episode>()
 
@@ -181,26 +181,21 @@ class Cuevana3Provider : MainAPI() {
                     episodesInSection.mapNotNull { item ->
                         val linkElement = item.selectFirst("a")
                         val epUrl = linkElement?.attr("href")?.trim().orEmpty()
-                        val epTitleFull = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty() // h2.Title es correcto aquí, según tu imagen
+                        val epTitleFull = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty()
                         val epImage = item.selectFirst("div.Image img")?.attr("data-src")
                             ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
-                        // Lógica mejorada para extraer el número de episodio
                         val episodeNumberFromSpan = item.selectFirst("span.Year")?.text()?.trim()?.lowercase()
                         val episodeNumberMatch = if (episodeNumberFromSpan != null && (episodeNumberFromSpan.contains("x") || episodeNumberFromSpan.matches(Regex("\\d+")))) {
-                            // Intenta parsear "1x1" o solo "1" del span.Year
-                            // Asegura que "1x1" -> "1" y "Episodio 1" -> "1"
                             episodeNumberFromSpan.split("x").lastOrNull()?.toIntOrNull()
-                                ?: episodeNumberFromSpan.replace(Regex("[^0-9]"), "").toIntOrNull() // Elimina todo lo que no sea número y parsea
+                                ?: episodeNumberFromSpan.replace(Regex("[^0-9]"), "").toIntOrNull()
                         } else {
-                            // Fallback al título completo si el span.Year no tiene el formato esperado
                             epTitleFull.lowercase().split("x").lastOrNull()?.toIntOrNull()
-                                ?: epTitleFull.lowercase().replace(Regex(".*episodio\\s*"), "").replace(Regex("[^0-9].*"), "").toIntOrNull() // Intenta extraer el número después de "episodio"
+                                ?: epTitleFull.lowercase().replace(Regex(".*episodio\\s*"), "").replace(Regex("[^0-9].*"), "").toIntOrNull()
                         }
 
-                        // Lógica refinada para el nombre del episodio
                         val episodeName = if (epTitleFull.contains("episodio", ignoreCase = true)) {
-                            epTitleFull.substringAfter("episodio", "").trim().removePrefix(".").trim() // Elimina "episodio" y posibles puntos
+                            epTitleFull.substringAfter("episodio", "").trim().removePrefix(".").trim()
                         } else if (epTitleFull.contains("x")) {
                             epTitleFull.substringAfterLast("x").trim()
                         } else {
@@ -279,8 +274,8 @@ class Cuevana3Provider : MainAPI() {
             return newTvSeriesLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.TvSeries,
-                episodes = episodesList // Se asegura de que la lista de episodios se pasa
+                type = TvType.TvSeries, // Asegura que el tipo sea TvSeries
+                episodes = episodesList
             ) {
                 this.posterUrl = fixUrl(poster)
                 this.backgroundPosterUrl = fixUrl(poster)
@@ -308,7 +303,7 @@ class Cuevana3Provider : MainAPI() {
             return newMovieLoadResponse(
                 name = title,
                 url = url,
-                type = TvType.Movie,
+                type = TvType.Movie, // Asegura que el tipo sea Movie
                 dataUrl = EpisodeLoadData(title, url).toJson()
             ) {
                 this.posterUrl = fixUrl(poster)
