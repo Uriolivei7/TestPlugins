@@ -62,7 +62,6 @@ class Cuevana3Provider : MainAPI() {
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
-        // CORRECCIÓN APLICADA: Selector confirmado por las imágenes para series en la página principal
         val seriesItems = seriesContainer?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
@@ -158,7 +157,6 @@ class Cuevana3Provider : MainAPI() {
             it.text().trim().orEmpty()
         }
 
-        // CORRECCIÓN APLICADA: isSeries ahora verifica si la URL contiene "/serie/" o "/series/"
         val isSeries = url.contains("/serie/", ignoreCase = true) || url.contains("/series/", ignoreCase = true)
         Log.d("Cuevana3Provider", "LOAD_DEBUG_URL: $url, isSeries: $isSeries")
 
@@ -330,7 +328,8 @@ class Cuevana3Provider : MainAPI() {
         val targetUrl = parsedData?.url ?: data
         Log.d("Cuevana3Provider", "LOADLINKS_TARGET_URL - URL objetivo: $targetUrl")
 
-        val doc = app.get(targetUrl).document
+        // *** CORRECCIÓN CLAVE AQUÍ: Usar fixUrl para obtener la URL completa ***
+        val doc = app.get(fixUrl(targetUrl)).document
         Log.d("Cuevana3Provider", "LOADLINKS_DOC_HTML - (Primeros 1000 chars) ${doc.html().take(1000)}")
 
         var foundLinks = false
