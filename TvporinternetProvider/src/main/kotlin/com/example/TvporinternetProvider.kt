@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import java.net.URL
+import org.jsoup.nodes.Element // Importa Element de Jsoup
 
 class TvporinternetProvider : MainAPI() {
 
@@ -26,10 +27,8 @@ class TvporinternetProvider : MainAPI() {
         TvType.Live,
     )
 
-    // User-Agent común para simular un navegador Chrome/Brave
     private val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
 
-    // Esta función decodificará una sola capa de Base64
     private fun decodeBase64(encodedString: String): String {
         return try {
             val cleanedString = encodedString.replace('-', '+').replace('_', '/')
@@ -42,12 +41,11 @@ class TvporinternetProvider : MainAPI() {
         }
     }
 
-    // Esta función decodificará Base64 múltiples veces
     private fun decodeBase64MultipleTimes(encodedString: String, times: Int): String {
         var currentDecoded = encodedString
         for (i in 0 until times) {
             currentDecoded = decodeBase64(currentDecoded)
-            if (currentDecoded.isEmpty()) { // Si falla en alguna decodificación, retorna vacío
+            if (currentDecoded.isEmpty()) {
                 return ""
             }
         }
@@ -146,7 +144,6 @@ class TvporinternetProvider : MainAPI() {
 
         val desc: String? = null
 
-        // Se usa la URL principal del canal como LoadResponse, no la URL del stream
         return newMovieLoadResponse(
             title,
             url, TvType.Live, url
@@ -165,7 +162,6 @@ class TvporinternetProvider : MainAPI() {
     ): Boolean {
         Log.d(name, "Iniciando loadLinks para la URL del canal: $data")
 
-        // Headers comunes para todas las solicitudes, simulando un navegador
         val commonHeaders = mapOf(
             "User-Agent" to USER_AGENT,
             "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -177,56 +173,61 @@ class TvporinternetProvider : MainAPI() {
             "Upgrade-Insecure-Requests" to "1"
         )
 
-        // 1. Obtener la página principal (donde se encuentran las opciones y el iframe principal)
         val mainPageResponse = app.get(data, headers = commonHeaders)
         val mainPageDocument = mainPageResponse.document
         val mainPageHtml = mainPageDocument.html()
         Log.d(name, "HTML recibido para la página del canal (principal): ${mainPageHtml.take(500)}...")
 
-        // *** CAMBIO CLAVE 1: Recorrer todas las opciones de video ***
-        // Seleccionar todos los enlaces dentro de los div con clase "p-2" que contengan "Opcion"
-        val videoOptionLinks = mainPageDocument.select("div.p-2:has(p:contains(Opcion)) a")
-
-        if (videoOptionLinks.isEmpty()) {
-            Log.w(name, "No se encontraron enlaces de opciones de video en la página principal: $data")
-            // Si no hay opciones explícitas, intentar con el iframe principal directamente si existe
-            return extractLinksFromIframe(data, mainPageDocument, commonHeaders, callback)
+        // CORRECCIÓN FINAL para el filtro de opciones.
+        // Se itera sobre los elementos y se agrega a una nueva lista si cumplen la condición.
+        val videoOptionLinks = mutableListOf<Element>()
+        for (element in mainPageDocument.select("div.flex.flex-wrap.gap-3 > a")) {
+            if (element.text()?.contains("Opción", ignoreCase = true) == true) {
+                videoOptionLinks.add(element)
+            }
         }
 
         var foundAnyLink = false
-        for (optionLinkElement in videoOptionLinks) {
-            val optionHref = optionLinkElement.attr("href")
-            val optionName = optionLinkElement.selectFirst("p.des")?.text() ?: "Opción Desconocida"
-            val fullOptionUrl = fixUrl(optionHref) // Asegurar que la URL sea absoluta
 
-            Log.d(name, "Procesando opción: $optionName - URL: $fullOptionUrl")
-
-            // Llamar a una función auxiliar para manejar la extracción de enlaces para cada opción
-            // Pasamos la URL de la página principal del canal como referer para el primer iframe
-            if (extractLinksFromOptionPage(fullOptionUrl, data, commonHeaders, callback, optionName)) {
+        if (videoOptionLinks.isEmpty()) {
+            Log.w(name, "No se encontraron enlaces de opciones de video explícitas en la página principal: $data. Intentando con el iframe principal directamente.")
+            // Si no hay opciones explícitas, intentar con el iframe principal directamente si existe
+            if (extractLinksFromIframe(data, mainPageDocument, commonHeaders, callback, "Default")) {
                 foundAnyLink = true
+            }
+        } else {
+            for (optionLinkElement in videoOptionLinks) {
+                val optionHref = optionLinkElement.attr("href")
+                // Se obtiene el texto directamente del <a> ya que no tiene <p.des>
+                val optionName = optionLinkElement.text() ?: "Opción Desconocida"
+                val fullOptionUrl = fixUrl(optionHref) // Asegurar que la URL sea absoluta
+
+                Log.d(name, "Procesando opción: $optionName - URL: $fullOptionUrl")
+
+                if (extractLinksFromOptionPage(fullOptionUrl, data, commonHeaders, callback, optionName)) {
+                    foundAnyLink = true
+                }
             }
         }
 
         if (!foundAnyLink) {
-            Log.w(name, "No se encontró ninguna URL de stream válida tras analizar todas las opciones para el canal: $data")
+            Log.w(name, "No se encontró ninguna URL de stream válida tras analizar las opciones para el canal: $data")
         }
         return foundAnyLink
     }
 
-    // *** NUEVA FUNCIÓN: Extrae enlaces de una página de opción (que contiene el primer iframe) ***
     private suspend fun extractLinksFromOptionPage(
         optionPageUrl: String,
-        refererToOptionPage: String, // Referer para la solicitud de la página de opción
+        refererToOptionPage: String,
         commonHeaders: Map<String, String>,
         callback: (ExtractorLink) -> Unit,
-        optionName: String // Nombre de la opción para el log
+        optionName: String
     ): Boolean {
         Log.d(name, "Extrayendo enlaces de la página de opción: $optionPageUrl (Opción: $optionName)")
 
         val optionPageRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Referer", refererToOptionPage)
-            put("Sec-Fetch-Site", "same-origin") // Asumimos que las páginas de opción están en el mismo dominio
+            put("Sec-Fetch-Site", "same-origin")
         }
 
         val optionPageResponse = app.get(optionPageUrl, headers = optionPageRequestHeaders)
@@ -237,14 +238,12 @@ class TvporinternetProvider : MainAPI() {
         return extractLinksFromIframe(optionPageUrl, optionPageDocument, commonHeaders, callback, optionName)
     }
 
-
-    // *** FUNCIÓN REFACTORIZADA: Extrae enlaces de un documento que contiene un iframe de video ***
     private suspend fun extractLinksFromIframe(
-        currentUrl: String, // La URL de la página actual (canal principal o página de opción)
+        currentUrl: String,
         document: org.jsoup.nodes.Document,
         commonHeaders: Map<String, String>,
         callback: (ExtractorLink) -> Unit,
-        optionIdentifier: String = "" // Para diferenciar en los logs
+        optionIdentifier: String = ""
     ): Boolean {
         val videoIframeElement = document.selectFirst("iframe[name=player]")
         val videoIframeSrc = videoIframeElement?.attr("src")
@@ -254,22 +253,28 @@ class TvporinternetProvider : MainAPI() {
             return false
         }
 
-        val fullVideoIframeSrc = fixUrl(videoIframeSrc) // Asegurar URL absoluta
+        val fullVideoIframeSrc = fixUrl(videoIframeSrc)
         Log.d(name, "[$optionIdentifier] URL del iframe del video encontrada: $fullVideoIframeSrc")
 
-        // 2. Obtener el contenido del iframe del video
+        // Detectar cubemedia.rpmvid.com y manejarlo diferente
+        if (fullVideoIframeSrc.contains("cubemedia.rpmvid.com")) {
+            Log.d(name, "[$optionIdentifier] Detectado iframe de cubemedia.rpmvid.com. Iniciando extracción específica.")
+            return extractLinksFromCubemediaIframe(fullVideoIframeSrc, currentUrl, commonHeaders, callback, optionIdentifier)
+        }
+
         val videoIframeRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Priority", "u=0, i")
-            put("Referer", currentUrl) // ¡Importante! Referer es la URL de la página padre que embebe el iframe
+            put("Referer", currentUrl)
             put("Sec-Fetch-Dest", "iframe")
             put("Sec-Fetch-Mode", "navigate")
-            put("Sec-Fetch-Site", "same-origin") // Puede ser cross-site si el iframe es de otro dominio
+            put("Sec-Fetch-Site", "same-origin")
         }
 
         val videoIframeHtml = app.get(fullVideoIframeSrc, headers = videoIframeRequestHeaders).document.html()
         Log.d(name, "[$optionIdentifier] HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
 
-        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""", RegexOption.DOT_MATCHES_ALL)
+        // Regex más flexible para Clappr
+        val clapprSourceRegex = Regex("""source\s*:\s*atob\(\s*atob\(\s*atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)\s*\)\s*\)""", RegexOption.DOT_MATCHES_ALL)
 
         val firstIframeMatch = clapprSourceRegex.find(videoIframeHtml)
 
@@ -289,29 +294,29 @@ class TvporinternetProvider : MainAPI() {
                 Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
             }
         } else {
-            Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $fullVideoIframeSrc. Buscando un segundo iframe... (esto es esperado)")
+            Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $fullVideoIframeSrc. Buscando un segundo iframe... (esto es esperado para ciertos canales)")
 
             val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
             val finalIframeMatch = finalStreamIframeSrcRegex.find(videoIframeHtml)
 
             if (finalIframeMatch != null) {
                 val finalStreamIframeSrcWithAmp = finalIframeMatch.groupValues[1]
-                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&") // Corrección para entidades HTML
+                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&")
                 Log.d(name, "[$optionIdentifier] Segundo iframe de stream encontrado: $finalStreamIframeSrc")
 
                 val finalStreamIframeRequestHeaders = commonHeaders.toMutableMap().apply {
                     put("Connection", "keep-alive")
-                    put("Referer", fullVideoIframeSrc) // <-- Referer es la URL del iframe padre (el primer iframe)
+                    put("Referer", fullVideoIframeSrc)
                     put("Sec-Fetch-Dest", "iframe")
                     put("Sec-Fetch-Mode", "navigate")
                     put("Sec-Fetch-Site", "cross-site")
-                    put("Sec-Fetch-Storage-Access", "active") // Agregado si aplica
+                    put("Sec-Fetch-Storage-Access", "active")
                 }
 
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-                Log.d(name, "[$optionIdentifier] HTML COMPLETO recibido del iframe final del stream: ${finalStreamHtml.take(500)}...") // Acortar para logs
+                Log.d(name, "[$optionIdentifier] HTML COMPLETO recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
 
                 val finalMatch = clapprSourceRegex.find(finalStreamHtml)
 
@@ -351,18 +356,64 @@ class TvporinternetProvider : MainAPI() {
         return false
     }
 
-    // *** NUEVA FUNCIÓN: Lógica para parsear el M3U8 y añadir los enlaces ***
+    // Función para Cubemedia
+    private suspend fun extractLinksFromCubemediaIframe(
+        cubemediaIframeUrl: String,
+        refererToCubemedia: String,
+        commonHeaders: Map<String, String>,
+        callback: (ExtractorLink) -> Unit,
+        optionIdentifier: String = ""
+    ): Boolean {
+        Log.d(name, "[$optionIdentifier] Extrayendo enlaces de Cubemedia: $cubemediaIframeUrl")
+
+        val cubemediaHeaders = commonHeaders.toMutableMap().apply {
+            put("Referer", refererToCubemedia)
+            put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+            put("Sec-Fetch-Site", "cross-site")
+            put("Sec-Fetch-Mode", "navigate")
+            put("Sec-Fetch-Dest", "iframe")
+        }
+
+        val cubemediaResponse = app.get(cubemediaIframeUrl, headers = cubemediaHeaders)
+        val cubemediaDocument = cubemediaResponse.document
+        val cubemediaHtml = cubemediaDocument.html()
+        Log.d(name, "[$optionIdentifier] HTML recibido de Cubemedia iframe: ${cubemediaHtml.take(500)}...")
+
+        // Buscar el elemento <video> y su <source> directamente
+        val sourceElement = cubemediaDocument.selectFirst("video[crossorigin][aria-hidden=\"true\"] source[src]")
+        if (sourceElement != null) {
+            val relativeStreamUrl = sourceElement.attr("src")
+            val cubemediaBaseUrl = "https://cubemedia.rpmvid.com" // Base URL para Cubemedia
+            val fullStreamUrl = if (relativeStreamUrl.startsWith("/")) {
+                "$cubemediaBaseUrl$relativeStreamUrl"
+            } else {
+                "$cubemediaBaseUrl/$relativeStreamUrl"
+            }
+
+            Log.d(name, "[$optionIdentifier] URL de stream de Cubemedia encontrada: $fullStreamUrl")
+
+            // Parsear el M3U8 de Cubemedia
+            return parseM3U8Stream(fullStreamUrl, cubemediaIframeUrl, callback, optionIdentifier)
+        } else {
+            Log.w(name, "[$optionIdentifier] No se encontró la etiqueta <source> dentro del <video> en el iframe de Cubemedia.")
+        }
+        return false
+    }
+
     private suspend fun parseM3U8Stream(
         m3u8Url: String,
-        refererForM3u8: String, // Referer para la solicitud del M3U8
+        refererForM3u8: String,
         callback: (ExtractorLink) -> Unit,
         optionIdentifier: String = ""
     ): Boolean {
         Log.d(name, "[$optionIdentifier] Iniciando parseo de M3U8: $m3u8Url")
 
         val m3u8Headers = mapOf(
-            "Referer" to refererForM3u8, // El referer para el M3U8 es la URL del iframe que lo contiene
-            "User-Agent" to USER_AGENT // Usa el mismo User-Agent
+            "Referer" to refererForM3u8,
+            "User-Agent" to USER_AGENT,
+            "Accept" to "*/*", // Más amplio para M3U8
+            "Accept-Encoding" to "gzip, deflate, br",
+            "Connection" to "keep-alive"
         )
         val m3u8Response = app.get(m3u8Url, headers = m3u8Headers)
         val m3u8Content = m3u8Response.text
@@ -376,7 +427,9 @@ class TvporinternetProvider : MainAPI() {
 
         val baseUrl = getBaseUrl(m3u8Url)
 
-        val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
+        // Ajustar la regex para capturar sub-streams M3U8 de forma más robusta
+        // La regex ahora manejará URLs que pueden o no tener un prefijo de barra '/'
+        val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?[^\n]*?\n\s*([^\s#][^\n]*)""")
         var foundStreams = false
 
         streamRegex.findAll(m3u8Content).forEach { matchResult ->
@@ -385,6 +438,7 @@ class TvporinternetProvider : MainAPI() {
             val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
             val streamRelativeUrl = matchResult.groupValues[3].trim()
 
+            // Corregir la construcción de la URL completa
             val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
                 streamRelativeUrl
             } else {
@@ -398,13 +452,12 @@ class TvporinternetProvider : MainAPI() {
                 "$base$streamRelativeUrl"
             }
 
-            // Usar la resolución para el nombre y la calidad
             val qualityName = if (resolution.isNotBlank()) resolution else "Calidad $bandwidth"
-            val qualityInt = getQualityFromName(resolution.ifBlank { "Auto" }) // o Qualities.Unknown.ordinal
+            val qualityInt = getQualityFromName(resolution.ifBlank { "Auto" })
 
             callback(newExtractorLink(
                 source = this.name,
-                name = "$optionIdentifier - $qualityName", // Incluye el identificador de la opción
+                name = "$optionIdentifier - $qualityName",
                 url = streamFullUrl,
                 type = ExtractorLinkType.M3U8
             ) {
@@ -415,11 +468,10 @@ class TvporinternetProvider : MainAPI() {
         }
 
         if (!foundStreams) {
-            // Si no se encontraron #EXT-X-STREAM-INF, puede que sea un M3U8 directo sin calidades adaptativas
-            Log.d(name, "[$optionIdentifier] No se encontraron sub-streams en el M3U8 maestro, reportando el stream maestro directo.")
+            Log.d(name, "[$optionIdentifier] No se encontraron sub-streams #EXT-X-STREAM-INF en el M3U8 maestro, reportando el stream maestro directo.")
             callback(newExtractorLink(
                 source = this.name,
-                name = "$optionIdentifier - Auto", // Nombre predeterminado si no hay calidades explícitas
+                name = "$optionIdentifier - Auto",
                 url = m3u8Url,
                 type = ExtractorLinkType.M3U8
             ) {
@@ -431,7 +483,6 @@ class TvporinternetProvider : MainAPI() {
         return true
     }
 
-    // Función auxiliar para obtener la base URL de un M3U8
     private fun getBaseUrl(urlString: String): String {
         return try {
             val url = URL(urlString)
