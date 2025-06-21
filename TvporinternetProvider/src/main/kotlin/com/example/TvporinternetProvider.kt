@@ -146,6 +146,7 @@ class TvporinternetProvider : MainAPI() {
 
         val desc: String? = null
 
+        // Se usa la URL principal del canal como LoadResponse, no la URL del stream
         return newMovieLoadResponse(
             title,
             url, TvType.Live, url
@@ -176,337 +177,258 @@ class TvporinternetProvider : MainAPI() {
             "Upgrade-Insecure-Requests" to "1"
         )
 
-        // 1. Obtener la página principal (donde se encuentra el iframe del video)
-        val mainPageRequestHeaders = commonHeaders.toMutableMap().apply {
-            put("Cache-Control", "max-age=0")
-            put("Priority", "u=0, i")
-            put("Referer", mainUrl)
-            put("Sec-Fetch-Dest", "document")
-            put("Sec-Fetch-Mode", "navigate")
-            put("Sec-Fetch-Site", "same-origin")
-            put("Sec-Fetch-User", "?1")
-        }
-
-        val mainPageResponse = app.get(data, headers = mainPageRequestHeaders)
-        val mainPageHtml = mainPageResponse.document.html()
+        // 1. Obtener la página principal (donde se encuentran las opciones y el iframe principal)
+        val mainPageResponse = app.get(data, headers = commonHeaders)
+        val mainPageDocument = mainPageResponse.document
+        val mainPageHtml = mainPageDocument.html()
         Log.d(name, "HTML recibido para la página del canal (principal): ${mainPageHtml.take(500)}...")
 
-        val videoIframeElement = mainPageResponse.document.selectFirst("iframe[name=player]")
+        // *** CAMBIO CLAVE 1: Recorrer todas las opciones de video ***
+        // Seleccionar todos los enlaces dentro de los div con clase "p-2" que contengan "Opcion"
+        val videoOptionLinks = mainPageDocument.select("div.p-2:has(p:contains(Opcion)) a")
+
+        if (videoOptionLinks.isEmpty()) {
+            Log.w(name, "No se encontraron enlaces de opciones de video en la página principal: $data")
+            // Si no hay opciones explícitas, intentar con el iframe principal directamente si existe
+            return extractLinksFromIframe(data, mainPageDocument, commonHeaders, callback)
+        }
+
+        var foundAnyLink = false
+        for (optionLinkElement in videoOptionLinks) {
+            val optionHref = optionLinkElement.attr("href")
+            val optionName = optionLinkElement.selectFirst("p.des")?.text() ?: "Opción Desconocida"
+            val fullOptionUrl = fixUrl(optionHref) // Asegurar que la URL sea absoluta
+
+            Log.d(name, "Procesando opción: $optionName - URL: $fullOptionUrl")
+
+            // Llamar a una función auxiliar para manejar la extracción de enlaces para cada opción
+            // Pasamos la URL de la página principal del canal como referer para el primer iframe
+            if (extractLinksFromOptionPage(fullOptionUrl, data, commonHeaders, callback, optionName)) {
+                foundAnyLink = true
+            }
+        }
+
+        if (!foundAnyLink) {
+            Log.w(name, "No se encontró ninguna URL de stream válida tras analizar todas las opciones para el canal: $data")
+        }
+        return foundAnyLink
+    }
+
+    // *** NUEVA FUNCIÓN: Extrae enlaces de una página de opción (que contiene el primer iframe) ***
+    private suspend fun extractLinksFromOptionPage(
+        optionPageUrl: String,
+        refererToOptionPage: String, // Referer para la solicitud de la página de opción
+        commonHeaders: Map<String, String>,
+        callback: (ExtractorLink) -> Unit,
+        optionName: String // Nombre de la opción para el log
+    ): Boolean {
+        Log.d(name, "Extrayendo enlaces de la página de opción: $optionPageUrl (Opción: $optionName)")
+
+        val optionPageRequestHeaders = commonHeaders.toMutableMap().apply {
+            put("Referer", refererToOptionPage)
+            put("Sec-Fetch-Site", "same-origin") // Asumimos que las páginas de opción están en el mismo dominio
+        }
+
+        val optionPageResponse = app.get(optionPageUrl, headers = optionPageRequestHeaders)
+        val optionPageDocument = optionPageResponse.document
+        val optionPageHtml = optionPageDocument.html()
+        Log.d(name, "HTML recibido para la página de opción (${optionName}): ${optionPageHtml.take(500)}...")
+
+        return extractLinksFromIframe(optionPageUrl, optionPageDocument, commonHeaders, callback, optionName)
+    }
+
+
+    // *** FUNCIÓN REFACTORIZADA: Extrae enlaces de un documento que contiene un iframe de video ***
+    private suspend fun extractLinksFromIframe(
+        currentUrl: String, // La URL de la página actual (canal principal o página de opción)
+        document: org.jsoup.nodes.Document,
+        commonHeaders: Map<String, String>,
+        callback: (ExtractorLink) -> Unit,
+        optionIdentifier: String = "" // Para diferenciar en los logs
+    ): Boolean {
+        val videoIframeElement = document.selectFirst("iframe[name=player]")
         val videoIframeSrc = videoIframeElement?.attr("src")
 
         if (videoIframeSrc.isNullOrBlank()) {
-            Log.w(name, "No se encontró la URL del iframe del video en la página principal.")
+            Log.w(name, "[$optionIdentifier] No se encontró la URL del iframe del video en la página: $currentUrl")
             return false
         }
 
-        Log.d(name, "URL del iframe del video encontrada: $videoIframeSrc")
+        val fullVideoIframeSrc = fixUrl(videoIframeSrc) // Asegurar URL absoluta
+        Log.d(name, "[$optionIdentifier] URL del iframe del video encontrada: $fullVideoIframeSrc")
 
         // 2. Obtener el contenido del iframe del video
         val videoIframeRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Priority", "u=0, i")
-            put("Referer", data) // Referer es la URL de la página principal del canal
+            put("Referer", currentUrl) // ¡Importante! Referer es la URL de la página padre que embebe el iframe
             put("Sec-Fetch-Dest", "iframe")
             put("Sec-Fetch-Mode", "navigate")
-            put("Sec-Fetch-Site", "same-origin")
+            put("Sec-Fetch-Site", "same-origin") // Puede ser cross-site si el iframe es de otro dominio
         }
 
-        val videoIframeHtml = app.get(videoIframeSrc, headers = videoIframeRequestHeaders).document.html()
-        Log.d(name, "HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
+        val videoIframeHtml = app.get(fullVideoIframeSrc, headers = videoIframeRequestHeaders).document.html()
+        Log.d(name, "[$optionIdentifier] HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
 
-        // Regex para buscar la cadena de Clappr. Añadimos .*\n para permitir saltos de línea y \s* para espacios.
-        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""", RegexOption.DOT_MATCHES_ALL) // DOT_MATCHES_ALL para que el punto incluya saltos de línea
+        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""", RegexOption.DOT_MATCHES_ALL)
 
-        // Vamos a probar primero si el patrón existe en el *primer* iframe de video, aunque los logs sugieran que no
         val firstIframeMatch = clapprSourceRegex.find(videoIframeHtml)
 
         if (firstIframeMatch != null) {
             val encodedSource = firstIframeMatch.groupValues[1]
-            Log.d(name, "Cadena Clappr codificada (4 capas) encontrada en primer iframe: $encodedSource")
+            Log.d(name, "[$optionIdentifier] Cadena Clappr codificada (4 capas) encontrada en primer iframe: $encodedSource")
 
             try {
                 val finalUrl = decodeBase64MultipleTimes(encodedSource, 4)
 
-                Log.d(name, "URL de stream decodificada: $finalUrl")
+                Log.d(name, "[$optionIdentifier] URL de stream decodificada: $finalUrl")
 
                 if (finalUrl.startsWith("http")) {
-                    // *** INICIO DE LA LÓGICA DE PARSEO M3U8 ***
-                    val m3u8Headers = mapOf(
-                        "Referer" to videoIframeSrc, // El referer para el M3U8 sigue siendo la URL del iframe padre
-                        "User-Agent" to USER_AGENT // Usa el mismo User-Agent
-                    )
-                    val m3u8Response = app.get(finalUrl, headers = m3u8Headers)
-                    val m3u8Content = m3u8Response.text
-
-                    if (m3u8Content.isNullOrBlank()) {
-                        Log.w(name, "Contenido M3U8 maestro vacío o nulo para: $finalUrl")
-                        return false
-                    }
-
-                    Log.d(name, "Contenido M3U8 maestro: ${m3u8Content.take(500)}...")
-
-                    val baseUrl = getBaseUrl(finalUrl) // Función auxiliar para obtener la base URL del M3U8
-
-                    // Regex para encontrar #EXT-X-STREAM-INF y la URL del stream
-                    // Aseguramos que la captura de la resolución sea opcional con (?:,RESOLUTION=(\d+x\d+))?
-                    val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
-                    var foundStreams = false
-
-                    streamRegex.findAll(m3u8Content).forEach { matchResult ->
-                        foundStreams = true
-                        val resolution = matchResult.groupValues.getOrNull(2).orEmpty() // Usar getOrNull para captura opcional
-                        val streamRelativeUrl = matchResult.groupValues[3].trim()
-
-                        // Construir la URL absoluta del stream de calidad
-                        val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
-                            streamRelativeUrl
-                        } else {
-                            val base = if (baseUrl.endsWith("/") && streamRelativeUrl.startsWith("/")) {
-                                baseUrl.dropLast(1) // Eliminar la barra si ambas la tienen
-                            } else if (!baseUrl.endsWith("/") && !streamRelativeUrl.startsWith("/")) {
-                                "$baseUrl/" // Añadir barra si ninguna la tiene
-                            } else {
-                                baseUrl
-                            }
-                            "$base$streamRelativeUrl"
-                        }
-
-                        val quality = getQualityFromName(resolution.ifBlank { "Auto" }) // Obtener el Int de calidad
-
-                        callback(newExtractorLink(
-                            source = this.name,
-                            name = resolution.ifBlank { "Auto" }, // Muestra la resolución o "Auto"
-                            url = streamFullUrl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            // Dentro del bloque lambda, asigna directamente
-                            this.quality = quality // 'quality' ya es Int, no requiere .ordinal
-                            this.referer = finalUrl
-                            this.headers = mapOf("Referer" to finalUrl)
-                        })
-                    }
-
-                    if (!foundStreams) {
-                        // Si no se encontraron #EXT-X-STREAM-INF, puede que sea un M3U8 directo sin calidades adaptativas
-                        // O solo un stream directo. En este caso, reportamos el original.
-                        Log.d(name, "No se encontraron sub-streams en el M3U8 maestro, reportando el stream maestro directo.")
-                        callback(newExtractorLink(
-                            source = this.name,
-                            name = "Auto", // Nombre predeterminado si no hay calidades explícitas
-                            url = finalUrl,
-                            type = ExtractorLinkType.M3U8
-                        ) {
-                            this.quality = Qualities.Unknown.ordinal
-                            this.referer = videoIframeSrc
-                            this.headers = mapOf("Referer" to videoIframeSrc)
-                        })
-                    }
-                    // *** FIN DE LA LÓGICA DE PARSEO M3U8 ***
-                    return true
+                    return parseM3U8Stream(finalUrl, fullVideoIframeSrc, callback, optionIdentifier)
                 }
             } catch (e: Exception) {
-                Log.e(name, "Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
+                Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
             }
         } else {
-            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc. Buscando un segundo iframe... (esto es esperado)")
+            Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $fullVideoIframeSrc. Buscando un segundo iframe... (esto es esperado)")
 
-            // Si el primer iframe carga *otro* iframe que contiene el stream final
             val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
             val finalIframeMatch = finalStreamIframeSrcRegex.find(videoIframeHtml)
 
             if (finalIframeMatch != null) {
                 val finalStreamIframeSrcWithAmp = finalIframeMatch.groupValues[1]
-                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&")
-                Log.d(name, "Segundo iframe de stream encontrado: $finalStreamIframeSrc")
+                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&") // Corrección para entidades HTML
+                Log.d(name, "[$optionIdentifier] Segundo iframe de stream encontrado: $finalStreamIframeSrc")
 
-                // El Referer para el iframe final del stream DEBE SER la URL del iframe padre.
-                // Esto es crucial para evitar la redirección por protección hotlink.
                 val finalStreamIframeRequestHeaders = commonHeaders.toMutableMap().apply {
                     put("Connection", "keep-alive")
-                    put("Referer", videoIframeSrc) // <-- ¡ESTE ES EL CAMBIO CLAVE!
+                    put("Referer", fullVideoIframeSrc) // <-- Referer es la URL del iframe padre (el primer iframe)
                     put("Sec-Fetch-Dest", "iframe")
                     put("Sec-Fetch-Mode", "navigate")
                     put("Sec-Fetch-Site", "cross-site")
-                    put("Sec-Fetch-Storage-Access", "active")
+                    put("Sec-Fetch-Storage-Access", "active") // Agregado si aplica
                 }
 
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-                Log.d(name, "HTML COMPLETO recibido del iframe final del stream: $finalStreamHtml") // Dejar este log completo es útil para depuración
+                Log.d(name, "[$optionIdentifier] HTML COMPLETO recibido del iframe final del stream: ${finalStreamHtml.take(500)}...") // Acortar para logs
 
-                // Intentar encontrar el patrón de Clappr en el HTML del iframe final
-                // Buscamos directamente en el HTML completo, no en un subsegmento de script, para ser más robustos
-                val finalMatch = clapprSourceRegex.find(finalStreamHtml) // Buscamos directamente en el HTML completo
+                val finalMatch = clapprSourceRegex.find(finalStreamHtml)
 
                 if (finalMatch != null) {
                     val finalEncodedSource = finalMatch.groupValues[1]
-                    Log.d(name, "Cadena Clappr codificada (4 capas) encontrada en iframe final: $finalEncodedSource")
+                    Log.d(name, "[$optionIdentifier] Cadena Clappr codificada (4 capas) encontrada en iframe final: $finalEncodedSource")
 
                     try {
                         val finalUrl = decodeBase64MultipleTimes(finalEncodedSource, 4)
 
-                        Log.d(name, "URL de stream decodificada del iframe final (maestra M3U8): $finalUrl")
+                        Log.d(name, "[$optionIdentifier] URL de stream decodificada del iframe final (maestra M3U8): $finalUrl")
 
                         if (finalUrl.startsWith("http")) {
-                            // *** INICIO DE LA LÓGICA DE PARSEO M3U8 (para el segundo iframe) ***
-                            val m3u8Headers = mapOf(
-                                "Referer" to finalStreamIframeSrc, // El referer para el M3U8 es la URL del iframe que lo contiene
-                                "User-Agent" to USER_AGENT // Usa el mismo User-Agent
-                            )
-                            val m3u8Response = app.get(finalUrl, headers = m3u8Headers)
-                            val m3u8Content = m3u8Response.text
-
-                            if (m3u8Content.isNullOrBlank()) {
-                                Log.w(name, "Contenido M3U8 maestro vacío o nulo para: $finalUrl (segundo iframe)")
-                                return false
-                            }
-
-                            Log.d(name, "Contenido M3U8 maestro (segundo iframe): ${m3u8Content.take(500)}...")
-
-                            val baseUrl = getBaseUrl(finalUrl) // Función auxiliar para obtener la base URL del M3U8
-
-                            val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
-                            var foundStreams = false
-
-                            streamRegex.findAll(m3u8Content).forEach { matchResult ->
-                                foundStreams = true
-                                val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
-                                val streamRelativeUrl = matchResult.groupValues[3].trim()
-
-                                val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
-                                    streamRelativeUrl
-                                } else {
-                                    val base = if (baseUrl.endsWith("/") && streamRelativeUrl.startsWith("/")) {
-                                        baseUrl.dropLast(1)
-                                    } else if (!baseUrl.endsWith("/") && !streamRelativeUrl.startsWith("/")) {
-                                        "$baseUrl/"
-                                    } else {
-                                        baseUrl
-                                    }
-                                    "$base$streamRelativeUrl"
-                                }
-
-                                val quality = getQualityFromName(resolution.ifBlank { "Auto" }) // Obtener el Int de calidad
-
-                                callback(newExtractorLink(
-                                    source = this.name,
-                                    name = resolution.ifBlank { "Auto" },
-                                    url = streamFullUrl,
-                                    type = ExtractorLinkType.M3U8
-                                ) {
-                                    this.quality = quality
-                                    this.referer = finalUrl
-                                    this.headers = mapOf("Referer" to finalUrl)
-                                })
-                            }
-
-                            if (!foundStreams) {
-                                Log.d(name, "No se encontraron sub-streams en el M3U8 maestro (segundo iframe), reportando el stream maestro directo.")
-                                callback(newExtractorLink(
-                                    source = this.name,
-                                    name = "Auto",
-                                    url = finalUrl,
-                                    type = ExtractorLinkType.M3U8
-                                ) {
-                                    this.quality = Qualities.Unknown.ordinal
-                                    this.referer = finalStreamIframeSrc
-                                    this.headers = mapOf("Referer" to finalStreamIframeSrc)
-                                })
-                            }
-                            // *** FIN DE LA LÓGICA DE PARSEO M3U8 ***
-                            return true
+                            return parseM3U8Stream(finalUrl, finalStreamIframeSrc, callback, optionIdentifier)
                         }
                     } catch (e: Exception) {
-                        Log.e(name, "Error al decodificar la URL Base64 de Clappr desde iframe final o al parsear M3U8: ${e.message}", e)
+                        Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr desde iframe final o al parsear M3U8: ${e.message}", e)
                     }
                 } else {
-                    // Si el patrón de Clappr (4 capas de atob) no se encuentra, busca un patrón más genérico para "source"
-                    Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc. Intentando un patrón de 'source' más genérico.")
+                    Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc. Intentando un patrón de 'source' más genérico.")
 
                     val genericSourceRegex = Regex("""source:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""")
-                    val genericMatch = genericSourceRegex.find(finalStreamHtml) // Buscamos directamente en el HTML completo
+                    val genericMatch = genericSourceRegex.find(finalStreamHtml)
 
                     if (genericMatch != null) {
                         val streamUrl = genericMatch.groupValues[1]
-                        Log.d(name, "URL de stream (genérica M3U8) encontrada en iframe final: $streamUrl")
-                        // Aquí no necesitamos decodificar, ya tenemos la URL directa
+                        Log.d(name, "[$optionIdentifier] URL de stream (genérica M3U8) encontrada en iframe final: $streamUrl")
                         if (streamUrl.startsWith("http")) {
-                            // Repetimos la lógica de parseo M3U8, pero sin decodificación
-                            val m3u8Headers = mapOf(
-                                "Referer" to finalStreamIframeSrc,
-                                "User-Agent" to USER_AGENT
-                            )
-                            val m3u8Response = app.get(streamUrl, headers = m3u8Headers)
-                            val m3u8Content = m3u8Response.text
-
-                            if (m3u8Content.isNullOrBlank()) {
-                                Log.w(name, "Contenido M3U8 maestro vacío o nulo para: $streamUrl (genérico)")
-                                return false
-                            }
-
-                            Log.d(name, "Contenido M3U8 maestro (genérico): ${m3u8Content.take(500)}...")
-
-                            val baseUrl = getBaseUrl(streamUrl)
-
-                            val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
-                            var foundStreams = false
-
-                            streamRegex.findAll(m3u8Content).forEach { matchResult ->
-                                foundStreams = true
-                                val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
-                                val streamRelativeUrl = matchResult.groupValues[3].trim()
-
-                                val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
-                                    streamRelativeUrl
-                                } else {
-                                    val base = if (baseUrl.endsWith("/") && streamRelativeUrl.startsWith("/")) {
-                                        baseUrl.dropLast(1)
-                                    } else if (!baseUrl.endsWith("/") && !streamRelativeUrl.startsWith("/")) {
-                                        "$baseUrl/"
-                                    } else {
-                                        baseUrl
-                                    }
-                                    "$base$streamRelativeUrl"
-                                }
-
-                                val quality = getQualityFromName(resolution.ifBlank { "Auto" })
-
-                                callback(newExtractorLink(
-                                    source = this.name,
-                                    name = resolution.ifBlank { "Auto" },
-                                    url = streamFullUrl,
-                                    type = ExtractorLinkType.M3U8
-                                ) {
-                                    this.quality = quality
-                                    this.referer = streamUrl
-                                    this.headers = mapOf("Referer" to streamUrl)
-                                })
-                            }
-
-                            if (!foundStreams) {
-                                Log.d(name, "No se encontraron sub-streams en el M3U8 maestro (genérico), reportando el stream maestro directo.")
-                                callback(newExtractorLink(
-                                    source = this.name,
-                                    name = "Auto",
-                                    url = streamUrl,
-                                    type = ExtractorLinkType.M3U8
-                                ) {
-                                    this.quality = Qualities.Unknown.ordinal
-                                    this.referer = finalStreamIframeSrc
-                                    this.headers = mapOf("Referer" to finalStreamIframeSrc)
-                                })
-                            }
-                            return true
+                            return parseM3U8Stream(streamUrl, finalStreamIframeSrc, callback, optionIdentifier)
                         }
                     } else {
-                        Log.w(name, "No se encontró ningún patrón de source (ni Clappr codificado ni genérico) en el iframe final del stream: $finalStreamIframeSrc")
+                        Log.w(name, "[$optionIdentifier] No se encontró ningún patrón de source (ni Clappr codificado ni genérico) en el iframe final del stream: $finalStreamIframeSrc")
                     }
                 }
             }
         }
-
-        Log.w(name, "No se encontró ninguna URL de stream válida tras analizar la página del canal: $data")
         return false
+    }
+
+    // *** NUEVA FUNCIÓN: Lógica para parsear el M3U8 y añadir los enlaces ***
+    private suspend fun parseM3U8Stream(
+        m3u8Url: String,
+        refererForM3u8: String, // Referer para la solicitud del M3U8
+        callback: (ExtractorLink) -> Unit,
+        optionIdentifier: String = ""
+    ): Boolean {
+        Log.d(name, "[$optionIdentifier] Iniciando parseo de M3U8: $m3u8Url")
+
+        val m3u8Headers = mapOf(
+            "Referer" to refererForM3u8, // El referer para el M3U8 es la URL del iframe que lo contiene
+            "User-Agent" to USER_AGENT // Usa el mismo User-Agent
+        )
+        val m3u8Response = app.get(m3u8Url, headers = m3u8Headers)
+        val m3u8Content = m3u8Response.text
+
+        if (m3u8Content.isNullOrBlank()) {
+            Log.w(name, "[$optionIdentifier] Contenido M3U8 maestro vacío o nulo para: $m3u8Url")
+            return false
+        }
+
+        Log.d(name, "[$optionIdentifier] Contenido M3U8 maestro: ${m3u8Content.take(500)}...")
+
+        val baseUrl = getBaseUrl(m3u8Url)
+
+        val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
+        var foundStreams = false
+
+        streamRegex.findAll(m3u8Content).forEach { matchResult ->
+            foundStreams = true
+            val bandwidth = matchResult.groupValues[1]
+            val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
+            val streamRelativeUrl = matchResult.groupValues[3].trim()
+
+            val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
+                streamRelativeUrl
+            } else {
+                val base = if (baseUrl.endsWith("/") && streamRelativeUrl.startsWith("/")) {
+                    baseUrl.dropLast(1)
+                } else if (!baseUrl.endsWith("/") && !streamRelativeUrl.startsWith("/")) {
+                    "$baseUrl/"
+                } else {
+                    baseUrl
+                }
+                "$base$streamRelativeUrl"
+            }
+
+            // Usar la resolución para el nombre y la calidad
+            val qualityName = if (resolution.isNotBlank()) resolution else "Calidad $bandwidth"
+            val qualityInt = getQualityFromName(resolution.ifBlank { "Auto" }) // o Qualities.Unknown.ordinal
+
+            callback(newExtractorLink(
+                source = this.name,
+                name = "$optionIdentifier - $qualityName", // Incluye el identificador de la opción
+                url = streamFullUrl,
+                type = ExtractorLinkType.M3U8
+            ) {
+                this.quality = qualityInt
+                this.referer = m3u8Url
+                this.headers = mapOf("Referer" to m3u8Url)
+            })
+        }
+
+        if (!foundStreams) {
+            // Si no se encontraron #EXT-X-STREAM-INF, puede que sea un M3U8 directo sin calidades adaptativas
+            Log.d(name, "[$optionIdentifier] No se encontraron sub-streams en el M3U8 maestro, reportando el stream maestro directo.")
+            callback(newExtractorLink(
+                source = this.name,
+                name = "$optionIdentifier - Auto", // Nombre predeterminado si no hay calidades explícitas
+                url = m3u8Url,
+                type = ExtractorLinkType.M3U8
+            ) {
+                this.quality = Qualities.Unknown.ordinal
+                this.referer = refererForM3u8
+                this.headers = mapOf("Referer" to refererForM3u8)
+            })
+        }
+        return true
     }
 
     // Función auxiliar para obtener la base URL de un M3U8
@@ -514,13 +436,12 @@ class TvporinternetProvider : MainAPI() {
         return try {
             val url = URL(urlString)
             val path = url.path
-            // Eliminar la última parte del path para obtener la base URL del directorio si es un archivo
             val lastSlash = url.path.lastIndexOf('/')
             val basePath = if (lastSlash != -1) url.path.substring(0, lastSlash + 1) else "/"
             "${url.protocol}://${url.host}$basePath"
         } catch (e: Exception) {
             Log.e(name, "Error al obtener base URL de $urlString: ${e.message}")
-            urlString // Retornar la original si falla, o una cadena vacía
+            urlString
         }
     }
 }
