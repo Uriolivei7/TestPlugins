@@ -95,12 +95,12 @@ class LacartoonsProvider:MainAPI() {
             println("${name}: Detectado iframe de cubeembed.rpmvid.com, procesando internamente.")
             val cubembedUrl = iframeSrc // Esta es la URL del iframe (ej: https://cubeembed.rpmvid.com/#ourng)
             val refererForEmbed = data
-            val originForEmbed = mainUrl
+            val originForEmbed = mainUrl // o cubembedUrl.substringBefore("#") si es más apropiado
 
             val embedHeaders = mapOf(
                 "Referer" to refererForEmbed,
-                "Origin" to originForEmbed,
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Origin" to cubembedUrl.substringBefore("#"), // Usar el dominio base del embed como Origin
+                "User-Agent" to "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Mobile Safari/537.36", // User-Agent móvil
                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Language" to "es,en-US;q=0.7,en;q=0.3"
             )
@@ -109,14 +109,10 @@ class LacartoonsProvider:MainAPI() {
                 // Obtener el HTML del iframe
                 val embedDoc = app.get(cubembedUrl, headers = embedHeaders).document
 
-                // *** AÑADIDO: IMPRIME EL HTML COMPLETO DEL IFRAME RECIBIDO ***
-                println("${name}: Contenido HTML del iframe de Cubembed recibido:\n${embedDoc.html()}")
-                // *************************************************************
-
                 val htmlContent = embedDoc.html()
+
                 println("${name}: URL del iframe de Cubembed: $cubembedUrl")
                 println("${name}: Tamaño del HTML de Cubembed recibido: ${htmlContent.length} caracteres")
-
                 println("${name}: --- INICIO HTML CUBEMBED ---")
                 val chunkSize = 1000 // Tamaño de cada "pedazo" de HTML a imprimir
                 for (i in 0 until htmlContent.length step chunkSize) {
