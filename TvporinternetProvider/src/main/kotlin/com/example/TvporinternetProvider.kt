@@ -213,9 +213,8 @@ class TvporinternetProvider : MainAPI() {
         val videoIframeHtml = app.get(videoIframeSrc, headers = videoIframeRequestHeaders).document.html()
         Log.d(name, "HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
 
-        // Nuevo Regex para buscar la cadena de Clappr, que ahora parece estar en el iframe final
-        // Lo que busca es 'source: atob(atob(atob(atob("cadena_base64"))))'
-        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""")
+        // Regex para buscar la cadena de Clappr. Añadimos .*\n para permitir saltos de línea y \s* para espacios.
+        val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""", RegexOption.DOT_MATCHES_ALL) // DOT_MATCHES_ALL para que el punto incluya saltos de línea
 
         // Vamos a probar primero si el patrón existe en el *primer* iframe de video, aunque los logs sugieran que no
         val firstIframeMatch = clapprSourceRegex.find(videoIframeHtml)
@@ -308,7 +307,7 @@ class TvporinternetProvider : MainAPI() {
                 Log.e(name, "Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
             }
         } else {
-            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc. Buscando un segundo iframe...")
+            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc. Buscando un segundo iframe... (esto es esperado)")
 
             // Si el primer iframe carga *otro* iframe que contiene el stream final
             val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
@@ -333,25 +332,11 @@ class TvporinternetProvider : MainAPI() {
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-                // Esto es CRUCIAL para depuración. Si sigue fallando, necesito ver el contenido completo de esto.
-                Log.d(name, "HTML COMPLETO recibido del iframe final del stream: $finalStreamHtml")
-
-
-                // Extraer solo la parte del script relevante para Clappr para una búsqueda más precisa
-                // Ojo: Asegúrate que el HTML tenga un `<script>` que contenga la URL del stream
-                // Esta parte puede necesitar más ajustes si el script no está delimitado por <script> y </script> fácilmente.
-                val clapprScriptContent = finalStreamHtml.substringAfter("<script>", "") // Si no lo encuentra, devuelve vacío
-                    .substringBeforeLast("</script>", "") // Si no lo encuentra, devuelve vacío
-                    .replace("\\s".toRegex(), "") // Elimina todos los espacios en blanco para simplificar la regex
-
-                if (clapprScriptContent.isEmpty()) {
-                    Log.w(name, "No se pudo extraer contenido de script de Clappr del iframe final. HTML del iframe final completo: $finalStreamHtml")
-                    return false
-                }
-
+                Log.d(name, "HTML COMPLETO recibido del iframe final del stream: $finalStreamHtml") // Dejar este log completo es útil para depuración
 
                 // Intentar encontrar el patrón de Clappr en el HTML del iframe final
-                val finalMatch = clapprSourceRegex.find(clapprScriptContent) // Busca en el contenido del script
+                // Buscamos directamente en el HTML completo, no en un subsegmento de script, para ser más robustos
+                val finalMatch = clapprSourceRegex.find(finalStreamHtml) // Buscamos directamente en el HTML completo
 
                 if (finalMatch != null) {
                     val finalEncodedSource = finalMatch.groupValues[1]
@@ -436,11 +421,10 @@ class TvporinternetProvider : MainAPI() {
                     }
                 } else {
                     // Si el patrón de Clappr (4 capas de atob) no se encuentra, busca un patrón más genérico para "source"
-                    // Esto es útil si la URL es directamente una cadena o una variable sin la ofuscación de atob
                     Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc. Intentando un patrón de 'source' más genérico.")
 
                     val genericSourceRegex = Regex("""source:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""")
-                    val genericMatch = genericSourceRegex.find(clapprScriptContent)
+                    val genericMatch = genericSourceRegex.find(finalStreamHtml) // Buscamos directamente en el HTML completo
 
                     if (genericMatch != null) {
                         val streamUrl = genericMatch.groupValues[1]
