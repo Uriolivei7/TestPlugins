@@ -113,6 +113,15 @@ class LacartoonsProvider:MainAPI() {
                 println("${name}: Contenido HTML del iframe de Cubembed recibido:\n${embedDoc.html()}")
                 // *************************************************************
 
+                val htmlContent = embedDoc.html()
+                println("${name}: --- INICIO HTML CUBEMBED ---")
+                val chunkSize = 1000 // Tamaño de cada "pedazo" de HTML a imprimir
+                for (i in 0 until htmlContent.length step chunkSize) {
+                    val end = (i + chunkSize).coerceAtMost(htmlContent.length)
+                    println("${name}: CHUNK ${i/chunkSize}: ${htmlContent.substring(i, end)}")
+                }
+                println("${name}: --- FIN HTML CUBEMBED ---")
+
                 // Buscar la etiqueta <source> directamente en el DOM del iframe
                 val sourceElement = embedDoc.selectFirst("source[src*=.m3u8]")
 
