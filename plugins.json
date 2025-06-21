@@ -17,11 +17,11 @@
     ],
     "version": 1,
     "internalName": "SoloLatinoProvider",
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
     "name": "SoloLatino"
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PelisplusProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/PelisplusProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 2,
@@ -42,7 +42,7 @@
     "fileSize": 23000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/PlushdProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/PlushdProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 3,
@@ -63,7 +63,7 @@
     "fileSize": 19000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LatanimeProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/LatanimeProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 4,
@@ -82,7 +82,7 @@
     "fileSize": 14000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnizoneProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/AnizoneProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 5,
@@ -101,7 +101,7 @@
     "fileSize": 24000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/AnimeflvnetProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 6,
@@ -121,7 +121,7 @@
     "fileSize": 18000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/TvporinternetProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/TvporinternetProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 7,
@@ -139,7 +139,7 @@
     "fileSize": 22000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/VerseriesonlineProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/VerseriesonlineProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 8,
@@ -158,7 +158,7 @@
     "fileSize": 21000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/LacartoonsProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/LacartoonsProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 9,
@@ -176,7 +176,7 @@
     "fileSize": 12000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/Cuevana3Provider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/Cuevana3Provider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 10,
