@@ -277,7 +277,7 @@ class TvporinternetProvider : MainAPI() {
                             type = ExtractorLinkType.M3U8
                         ) {
                             // Dentro del bloque lambda, asigna directamente
-                            this.quality = quality
+                            this.quality = quality // <--- CORRECCIÓN CLAVE AQUÍ: NO .ordinal, 'quality' YA ES INT
                             this.referer = finalUrl
                             this.headers = mapOf("Referer" to finalUrl)
                         })
@@ -294,7 +294,7 @@ class TvporinternetProvider : MainAPI() {
                             type = ExtractorLinkType.M3U8
                         ) {
                             // Dentro del bloque lambda, asigna directamente
-                            quality = Qualities.Unknown.ordinal
+                            quality = Qualities.Unknown.ordinal // Esta línea YA ESTABA BIEN. No cambiar.
                             referer = videoIframeSrc
                             headers = mapOf("Referer" to videoIframeSrc)
                         })
@@ -330,16 +330,15 @@ class TvporinternetProvider : MainAPI() {
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
+
                 Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
 
-                // ANTES:
-                // val finalCombinedScripts = finalStreamHtml.substringAfter("<head>").substringBefore("</body>")
-                //     .replace("\\n", "")
-                //     .replace("\\t", "")
-                //     .replace("\\r", "")
+                val finalCombinedScripts = finalStreamHtml.substringAfter("<head>").substringBefore("</body>")
+                    .replace("\\n", "")
+                    .replace("\\t", "")
+                    .replace("\\r", "")
 
-                // AHORA: Buscar directamente en finalStreamHtml
-                val finalMatch = clapprSourceRegex.find(finalStreamHtml) // MODIFICADO AQUÍ
+                val finalMatch = clapprSourceRegex.find(finalCombinedScripts)
 
                 if (finalMatch != null) {
                     val finalEncodedSource = finalMatch.groupValues[1]
@@ -397,7 +396,8 @@ class TvporinternetProvider : MainAPI() {
                                     url = streamFullUrl,
                                     type = ExtractorLinkType.M3U8
                                 ) {
-                                    this.quality = quality
+                                    // Dentro del bloque lambda, asigna directamente
+                                    this.quality = quality // <--- CORRECCIÓN CLAVE AQUÍ: NO .ordinal, 'quality' YA ES INT
                                     this.referer = finalUrl
                                     this.headers = mapOf("Referer" to finalUrl)
                                 })
@@ -411,7 +411,8 @@ class TvporinternetProvider : MainAPI() {
                                     url = finalUrl,
                                     type = ExtractorLinkType.M3U8
                                 ) {
-                                    quality = Qualities.Unknown.ordinal
+                                    // Dentro del bloque lambda, asigna directamente
+                                    quality = Qualities.Unknown.ordinal // Esta línea YA ESTABA BIEN. No cambiar.
                                     referer = finalStreamIframeSrc
                                     headers = mapOf("Referer" to finalStreamIframeSrc)
                                 })
