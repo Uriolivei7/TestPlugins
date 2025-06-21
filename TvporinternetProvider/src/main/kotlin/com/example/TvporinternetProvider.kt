@@ -7,9 +7,9 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import java.nio.charset.StandardCharsets
-import com.lagradost.cloudstream3.utils.Qualities // Importación correcta para Qualities
-import com.lagradost.cloudstream3.utils.getQualityFromName // Importación necesaria para getQualityFromName
-import java.net.URL // Importación necesaria para URL
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.getQualityFromName
+import java.net.URL
 
 class TvporinternetProvider : MainAPI() {
 
@@ -319,10 +319,11 @@ class TvporinternetProvider : MainAPI() {
                 val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&")
                 Log.d(name, "Segundo iframe de stream encontrado: $finalStreamIframeSrc")
 
-                // El Referer para el iframe final del stream debe ser el mainUrl del sitio.
+                // El Referer para el iframe final del stream DEBE SER la URL del iframe padre.
+                // Esto es crucial para evitar la redirección por protección hotlink.
                 val finalStreamIframeRequestHeaders = commonHeaders.toMutableMap().apply {
                     put("Connection", "keep-alive")
-                    put("Referer", mainUrl) // Referer es el mainUrl.
+                    put("Referer", videoIframeSrc) // <-- ¡ESTE ES EL CAMBIO CLAVE!
                     put("Sec-Fetch-Dest", "iframe")
                     put("Sec-Fetch-Mode", "navigate")
                     put("Sec-Fetch-Site", "cross-site")
@@ -332,12 +333,22 @@ class TvporinternetProvider : MainAPI() {
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-                Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
+                // Esto es CRUCIAL para depuración. Si sigue fallando, necesito ver el contenido completo de esto.
+                Log.d(name, "HTML COMPLETO recibido del iframe final del stream: $finalStreamHtml")
+
 
                 // Extraer solo la parte del script relevante para Clappr para una búsqueda más precisa
-                val clapprScriptContent = finalStreamHtml.substringAfter("<script>") // Asumimos que el script de Clappr es el primero o uno de los primeros
-                    .substringBeforeLast("</script>") // O el último, ajusta si es necesario
+                // Ojo: Asegúrate que el HTML tenga un `<script>` que contenga la URL del stream
+                // Esta parte puede necesitar más ajustes si el script no está delimitado por <script> y </script> fácilmente.
+                val clapprScriptContent = finalStreamHtml.substringAfter("<script>", "") // Si no lo encuentra, devuelve vacío
+                    .substringBeforeLast("</script>", "") // Si no lo encuentra, devuelve vacío
                     .replace("\\s".toRegex(), "") // Elimina todos los espacios en blanco para simplificar la regex
+
+                if (clapprScriptContent.isEmpty()) {
+                    Log.w(name, "No se pudo extraer contenido de script de Clappr del iframe final. HTML del iframe final completo: $finalStreamHtml")
+                    return false
+                }
+
 
                 // Intentar encontrar el patrón de Clappr en el HTML del iframe final
                 val finalMatch = clapprSourceRegex.find(clapprScriptContent) // Busca en el contenido del script
