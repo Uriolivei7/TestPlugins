@@ -178,8 +178,6 @@ class TvporinternetProvider : MainAPI() {
         val mainPageHtml = mainPageDocument.html()
         Log.d(name, "HTML recibido para la página del canal (principal): ${mainPageHtml.take(500)}...")
 
-        // CORRECCIÓN FINAL para el filtro de opciones.
-        // Se itera sobre los elementos y se agrega a una nueva lista si cumplen la condición.
         val videoOptionLinks = mutableListOf<Element>()
         for (element in mainPageDocument.select("div.flex.flex-wrap.gap-3 > a")) {
             if (element.text()?.contains("Opción", ignoreCase = true) == true) {
@@ -198,9 +196,8 @@ class TvporinternetProvider : MainAPI() {
         } else {
             for (optionLinkElement in videoOptionLinks) {
                 val optionHref = optionLinkElement.attr("href")
-                // Se obtiene el texto directamente del <a> ya que no tiene <p.des>
                 val optionName = optionLinkElement.text() ?: "Opción Desconocida"
-                val fullOptionUrl = fixUrl(optionHref) // Asegurar que la URL sea absoluta
+                val fullOptionUrl = fixUrl(optionHref)
 
                 Log.d(name, "Procesando opción: $optionName - URL: $fullOptionUrl")
 
@@ -245,7 +242,15 @@ class TvporinternetProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit,
         optionIdentifier: String = ""
     ): Boolean {
-        val videoIframeElement = document.selectFirst("iframe[name=player]")
+        // CAMBIO CLAVE AQUÍ: Modificado el selector del iframe.
+        // El iframe no tiene name="player", solo tiene un src y otras clases.
+        // Apuntamos al iframe que tiene 'src' y 'allowfullscreen'.
+        // Si solo hay un iframe principal, "iframe" a secas podría funcionar.
+        // Pero "iframe[src][allowfullscreen]" es más específico y robusto.
+        val videoIframeElement = document.selectFirst("iframe[src][allowfullscreen]")
+        // Si eso no funciona, puedes probar simplemente "iframe" si sabes que es el único:
+        // val videoIframeElement = document.selectFirst("iframe")
+
         val videoIframeSrc = videoIframeElement?.attr("src")
 
         if (videoIframeSrc.isNullOrBlank()) {
