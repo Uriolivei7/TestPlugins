@@ -17,9 +17,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # ¡ESTE ES EL CAMBIO CLAVE!
-    permissions:
-      contents: write # Esto le da al GITHUB_TOKEN permisos para escribir en el repositorio.
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -69,5 +66,5 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           git add .
-          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # no falla si no hay nada que confirmar
+          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
           git push --force
