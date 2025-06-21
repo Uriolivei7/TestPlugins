@@ -213,12 +213,15 @@ class TvporinternetProvider : MainAPI() {
         val videoIframeHtml = app.get(videoIframeSrc, headers = videoIframeRequestHeaders).document.html()
         Log.d(name, "HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
 
+        // Nuevo Regex para buscar la cadena de Clappr, que ahora parece estar en el iframe final
+        // Lo que busca es 'source: atob(atob(atob(atob("cadena_base64"))))'
         val clapprSourceRegex = Regex("""source:\s*atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""")
-        val match = clapprSourceRegex.find(videoIframeHtml)
 
-        // Si el Clappr se encuentra directamente en el primer iframe
-        if (match != null) {
-            val encodedSource = match.groupValues[1]
+        // Vamos a probar primero si el patrón existe en el *primer* iframe de video, aunque los logs sugieran que no
+        val firstIframeMatch = clapprSourceRegex.find(videoIframeHtml)
+
+        if (firstIframeMatch != null) {
+            val encodedSource = firstIframeMatch.groupValues[1]
             Log.d(name, "Cadena Clappr codificada (4 capas) encontrada en primer iframe: $encodedSource")
 
             try {
@@ -277,7 +280,7 @@ class TvporinternetProvider : MainAPI() {
                             type = ExtractorLinkType.M3U8
                         ) {
                             // Dentro del bloque lambda, asigna directamente
-                            this.quality = quality // <--- CORRECCIÓN CLAVE AQUÍ: NO .ordinal, 'quality' YA ES INT
+                            this.quality = quality // 'quality' ya es Int, no requiere .ordinal
                             this.referer = finalUrl
                             this.headers = mapOf("Referer" to finalUrl)
                         })
@@ -293,10 +296,9 @@ class TvporinternetProvider : MainAPI() {
                             url = finalUrl,
                             type = ExtractorLinkType.M3U8
                         ) {
-                            // Dentro del bloque lambda, asigna directamente
-                            quality = Qualities.Unknown.ordinal // Esta línea YA ESTABA BIEN. No cambiar.
-                            referer = videoIframeSrc
-                            headers = mapOf("Referer" to videoIframeSrc)
+                            this.quality = Qualities.Unknown.ordinal
+                            this.referer = videoIframeSrc
+                            this.headers = mapOf("Referer" to videoIframeSrc)
                         })
                     }
                     // *** FIN DE LA LÓGICA DE PARSEO M3U8 ***
@@ -306,7 +308,7 @@ class TvporinternetProvider : MainAPI() {
                 Log.e(name, "Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
             }
         } else {
-            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc")
+            Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $videoIframeSrc. Buscando un segundo iframe...")
 
             // Si el primer iframe carga *otro* iframe que contiene el stream final
             val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
@@ -330,15 +332,15 @@ class TvporinternetProvider : MainAPI() {
                 val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
                 val finalStreamHtml = finalStreamResponse.document.html()
 
-
                 Log.d(name, "HTML recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
 
-                val finalCombinedScripts = finalStreamHtml.substringAfter("<head>").substringBefore("</body>")
-                    .replace("\\n", "")
-                    .replace("\\t", "")
-                    .replace("\\r", "")
+                // Extraer solo la parte del script relevante para Clappr para una búsqueda más precisa
+                val clapprScriptContent = finalStreamHtml.substringAfter("<script>") // Asumimos que el script de Clappr es el primero o uno de los primeros
+                    .substringBeforeLast("</script>") // O el último, ajusta si es necesario
+                    .replace("\\s".toRegex(), "") // Elimina todos los espacios en blanco para simplificar la regex
 
-                val finalMatch = clapprSourceRegex.find(finalCombinedScripts)
+                // Intentar encontrar el patrón de Clappr en el HTML del iframe final
+                val finalMatch = clapprSourceRegex.find(clapprScriptContent) // Busca en el contenido del script
 
                 if (finalMatch != null) {
                     val finalEncodedSource = finalMatch.groupValues[1]
@@ -396,8 +398,7 @@ class TvporinternetProvider : MainAPI() {
                                     url = streamFullUrl,
                                     type = ExtractorLinkType.M3U8
                                 ) {
-                                    // Dentro del bloque lambda, asigna directamente
-                                    this.quality = quality // <--- CORRECCIÓN CLAVE AQUÍ: NO .ordinal, 'quality' YA ES INT
+                                    this.quality = quality
                                     this.referer = finalUrl
                                     this.headers = mapOf("Referer" to finalUrl)
                                 })
@@ -411,10 +412,9 @@ class TvporinternetProvider : MainAPI() {
                                     url = finalUrl,
                                     type = ExtractorLinkType.M3U8
                                 ) {
-                                    // Dentro del bloque lambda, asigna directamente
-                                    quality = Qualities.Unknown.ordinal // Esta línea YA ESTABA BIEN. No cambiar.
-                                    referer = finalStreamIframeSrc
-                                    headers = mapOf("Referer" to finalStreamIframeSrc)
+                                    this.quality = Qualities.Unknown.ordinal
+                                    this.referer = finalStreamIframeSrc
+                                    this.headers = mapOf("Referer" to finalStreamIframeSrc)
                                 })
                             }
                             // *** FIN DE LA LÓGICA DE PARSEO M3U8 ***
@@ -424,7 +424,88 @@ class TvporinternetProvider : MainAPI() {
                         Log.e(name, "Error al decodificar la URL Base64 de Clappr desde iframe final o al parsear M3U8: ${e.message}", e)
                     }
                 } else {
-                    Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc")
+                    // Si el patrón de Clappr (4 capas de atob) no se encuentra, busca un patrón más genérico para "source"
+                    // Esto es útil si la URL es directamente una cadena o una variable sin la ofuscación de atob
+                    Log.w(name, "No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc. Intentando un patrón de 'source' más genérico.")
+
+                    val genericSourceRegex = Regex("""source:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""")
+                    val genericMatch = genericSourceRegex.find(clapprScriptContent)
+
+                    if (genericMatch != null) {
+                        val streamUrl = genericMatch.groupValues[1]
+                        Log.d(name, "URL de stream (genérica M3U8) encontrada en iframe final: $streamUrl")
+                        // Aquí no necesitamos decodificar, ya tenemos la URL directa
+                        if (streamUrl.startsWith("http")) {
+                            // Repetimos la lógica de parseo M3U8, pero sin decodificación
+                            val m3u8Headers = mapOf(
+                                "Referer" to finalStreamIframeSrc,
+                                "User-Agent" to USER_AGENT
+                            )
+                            val m3u8Response = app.get(streamUrl, headers = m3u8Headers)
+                            val m3u8Content = m3u8Response.text
+
+                            if (m3u8Content.isNullOrBlank()) {
+                                Log.w(name, "Contenido M3U8 maestro vacío o nulo para: $streamUrl (genérico)")
+                                return false
+                            }
+
+                            Log.d(name, "Contenido M3U8 maestro (genérico): ${m3u8Content.take(500)}...")
+
+                            val baseUrl = getBaseUrl(streamUrl)
+
+                            val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?.*?\n(.*)""")
+                            var foundStreams = false
+
+                            streamRegex.findAll(m3u8Content).forEach { matchResult ->
+                                foundStreams = true
+                                val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
+                                val streamRelativeUrl = matchResult.groupValues[3].trim()
+
+                                val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
+                                    streamRelativeUrl
+                                } else {
+                                    val base = if (baseUrl.endsWith("/") && streamRelativeUrl.startsWith("/")) {
+                                        baseUrl.dropLast(1)
+                                    } else if (!baseUrl.endsWith("/") && !streamRelativeUrl.startsWith("/")) {
+                                        "$baseUrl/"
+                                    } else {
+                                        baseUrl
+                                    }
+                                    "$base$streamRelativeUrl"
+                                }
+
+                                val quality = getQualityFromName(resolution.ifBlank { "Auto" })
+
+                                callback(newExtractorLink(
+                                    source = this.name,
+                                    name = resolution.ifBlank { "Auto" },
+                                    url = streamFullUrl,
+                                    type = ExtractorLinkType.M3U8
+                                ) {
+                                    this.quality = quality
+                                    this.referer = streamUrl
+                                    this.headers = mapOf("Referer" to streamUrl)
+                                })
+                            }
+
+                            if (!foundStreams) {
+                                Log.d(name, "No se encontraron sub-streams en el M3U8 maestro (genérico), reportando el stream maestro directo.")
+                                callback(newExtractorLink(
+                                    source = this.name,
+                                    name = "Auto",
+                                    url = streamUrl,
+                                    type = ExtractorLinkType.M3U8
+                                ) {
+                                    this.quality = Qualities.Unknown.ordinal
+                                    this.referer = finalStreamIframeSrc
+                                    this.headers = mapOf("Referer" to finalStreamIframeSrc)
+                                })
+                            }
+                            return true
+                        }
+                    } else {
+                        Log.w(name, "No se encontró ningún patrón de source (ni Clappr codificado ni genérico) en el iframe final del stream: $finalStreamIframeSrc")
+                    }
                 }
             }
         }
