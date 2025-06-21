@@ -179,7 +179,7 @@
     "url": "https://raw.githubusercontent.com/Uriolivei/TestPlugins/master/plugins/Cuevana3Provider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 9,
+    "apiVersion": 10,
     "name": "Cuevana3",
     "internalName": "Cuevana3Provider",
     "authors": [
