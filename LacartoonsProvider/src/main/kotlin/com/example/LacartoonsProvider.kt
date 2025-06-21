@@ -120,7 +120,7 @@ class LacartoonsProvider:MainAPI() {
                     val end = (i + chunkSize).coerceAtMost(htmlContent.length)
                     println("${name}: CHUNK ${i/chunkSize}: ${htmlContent.substring(i, end)}")
                 }
-                println("${name}: --- FIN HTML CUBEMBED ---")
+                println("${name}: ---- FIN HTML CUBEMBED ----")
 
                 // Buscar la etiqueta <source> directamente en el DOM del iframe
                 val sourceElement = embedDoc.selectFirst("source[src*=.m3u8]")
