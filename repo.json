@@ -3,6 +3,6 @@
   "description": "Lista de plugins de Ranita para CloudStream",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://uriolivei.github.io/TestPlugins/plugins.json"
+    "https://uriolivei7.github.io/TestPlugins/plugins.json"
   ]
 }
