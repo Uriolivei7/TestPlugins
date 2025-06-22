@@ -427,14 +427,21 @@ class AnizoneProvider : MainAPI() {
                         this.season = 1
                         this.posterUrl = elt.selectFirst("img")?.attr("src")
 
-                        this.date = elt.selectFirst("span.span-tiempo")?.text()?.let { dateText ->
+                        // *** AÑADE ESTAS LÍNEAS PARA DEPURACIÓN ***
+                        val dateElement = elt.selectFirst("span.span-tiempo")
+                        Log.d(name, "load: Date element HTML: ${dateElement?.outerHtml()}") // Muestra el HTML del span completo
+                        val dateText = dateElement?.text()
+                        Log.d(name, "load: Raw date text found: '$dateText'") // Muestra el texto exacto que se extrae
+
+                        this.date = dateText?.let { date ->
                             try {
-                                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateText)?.time
+                                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)?.time
                             } catch (e: Exception) {
-                                Log.e(name, "load: Error al analizar la fecha '$dateText': ${e.message}", e)
+                                Log.e(name, "load: Error parsing date '$date': ${e.message}", e)
                                 null
                             }
                         } ?: 0L
+                        // *******************************************
                     }
                 } catch (e: Exception) {
                     Log.e(name, "load: Error al procesar elemento de episodio: ${e.message}. Elemento: ${elt.html().take(200)}", e)
