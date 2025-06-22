@@ -56,15 +56,17 @@ class SeriesretroProvider : MainAPI() {
             val homeItems = doc.select("ul.Movielist li.TPostMv article.TPost").mapNotNull {
                 val title = it.selectFirst("h3.Title")?.text()
                 val link = it.selectFirst("a")?.attr("href")
-                val img = it.selectFirst("figure.Image img")?.attr("src")
+                val img = it.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí, si es nulo, es ""
+                val fixedImg = fixUrl(img) // <-- APLICAR fixUrl AQUÍ
 
                 if (title != null && link != null) {
+                    Log.d("SeriesRetro", "getMainPage Poster URL for $title: $fixedImg") // Log para depurar
                     newAnimeSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
                         this.type = tvType
-                        this.posterUrl = img
+                        this.posterUrl = fixedImg // Usar la URL arreglada
                     }
                 } else null
             }
@@ -82,9 +84,11 @@ class SeriesretroProvider : MainAPI() {
         return doc.select("ul.Movielist li.TPostMv article.TPost").mapNotNull {
             val title = it.selectFirst("h3.Title")?.text()
             val link = it.selectFirst("a")?.attr("href")
-            val img = it.selectFirst("figure.Image img")?.attr("src")
+            val img = it.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí
+            val fixedImg = fixUrl(img) // <-- APLICAR fixUrl AQUÍ
 
             if (title != null && link != null) {
+                Log.d("SeriesRetro", "Search Poster URL for $title: $fixedImg") // Log para depurar
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
@@ -96,7 +100,7 @@ class SeriesretroProvider : MainAPI() {
                         link.contains("/cartoon/") -> TvType.Cartoon
                         else -> TvType.TvSeries
                     }
-                    this.posterUrl = img
+                    this.posterUrl = fixedImg // Usar la URL arreglada
                 }
             } else null
         }
@@ -138,7 +142,10 @@ class SeriesretroProvider : MainAPI() {
         }
 
         val title = doc.selectFirst("h1.Title")?.text() ?: ""
-        val poster = doc.selectFirst("figure.Image img")?.attr("src") ?: ""
+        val poster = doc.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí
+        val fixedPoster = fixUrl(poster) // <-- APLICAR fixUrl AQUÍ
+        Log.d("SeriesRetro", "load - Main Poster URL for $title: $fixedPoster") // Log para depurar
+
         val description = doc.selectFirst("div.Description p")?.text() ?: ""
         val tags = listOf<String>()
 
@@ -154,7 +161,10 @@ class SeriesretroProvider : MainAPI() {
 
                     val episodeNumber = element.selectFirst("td span.Num")?.text()?.toIntOrNull()
 
-                    val realimg = element.selectFirst("td.MvTbImg.B img")?.attr("src")
+                    val rawImg = element.selectFirst("td.MvTbImg.B img")?.attr("src") ?: "" // <-- Corregido aquí
+                    val fixedEpImg = fixUrl(rawImg) // <-- APLICAR fixUrl AQUÍ para imágenes de episodio
+                    Log.d("SeriesRetro", "load - Episode Poster URL for $epTitle: $fixedEpImg") // Log para depurar
+
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                         episodesList.add(
@@ -164,7 +174,7 @@ class SeriesretroProvider : MainAPI() {
                                 this.name = epTitle
                                 this.season = seasonNumber
                                 this.episode = episodeNumber
-                                this.posterUrl = realimg
+                                this.posterUrl = fixedEpImg // Usar la URL arreglada
                             }
                         )
                     } else null
@@ -181,8 +191,8 @@ class SeriesretroProvider : MainAPI() {
                     type = tvType,
                     episodes = episodes,
                 ) {
-                    this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
+                    this.posterUrl = fixedPoster // Usar la URL arreglada
+                    this.backgroundPosterUrl = fixedPoster // Usar la URL arreglada
                     this.plot = description
                     this.tags = tags
                 }
@@ -195,8 +205,8 @@ class SeriesretroProvider : MainAPI() {
                     type = tvType,
                     dataUrl = cleanUrl
                 ) {
-                    this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
+                    this.posterUrl = fixedPoster // Usar la URL arreglada
+                    this.backgroundPosterUrl = fixedPoster // Usar la URL arreglada
                     this.plot = description
                     this.tags = tags
                 }
@@ -205,10 +215,6 @@ class SeriesretroProvider : MainAPI() {
             else -> null
         }
     }
-
-    // --- ¡AQUÍ ESTÁN LAS CLASES Y FUNCIÓN FALTANTES! ---
-    // Asegúrate de que estas definiciones estén DENTRO de tu clase SeriesretroProvider
-    // o al menos en el mismo archivo antes de la línea donde se usan.
 
     data class SortedEmbed(
         val servername: String,
@@ -244,7 +250,6 @@ class SeriesretroProvider : MainAPI() {
             return null
         }
     }
-    // --- FIN DE LAS CLASES Y FUNCIÓN FALTANTES ---
 
     override suspend fun loadLinks(
         data: String,
@@ -402,7 +407,7 @@ class SeriesretroProvider : MainAPI() {
 
             Log.d("SeriesRetro", "dataLink JSON string encontrado: $dataLinkJsonString")
 
-            val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString) // AHORA FUNCIONARÁ
+            val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
 
             if (dataLinkEntries.isNullOrEmpty()) {
                 Log.e("SeriesRetro", "Error al parsear dataLink JSON o está vacío.")
@@ -415,7 +420,7 @@ class SeriesretroProvider : MainAPI() {
             for (entry in dataLinkEntries) {
                 for (embed in entry.sortedEmbeds) {
                     if (embed.type == "video") {
-                        val decryptedLink = decryptLink(embed.link, secretKey) // AHORA FUNCIONARÁ
+                        val decryptedLink = decryptLink(embed.link, secretKey)
                         if (decryptedLink != null) {
                             Log.d("SeriesRetro", "Link desencriptado para ${embed.servername}: $decryptedLink")
                             foundEmbed69Links.add(decryptedLink)
