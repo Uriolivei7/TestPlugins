@@ -56,8 +56,9 @@ class SeriesretroProvider : MainAPI() {
             val homeItems = doc.select("ul.Movielist li.TPostMv article.TPost").mapNotNull {
                 val title = it.selectFirst("h3.Title")?.text()
                 val link = it.selectFirst("a")?.attr("href")
-                val img = it.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí, si es nulo, es ""
-                val fixedImg = fixUrl(img) // <-- APLICAR fixUrl AQUÍ
+                // CAMBIO CLAVE AQUÍ: Selector de imagen corregido
+                val img = it.selectFirst("div.Image figure img")?.attr("src") ?: ""
+                val fixedImg = fixUrl(img)
 
                 if (title != null && link != null) {
                     Log.d("SeriesRetro", "getMainPage Poster URL for $title: $fixedImg") // Log para depurar
@@ -66,7 +67,7 @@ class SeriesretroProvider : MainAPI() {
                         fixUrl(link)
                     ) {
                         this.type = tvType
-                        this.posterUrl = fixedImg // Usar la URL arreglada
+                        this.posterUrl = fixedImg
                     }
                 } else null
             }
@@ -84,8 +85,9 @@ class SeriesretroProvider : MainAPI() {
         return doc.select("ul.Movielist li.TPostMv article.TPost").mapNotNull {
             val title = it.selectFirst("h3.Title")?.text()
             val link = it.selectFirst("a")?.attr("href")
-            val img = it.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí
-            val fixedImg = fixUrl(img) // <-- APLICAR fixUrl AQUÍ
+            // CAMBIO CLAVE AQUÍ: Selector de imagen corregido
+            val img = it.selectFirst("div.Image figure img")?.attr("src") ?: ""
+            val fixedImg = fixUrl(img)
 
             if (title != null && link != null) {
                 Log.d("SeriesRetro", "Search Poster URL for $title: $fixedImg") // Log para depurar
@@ -100,7 +102,7 @@ class SeriesretroProvider : MainAPI() {
                         link.contains("/cartoon/") -> TvType.Cartoon
                         else -> TvType.TvSeries
                     }
-                    this.posterUrl = fixedImg // Usar la URL arreglada
+                    this.posterUrl = fixedImg
                 }
             } else null
         }
@@ -142,15 +144,17 @@ class SeriesretroProvider : MainAPI() {
         }
 
         val title = doc.selectFirst("h1.Title")?.text() ?: ""
-        val poster = doc.selectFirst("figure.Image img")?.attr("src") ?: "" // <-- Corregido aquí
-        val fixedPoster = fixUrl(poster) // <-- APLICAR fixUrl AQUÍ
-        Log.d("SeriesRetro", "load - Main Poster URL for $title: $fixedPoster") // Log para depurar
+        // CAMBIO CLAVE AQUÍ: Selector de póster principal corregido
+        val poster = doc.selectFirst("div.Image figure img")?.attr("src") ?: ""
+        val fixedPoster = fixUrl(poster)
+        Log.d("SeriesRetro", "load - Main Poster URL for $title: $fixedPoster")
 
         val description = doc.selectFirst("div.Description p")?.text() ?: ""
         val tags = listOf<String>()
 
         val episodes = if (tvType == TvType.TvSeries || tvType == TvType.Anime || tvType == TvType.Cartoon) {
             val episodesList = ArrayList<Episode>()
+            // Selector de temporadas y episodios
             doc.select("div.wdgt.AABox").forEach { seasonElement ->
                 val seasonTitle = seasonElement.selectFirst("div.Title.AA-Season span")?.text() ?: ""
                 val seasonNumber = seasonTitle.toIntOrNull() ?: 0
@@ -161,9 +165,10 @@ class SeriesretroProvider : MainAPI() {
 
                     val episodeNumber = element.selectFirst("td span.Num")?.text()?.toIntOrNull()
 
-                    val rawImg = element.selectFirst("td.MvTbImg.B img")?.attr("src") ?: "" // <-- Corregido aquí
-                    val fixedEpImg = fixUrl(rawImg) // <-- APLICAR fixUrl AQUÍ para imágenes de episodio
-                    Log.d("SeriesRetro", "load - Episode Poster URL for $epTitle: $fixedEpImg") // Log para depurar
+                    // CAMBIO CLAVE AQUÍ: Selector de imagen de episodio corregido
+                    val rawImg = element.selectFirst("td.MvTbImg.B a img")?.attr("src") ?: ""
+                    val fixedEpImg = fixUrl(rawImg)
+                    Log.d("SeriesRetro", "load - Episode Poster URL for $epTitle: $fixedEpImg")
 
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
@@ -174,7 +179,7 @@ class SeriesretroProvider : MainAPI() {
                                 this.name = epTitle
                                 this.season = seasonNumber
                                 this.episode = episodeNumber
-                                this.posterUrl = fixedEpImg // Usar la URL arreglada
+                                this.posterUrl = fixedEpImg
                             }
                         )
                     } else null
@@ -191,8 +196,8 @@ class SeriesretroProvider : MainAPI() {
                     type = tvType,
                     episodes = episodes,
                 ) {
-                    this.posterUrl = fixedPoster // Usar la URL arreglada
-                    this.backgroundPosterUrl = fixedPoster // Usar la URL arreglada
+                    this.posterUrl = fixedPoster
+                    this.backgroundPosterUrl = fixedPoster
                     this.plot = description
                     this.tags = tags
                 }
@@ -205,8 +210,8 @@ class SeriesretroProvider : MainAPI() {
                     type = tvType,
                     dataUrl = cleanUrl
                 ) {
-                    this.posterUrl = fixedPoster // Usar la URL arreglada
-                    this.backgroundPosterUrl = fixedPoster // Usar la URL arreglada
+                    this.posterUrl = fixedPoster
+                    this.backgroundPosterUrl = fixedPoster
                     this.plot = description
                     this.tags = tags
                 }
