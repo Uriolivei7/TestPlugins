@@ -429,7 +429,7 @@ class AnizoneProvider : MainAPI() {
 
                         this.date = elt.selectFirst("span.span-tiempo")?.text()?.let { dateText ->
                             try {
-                                SimpleDateFormat("dd MMM.yyyy", Locale.US).parse(dateText)?.time
+                                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateText)?.time
                             } catch (e: Exception) {
                                 Log.e(name, "load: Error al analizar la fecha '$dateText': ${e.message}", e)
                                 null
