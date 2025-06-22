@@ -198,7 +198,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SeriesretroProvider.cs3",
-    "status": 1,
+    "status": 0,
     "version": 1,
     "apiVersion": 11,
     "name": "SeriesRetro",
