@@ -160,15 +160,19 @@ class SeriesretroProvider : MainAPI() {
                 val seasonNumber = seasonTitle.toIntOrNull() ?: 0
 
                 seasonElement.select("table tbody tr").mapNotNull { element ->
-                    val epurl = fixUrl(element.selectFirst("td.MvTbItl a")?.attr("href") ?: "")
-                    val epTitle = element.selectFirst("td.MvTbItl a")?.text() ?: ""
-                    Log.d("SeriesRetro", "DEBUG - Processing episode element: ${element.html()}") // <-- AÑADIR ESTA LÍNEA
-                    Log.d("SeriesRetro", "DEBUG - Extracted epTitle: '$epTitle'") // <-- AÑADIR ESTA LÍNEA
+                    // AHORA EL LOG MOSTRARÁ LA FILA COMPLETA
+                    Log.d("SeriesRetro", "DEBUG - Processing episode element: ${element.outerHtml()}")
+
+                    val epurl = fixUrl(element.selectFirst("td.MvTbTtl a")?.attr("href") ?: "") // <-- CAMBIO CLAVE AQUÍ: MvTbTtl
+                    val epTitle = element.selectFirst("td.MvTbTtl a")?.text() ?: "" // <-- CAMBIO CLAVE AQUÍ: MvTbTtl
+                    Log.d("SeriesRetro", "DEBUG - Extracted epTitle: '$epTitle'")
 
                     val episodeNumber = element.selectFirst("td span.Num")?.text()?.toIntOrNull()
 
-                    // CAMBIO CLAVE AQUÍ: Selector de imagen de episodio corregido
-                    val rawImg = element.selectFirst("td.MvTbImg.B a img")?.attr("src") ?: ""
+                    // Selector de imagen de episodio
+                    // El `span.cnv.cnv2` a veces envuelve la imagen, el selector debe manejarlo
+                    val rawImg = element.selectFirst("td.MvTbImg.B a img")?.attr("src")
+                        ?: element.selectFirst("td.MvTbImg.B a span.cnv.cnv2 img")?.attr("src") ?: ""
                     val fixedEpImg = fixUrl(rawImg)
                     Log.d("SeriesRetro", "load - Episode Poster URL for $epTitle: $fixedEpImg")
 
