@@ -195,5 +195,26 @@
     "iconUrl": "https://img.icons8.com/?size=200&id=40670&format=png",
     "language": "es",
     "fileSize": 21000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SeriesretroProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 11,
+    "name": "SeriesRetro",
+    "internalName": "SeriesretroProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para seriesretro.com",
+    "tvTypes": [
+      "Movie",
+      "TvSeries",
+      "Cartoons",
+      "Anime"
+    ],
+    "iconUrl": "https://seriesretro.com/wp-content/uploads/2020/10/cropped-index-32x32.png",
+    "language": "es",
+    "fileSize": 22000
   }
 ]
