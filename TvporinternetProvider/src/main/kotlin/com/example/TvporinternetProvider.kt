@@ -32,6 +32,7 @@ class TvporinternetProvider : MainAPI() {
     private fun decodeBase64(encodedString: String): String {
         return try {
             val cleanedString = encodedString.replace('-', '+').replace('_', '/')
+            // Asegurarse de que la cadena sea de longitud múltiple de 4 para la decodificación
             val paddedString = if (cleanedString.length % 4 == 0) cleanedString else cleanedString + "====".substring(0, 4 - (cleanedString.length % 4))
             val decodedBytes = Base64.decode(paddedString, Base64.DEFAULT)
             String(decodedBytes, StandardCharsets.UTF_8)
@@ -46,11 +47,18 @@ class TvporinternetProvider : MainAPI() {
         for (i in 0 until times) {
             currentDecoded = decodeBase64(currentDecoded)
             if (currentDecoded.isEmpty()) {
+                Log.e(name, "Fallo al decodificar en la capa ${i + 1}. Cadena actual: ${currentDecoded.take(50)}")
                 return ""
             }
         }
         return currentDecoded
     }
+
+    // Nueva regex para capturar la cadena Base64 cuádruplemente codificada
+    // Esto buscará 'atob(atob(atob(atob('CADENA_ENCODED'))))' en cualquier lugar del script.
+    // Captura el valor entre comillas simples o dobles
+    private val clapprQuadrupleAtobRegex = Regex("""atob\(atob\(atob\(atob\(['"]([^'"]+)['"]\)\)\)\)""")
+
 
     val nowAllowed = setOf("Únete al chat", "Donar con Paypal", "Lizard Premium", "Vuelvete Premium (No ADS)", "Únete a Whatsapp", "Únete a Telegram", "¿Nos invitas el cafe?")
     val deportesCat = setOf("TUDN", "WWE", "Afizzionados", "Gol Perú", "Gol TV", "TNT SPORTS", "Fox Sports Premium", "TYC Sports", "Movistar Deportes (Perú)", "Movistar La Liga", "Movistar Liga De Campeones", "Dazn F1", "Dazn La Liga", "Bein La Liga", "Bein Sports Extra", "Directv Sports", "Directv Sports 2", "Directv Sports Plus", "Espn Deportes", "Espn Extra", "Espn Premium", "Espn", "Espn 2", "Espn 3", "Espn 4", "Espn Mexico", "Espn 2 Mexico", "Espn 3 Mexico", "Fox Deportes", "Fox Sports", "Fox Sports 2", "Fox Sports 3", "Fox Sports Mexico", "Fox Sports 2 Mexico", "Fox Sports 3 Mexico")
@@ -190,7 +198,7 @@ class TvporinternetProvider : MainAPI() {
         if (videoOptionLinks.isEmpty()) {
             Log.w(name, "No se encontraron enlaces de opciones de video explícitas en la página principal: $data. Intentando con el iframe principal directamente.")
             // Si no hay opciones explícitas, intentar con el iframe principal directamente si existe
-            if (extractLinksFromIframe(data, mainPageDocument, commonHeaders, callback, "Default")) {
+            if (extractLinksFromMainDocument(mainPageDocument, data, commonHeaders, callback, "Default")) {
                 foundAnyLink = true
             }
         } else {
@@ -232,25 +240,18 @@ class TvporinternetProvider : MainAPI() {
         val optionPageHtml = optionPageDocument.html()
         Log.d(name, "HTML recibido para la página de opción (${optionName}): ${optionPageHtml.take(500)}...")
 
-        return extractLinksFromIframe(optionPageUrl, optionPageDocument, commonHeaders, callback, optionName)
+        return extractLinksFromMainDocument(optionPageDocument, optionPageUrl, commonHeaders, callback, optionName)
     }
 
-    private suspend fun extractLinksFromIframe(
-        currentUrl: String,
+    // Renombrado para ser más genérico, ya que ahora procesa el documento principal de la opción
+    private suspend fun extractLinksFromMainDocument(
         document: org.jsoup.nodes.Document,
+        currentUrl: String,
         commonHeaders: Map<String, String>,
         callback: (ExtractorLink) -> Unit,
         optionIdentifier: String = ""
     ): Boolean {
-        // CAMBIO CLAVE AQUÍ: Modificado el selector del iframe.
-        // El iframe no tiene name="player", solo tiene un src y otras clases.
-        // Apuntamos al iframe que tiene 'src' y 'allowfullscreen'.
-        // Si solo hay un iframe principal, "iframe" a secas podría funcionar.
-        // Pero "iframe[src][allowfullscreen]" es más específico y robusto.
         val videoIframeElement = document.selectFirst("iframe[src][allowfullscreen]")
-        // Si eso no funciona, puedes probar simplemente "iframe" si sabes que es el único:
-        // val videoIframeElement = document.selectFirst("iframe")
-
         val videoIframeSrc = videoIframeElement?.attr("src")
 
         if (videoIframeSrc.isNullOrBlank()) {
@@ -267,7 +268,10 @@ class TvporinternetProvider : MainAPI() {
             return extractLinksFromCubemediaIframe(fullVideoIframeSrc, currentUrl, commonHeaders, callback, optionIdentifier)
         }
 
-        val videoIframeRequestHeaders = commonHeaders.toMutableMap().apply {
+        // Si la URL del iframe es de live.saohgdasregions.fun y termina en stream.php,
+        // esperamos que redirija a tvporinternet.php. app.get() manejará la redirección.
+        // Por lo tanto, el HTML recibido será el de la página final (tvporinternet.php).
+        val iframeRequestHeaders = commonHeaders.toMutableMap().apply {
             put("Priority", "u=0, i")
             put("Referer", currentUrl)
             put("Sec-Fetch-Dest", "iframe")
@@ -275,93 +279,53 @@ class TvporinternetProvider : MainAPI() {
             put("Sec-Fetch-Site", "same-origin")
         }
 
-        val videoIframeHtml = app.get(fullVideoIframeSrc, headers = videoIframeRequestHeaders).document.html()
-        Log.d(name, "[$optionIdentifier] HTML recibido del iframe del video: ${videoIframeHtml.take(500)}...")
+        val iframeResponse = app.get(fullVideoIframeSrc, headers = iframeRequestHeaders)
+        val videoIframeHtml = iframeResponse.document.html()
+        // La URL de respuesta puede ser diferente si hubo redirección
+        val finalIframeUrl = iframeResponse.url
+        Log.d(name, "[$optionIdentifier] HTML recibido del iframe (URL final: $finalIframeUrl): ${videoIframeHtml.take(500)}...")
 
-        // Regex más flexible para Clappr
-        val clapprSourceRegex = Regex("""source\s*:\s*atob\(\s*atob\(\s*atob\(\s*atob\(\s*['"]([^'"]+)['"]\s*\)\s*\)\s*\)\s*\)""", RegexOption.DOT_MATCHES_ALL)
 
-        val firstIframeMatch = clapprSourceRegex.find(videoIframeHtml)
+        // --- NUEVA LÓGICA DE EXTRACCIÓN CLAPPR CON ATOM CUÁDRUPLE ---
+        val clapprMatch = clapprQuadrupleAtobRegex.find(videoIframeHtml)
 
-        if (firstIframeMatch != null) {
-            val encodedSource = firstIframeMatch.groupValues[1]
-            Log.d(name, "[$optionIdentifier] Cadena Clappr codificada (4 capas) encontrada en primer iframe: $encodedSource")
+        if (clapprMatch != null) {
+            val encodedString = clapprMatch.groupValues[1]
+            Log.d(name, "[$optionIdentifier] Cadena codificada Clappr (4 capas) encontrada: $encodedString")
 
             try {
-                val finalUrl = decodeBase64MultipleTimes(encodedSource, 4)
+                val decodedSource = decodeBase64MultipleTimes(encodedString, 4)
+                Log.d(name, "[$optionIdentifier] URL de stream decodificada: $decodedSource")
 
-                Log.d(name, "[$optionIdentifier] URL de stream decodificada: $finalUrl")
-
-                if (finalUrl.startsWith("http")) {
-                    return parseM3U8Stream(finalUrl, fullVideoIframeSrc, callback, optionIdentifier)
+                if (decodedSource.isNotBlank() && decodedSource.startsWith("http")) {
+                    return parseM3U8Stream(decodedSource, finalIframeUrl, callback, optionIdentifier)
+                } else {
+                    Log.w(name, "[$optionIdentifier] La URL decodificada no es válida o está vacía: $decodedSource")
                 }
             } catch (e: Exception) {
-                Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr del primer iframe o al parsear M3U8: ${e.message}", e)
+                Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr: ${e.message}", e)
             }
         } else {
-            Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el primer iframe: $fullVideoIframeSrc. Buscando un segundo iframe... (esto es esperado para ciertos canales)")
+            Log.w(name, "[$optionIdentifier] No se encontró el patrón de Clappr (4 capas) en el HTML del iframe: $finalIframeUrl. Buscando un patrón de 'source' más genérico o un segundo iframe.")
 
-            val finalStreamIframeSrcRegex = Regex("""<iframe\s+[^>]*src=["'](https?://live\.saohgdasregions\.fun/[^"']+)["']""")
-            val finalIframeMatch = finalStreamIframeSrcRegex.find(videoIframeHtml)
+            // Lógica existente para un segundo iframe o source genérico (si es necesario)
+            val genericSourceRegex = Regex("""source:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""")
+            val genericMatch = genericSourceRegex.find(videoIframeHtml)
 
-            if (finalIframeMatch != null) {
-                val finalStreamIframeSrcWithAmp = finalIframeMatch.groupValues[1]
-                val finalStreamIframeSrc = finalStreamIframeSrcWithAmp.replace("&amp;", "&")
-                Log.d(name, "[$optionIdentifier] Segundo iframe de stream encontrado: $finalStreamIframeSrc")
-
-                val finalStreamIframeRequestHeaders = commonHeaders.toMutableMap().apply {
-                    put("Connection", "keep-alive")
-                    put("Referer", fullVideoIframeSrc)
-                    put("Sec-Fetch-Dest", "iframe")
-                    put("Sec-Fetch-Mode", "navigate")
-                    put("Sec-Fetch-Site", "cross-site")
-                    put("Sec-Fetch-Storage-Access", "active")
+            if (genericMatch != null) {
+                val streamUrl = genericMatch.groupValues[1]
+                Log.d(name, "[$optionIdentifier] URL de stream (genérica M3U8) encontrada en iframe: $streamUrl")
+                if (streamUrl.startsWith("http")) {
+                    return parseM3U8Stream(streamUrl, finalIframeUrl, callback, optionIdentifier)
                 }
-
-                val finalStreamResponse = app.get(finalStreamIframeSrc, headers = finalStreamIframeRequestHeaders)
-                val finalStreamHtml = finalStreamResponse.document.html()
-
-                Log.d(name, "[$optionIdentifier] HTML COMPLETO recibido del iframe final del stream: ${finalStreamHtml.take(500)}...")
-
-                val finalMatch = clapprSourceRegex.find(finalStreamHtml)
-
-                if (finalMatch != null) {
-                    val finalEncodedSource = finalMatch.groupValues[1]
-                    Log.d(name, "[$optionIdentifier] Cadena Clappr codificada (4 capas) encontrada en iframe final: $finalEncodedSource")
-
-                    try {
-                        val finalUrl = decodeBase64MultipleTimes(finalEncodedSource, 4)
-
-                        Log.d(name, "[$optionIdentifier] URL de stream decodificada del iframe final (maestra M3U8): $finalUrl")
-
-                        if (finalUrl.startsWith("http")) {
-                            return parseM3U8Stream(finalUrl, finalStreamIframeSrc, callback, optionIdentifier)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(name, "[$optionIdentifier] Error al decodificar la URL Base64 de Clappr desde iframe final o al parsear M3U8: ${e.message}", e)
-                    }
-                } else {
-                    Log.w(name, "[$optionIdentifier] No se encontró el patrón de source de Clappr (4 capas) en el iframe final del stream: $finalStreamIframeSrc. Intentando un patrón de 'source' más genérico.")
-
-                    val genericSourceRegex = Regex("""source:\s*['"](https?://[^'"]+\.m3u8[^'"]*)['"]""")
-                    val genericMatch = genericSourceRegex.find(finalStreamHtml)
-
-                    if (genericMatch != null) {
-                        val streamUrl = genericMatch.groupValues[1]
-                        Log.d(name, "[$optionIdentifier] URL de stream (genérica M3U8) encontrada en iframe final: $streamUrl")
-                        if (streamUrl.startsWith("http")) {
-                            return parseM3U8Stream(streamUrl, finalStreamIframeSrc, callback, optionIdentifier)
-                        }
-                    } else {
-                        Log.w(name, "[$optionIdentifier] No se encontró ningún patrón de source (ni Clappr codificado ni genérico) en el iframe final del stream: $finalStreamIframeSrc")
-                    }
-                }
+            } else {
+                Log.w(name, "[$optionIdentifier] No se encontró ningún patrón de source (ni Clappr codificado ni genérico) en el HTML del iframe: $finalIframeUrl")
             }
         }
-        return false
+        return false // Si no se encuentra ningún link
     }
 
-    // Función para Cubemedia
+    // Función para Cubemedia (sin cambios)
     private suspend fun extractLinksFromCubemediaIframe(
         cubemediaIframeUrl: String,
         refererToCubemedia: String,
@@ -405,6 +369,7 @@ class TvporinternetProvider : MainAPI() {
         return false
     }
 
+    // Función parseM3U8Stream (sin cambios significativos, ya era bastante robusta)
     private suspend fun parseM3U8Stream(
         m3u8Url: String,
         refererForM3u8: String,
@@ -432,8 +397,6 @@ class TvporinternetProvider : MainAPI() {
 
         val baseUrl = getBaseUrl(m3u8Url)
 
-        // Ajustar la regex para capturar sub-streams M3U8 de forma más robusta
-        // La regex ahora manejará URLs que pueden o no tener un prefijo de barra '/'
         val streamRegex = Regex("""#EXT-X-STREAM-INF:BANDWIDTH=(\d+)(?:,RESOLUTION=(\d+x\d+))?[^\n]*?\n\s*([^\s#][^\n]*)""")
         var foundStreams = false
 
@@ -443,7 +406,6 @@ class TvporinternetProvider : MainAPI() {
             val resolution = matchResult.groupValues.getOrNull(2).orEmpty()
             val streamRelativeUrl = matchResult.groupValues[3].trim()
 
-            // Corregir la construcción de la URL completa
             val streamFullUrl = if (streamRelativeUrl.startsWith("http")) {
                 streamRelativeUrl
             } else {
