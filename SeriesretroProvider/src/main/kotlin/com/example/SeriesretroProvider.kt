@@ -162,6 +162,8 @@ class SeriesretroProvider : MainAPI() {
                 seasonElement.select("table tbody tr").mapNotNull { element ->
                     val epurl = fixUrl(element.selectFirst("td.MvTbItl a")?.attr("href") ?: "")
                     val epTitle = element.selectFirst("td.MvTbItl a")?.text() ?: ""
+                    Log.d("SeriesRetro", "DEBUG - Processing episode element: ${element.html()}") // <-- AÑADIR ESTA LÍNEA
+                    Log.d("SeriesRetro", "DEBUG - Extracted epTitle: '$epTitle'") // <-- AÑADIR ESTA LÍNEA
 
                     val episodeNumber = element.selectFirst("td span.Num")?.text()?.toIntOrNull()
 
