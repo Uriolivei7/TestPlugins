@@ -8,7 +8,7 @@ import android.util.Log
 import java.lang.Exception
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
-import android.util.Base64 // Importar Base64 de Android
+import android.util.Base64
 
 // Extensión para crear slugs URL-friendly
 private fun String.toUrlSlug(): String {
@@ -39,22 +39,33 @@ class PlayhubProvider : MainAPI() {
     )
 
     companion object  {
-        private const val playhubAPI = "http://v3.playhublite.com/api/"
+        // La API que proporciona los datos de películas/series y los enlaces de video
+        private const val playhubAPI = "https://v3.playhublite.com/api/"
+
+        // User-Agent de escritorio basado en la información que proporcionaste
+        // Esto es crucial para simular un navegador real y evitar Cloudflare
+        private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+
+        // Cabeceras generales para las solicitudes a playhubAPI
         private val playhubHeaders = mapOf(
             "Host" to "v3.playhublite.com",
-            "User-Agent" to USER_AGENT,
+            "User-Agent" to DESKTOP_USER_AGENT, // Usar el User-Agent de escritorio
             "Accept" to "application/json, text/plain, */*",
-            "Accept-Language" to "en-US,en;q=0.5",
-            "Authorization" to "Bearer null",
+            "Accept-Language" to "es-ES,es;q=0.6", // Basado en tu curl
+            "Authorization" to "Bearer null", // Mantener por si acaso, aunque no parece usarse
             "X-Requested-With" to "XMLHttpRequest",
-            "Origin" to "https://playhublite.com",
+            "Origin" to "https://playhublite.com", // Origen del sitio principal
             "DNT" to "1",
             "Connection" to "keep-alive",
-            "Referer" to "https://playhublite.com/",
+            "Referer" to "https://playhublite.com/", // Referer del sitio principal
             "Sec-Fetch-Dest" to "empty",
             "Sec-Fetch-Mode" to "cors",
             "Sec-Fetch-Site" to "same-site",
             "TE" to "trailers",
+            // Client Hints (añadidos de tu curl)
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\""
         )
     }
 
@@ -395,26 +406,23 @@ class PlayhubProvider : MainAPI() {
         }
     }
 
-    // --- DATA CLASSES para Carga de Enlaces (loadLinks) ---
-    // (Mantengo las Data Classes existentes, aunque no se usen directamente en la nueva lógica)
-    data class DataBase (
-        @JsonProperty("data" ) var data : String? = null
+    // --- DATA CLASSES para el JSON DECODIFICADO de la primera XHR ---
+    data class ServersInfo(
+        @JsonProperty("file_code") val file_code: String?,
+        @JsonProperty("hash") val hash: String?,
+        @JsonProperty("server") val server: String? = null,
+        @JsonProperty("sources") val sources: List<Source>? = null,
+        @JsonProperty("player_embed_url") val playerEmbedUrl: String? = null // Podría existir y ser muy útil!
     )
 
-    data class ServersInfo (
-        @JsonProperty("id"         ) var id        : Int?    = null,
-        @JsonProperty("vid"        ) var vid       : String? = null,
-        @JsonProperty("url"        ) var url       : String? = null,
-        @JsonProperty("server"    ) var server    : String? = null,
-        @JsonProperty("language"   ) var language  : String? = null,
-        @JsonProperty("quality"    ) var quality   : String? = null,
-        @JsonProperty("user_id"    ) var userId    : String? = null,
-        @JsonProperty("status"     ) var status    : String? = null,
-        @JsonProperty("created_at" ) var createdAt : String? = null,
-        @JsonProperty("updated_at" ) var updatedAt : String? = null,
-        @JsonProperty("type"       ) var type      : Int?    = null
+    data class Source(
+        @JsonProperty("file_code") val file_code: String?,
+        @JsonProperty("hash") val hash: String?,
+        @JsonProperty("server") val server: String?,
+        @JsonProperty("url") val url: String?,
+        @JsonProperty("type") val type: String?,
+        @JsonProperty("quality") val quality: String?
     )
-    // --- FIN DATA CLASSES para Carga de Enlaces ---
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         Log.d("PlayHubLite", "loadLinks - Data de entrada (URL de la página del reproductor de Playhublite): $data")
@@ -449,138 +457,165 @@ class PlayhubProvider : MainAPI() {
             return false
         }
 
-        // --- PRIMERA LLAMADA XHR a Playhublite (para obtener la cadena Base64 con file_code y hash) ---
-        // Basado en tus logs, la XHR es '85077-4-1?w=w', lo que sugiere que podría ser una API de origen.
-        // Asumo una URL como esta, pero DEBES CONFIRMAR LA URL EXACTA QUE VES EN LA PESTAÑA NETWORK
+        // --- PRIMERA LLAMADA XHR a v3.playhublite.com/api/videos/ (para obtener la cadena Base64) ---
         val firstXhrApiUrl: String = if (isMovie) {
-            // !!! VERIFICAR Y AJUSTAR !!!
-            // Para películas, es posible que sea una URL diferente para obtener el enlace de fuente.
-            // Revisa cómo se obtiene la info para una película. Podría ser "${playhubAPI}movie_source/$playhubId" o similar.
-            "$mainUrl/api/source_movie?id=$playhubId"
+            // Para películas, es solo el ID del contenido
+            "${playhubAPI}videos/$playhubId?w=w"
         } else {
-            // !!! VERIFICAR Y AJUSTAR !!!
-            // Para series, la XHR que dio la respuesta Base64 fue '85077-4-1?w=w'.
-            // Necesitamos la URL completa que se solicitó para esa XHR.
-            // Asumo que es una API de Playhublite, no de v3.playhublite.com/api/.
-            // Podría ser algo como: "$mainUrl/api/source_serie?id=$playhubId&season=$seasonNum&episode=$episodeNum"
-            // O si la URL en network era simplemente el ID y los parámetros:
-            "$mainUrl/series_source/$playhubId/$seasonNum/$episodeNum" // Ejemplo, ajusta según lo que veas
+            // Para series, es ID-Temporada-Episodio
+            "${playhubAPI}videos/$playhubId-$seasonNum-$episodeNum?w=w"
         }
 
+        // Cabeceras específicas para la primera XHR a v3.playhublite.com (exactas a tu curl)
+        val firstXhrHeaders = mapOf(
+            "Host" to "v3.playhublite.com",
+            "User-Agent" to DESKTOP_USER_AGENT,
+            "Accept" to "application/json, text/plain, */*",
+            "Accept-Language" to "es-ES,es;q=0.6",
+            "Cache-Control" to "no-cache",
+            "Origin" to mainUrl, // https://playhublite.com
+            "Pragma" to "no-cache",
+            "Priority" to "u=1, i",
+            "Referer" to mainUrl + "/", // Referer del sitio principal (https://playhublite.com/)
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\"",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "same-site",
+            "Sec-GPC" to "1",
+        )
 
-        Log.d("PlayHubLite", "loadLinks: Realizando primera XHR (para Base64) a: $firstXhrApiUrl")
-        val encodedResponse = try {
-            // Usamos las cabeceras estándar de PlayhubLite, ajusta si la XHR necesita otras específicas
-            val res = app.get(firstXhrApiUrl, headers = playhubHeaders)
+        Log.d("PlayHubLite", "loadLinks: Realizando primera XHR (para cadena Base64) a: $firstXhrApiUrl")
+        Log.d("PlayHubLite", "loadLinks: Cabeceras para primera XHR: $firstXhrHeaders")
+
+        val base64ResponseString = try {
+            val res = app.get(firstXhrApiUrl, headers = firstXhrHeaders)
             Log.d("PlayHubLite", "loadLinks: Código de estado de la primera XHR: ${res.code}")
+            Log.d("PlayHubLite", "loadLinks: Cuerpo de la respuesta de la primera XHR (cadena Base64): ${res.text.take(500)}")
+
+            if (res.code == 403) {
+                Log.e("PlayHubLite", "loadLinks: La primera XHR fue bloqueada por Cloudflare (403 Forbidden). " +
+                        "Esto indica que el sitio está detectando el bot. Intente ajustar las cabeceras o la URL.")
+                return false
+            }
             res.text
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: ERROR en la primera XHR: ${e.message}", e)
+            Log.e("PlayHubLite", "loadLinks: ERROR en la primera XHR (obtener Base64): ${e.message}", e)
             return false
         }
-        Log.d("PlayHubLite", "loadLinks: Respuesta primera XHR (encoded, primeros 500 chars): ${encodedResponse.take(500)}")
 
-        // Decodificar la cadena Base64
-        val decodedString: String
-        try {
-            val decodedBytes = Base64.decode(encodedResponse, Base64.DEFAULT)
-            decodedString = String(decodedBytes, UTF_8)
-            Log.d("PlayHubLite", "loadLinks: Primera XHR Decodificada: $decodedString")
+        // --- DECODIFICAR LA CADENA BASE64 A JSON ---
+        val decodedJsonString = try {
+            val decodedBytes = Base64.decode(base64ResponseString, Base64.DEFAULT)
+            String(decodedBytes, UTF_8)
+        } catch (e: IllegalArgumentException) {
+            Log.e("PlayHubLite", "loadLinks: ERROR al decodificar la cadena Base64: ${e.message}", e)
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: JSON decodificado de la Base64: ${decodedJsonString.take(500)}")
+
+        val serversInfo = try {
+            tryParseJson<ServersInfo>(decodedJsonString)
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: ERROR al decodificar la respuesta Base64: ${e.message}", e)
+            Log.e("PlayHubLite", "loadLinks: ERROR al parsear el JSON decodificado a ServersInfo: ${e.message}", e)
             return false
         }
 
-        // --- EXTRAER file_code y hash de la cadena decodificada ---
-        // !!! VERIFICAR Y AJUSTAR !!!
-        // Aquí debes analizar la `decodedString`. El formato puede variar.
-        // Ejemplo si es un JSON: val jsonResponse = tryParseJson<MyDecodedData>(decodedString)
-        // Ejemplo si es una cadena de consulta "key1=value1&key2=value2":
-        // val params = decodedString.split("&").associate { it.split("=").let { (k, v) -> k to v } }
-        // val fileCode = params["file_code"]
-        // val hash = params["hash"]
-
-        var fileCode: String? = null
-        var hash: String? = null
-
-        // Intento 1: Buscar en el formato de URL query (común para enlaces directos)
-        val fileCodeMatch = Regex("file_code=([^&]+)").find(decodedString)
-        fileCode = fileCodeMatch?.groupValues?.get(1)
-
-        val hashMatch = Regex("hash=([^&]+)").find(decodedString)
-        hash = hashMatch?.groupValues?.get(1)
-
-        // Si no se encuentra en formato de URL query, podría estar en otro formato.
-        // Por ejemplo, si la cadena decodificada es JSON:
-        // data class DecodedInfo(@JsonProperty("file_code") val fileCode: String?, @JsonProperty("hash") val hash: String?)
-        // val decodedJson = tryParseJson<DecodedInfo>(decodedString)
-        // fileCode = decodedJson?.fileCode
-        // hash = decodedJson?.hash
+        val fileCode = serversInfo?.file_code
+        val hash = serversInfo?.hash
+        val playerEmbedUrl = serversInfo?.playerEmbedUrl // Si existe en el JSON
 
         if (fileCode.isNullOrBlank() || hash.isNullOrBlank()) {
-            Log.e("PlayHubLite", "loadLinks: No se pudo extraer file_code o hash de la cadena decodificada. Cadena: $decodedString")
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer file_code o hash del JSON decodificado. " +
+                    "La estructura del JSON decodificado podría ser diferente a ServersInfo. JSON: ${decodedJsonString.take(200)}")
             return false
         }
         Log.d("PlayHubLite", "loadLinks: File Code extraído: $fileCode, Hash extraído: $hash")
 
 
-        // --- SEGUNDA LLAMADA XHR a Cybervynx.com para el M3U8 ---
-        val cybervynxApiUrl = "https://cybervynx.com/dl?op=view&file_code=$fileCode&hash=$hash"
-        val cybervynxHeaders = mapOf(
-            "Referer" to data, // Referer a la página de playhublite (la URL de entrada)
-            "User-Agent" to USER_AGENT,
-            "X-Requested-With" to "XMLHttpRequest",
+        // --- SEGUNDA LLAMADA XHR a dhcplay.com para el JSON con la URL del M3U8 ---
+        // Usamos la URL del embed si está disponible, de lo contrario construimos con fileCode
+        val dhcplayReferer = playerEmbedUrl ?: "https://dhcplay.com/e/$fileCode" // Preferir playerEmbedUrl si se proporciona
+
+        val dhcplayApiUrl = "https://dhcplay.com/dl?op=view&file_code=$fileCode&hash=$hash&embed=1&referer=playhublite.com&adb=1"
+        val dhcplayHeaders = mapOf(
+            "Host" to "dhcplay.com",
+            "User-Agent" to DESKTOP_USER_AGENT,
             "Accept" to "*/*",
-            "DNT" to "1",
-            "Connection" to "keep-alive",
-            "Origin" to "https://playhublite.com", // O "https://cybervynx.com" si la solicitud la inicia cybervynx directamente
+            "Accept-Language" to "es-ES,es;q=0.6",
+            "Cache-Control" to "no-cache",
+            "Pragma" to "no-cache",
+            "Priority" to "u=1, i",
+            "Referer" to dhcplayReferer, // Usar la URL del embed de dhcplay.com como Referer
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\"",
             "Sec-Fetch-Dest" to "empty",
             "Sec-Fetch-Mode" to "cors",
-            "Sec-Fetch-Site" to "cross-site", // Puede ser "same-site" o "cross-site" dependiendo de la interacción
-            "TE" to "trailers",
+            "Sec-Fetch-Site" to "same-origin", // Esta solicitud es al mismo dominio dhcplay.com
+            "Sec-Fetch-Storage-Access" to "active",
+            "Sec-GPC" to "1",
+            "X-Requested-With" to "XMLHttpRequest",
+            // Las cookies 'tsn=2' se vieron en tu curl, podrías añadirlas si es necesario
+            // "Cookie" to "tsn=2"
         )
 
-        Log.d("PlayHubLite", "loadLinks: Realizando segunda XHR (M3U8) a: $cybervynxApiUrl")
-        val cybervynxResponse = try {
-            val res = app.get(cybervynxApiUrl, headers = cybervynxHeaders)
+        Log.d("PlayHubLite", "loadLinks: Realizando segunda XHR (M3U8 JSON) a: $dhcplayApiUrl")
+        Log.d("PlayHubLite", "loadLinks: Cabeceras para segunda XHR: $dhcplayHeaders")
+
+        val dhcplayResponse = try {
+            val res = app.get(dhcplayApiUrl, headers = dhcplayHeaders)
             Log.d("PlayHubLite", "loadLinks: Código de estado de la segunda XHR: ${res.code}")
             res.text
         } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: ERROR en la segunda XHR a Cybervynx: ${e.message}", e)
+            Log.e("PlayHubLite", "loadLinks: ERROR en la segunda XHR a dhcplay.com: ${e.message}", e)
             return false
         }
-        Log.d("PlayHubLite", "loadLinks: Respuesta Cybervynx (M3U8, primeros 500 chars): ${cybervynxResponse.take(500)}")
+        Log.d("PlayHubLite", "loadLinks: Respuesta dhcplay.com (M3U8 JSON, primeros 500 chars): ${dhcplayResponse.take(500)}")
 
 
-        // 4. Parsear la respuesta de Cybervynx para la URL del M3U8
+        // 4. Parsear la respuesta de dhcplay.com para la URL del M3U8
+        // La respuesta de dhcplay.com debería ser JSON que contenga la URL del M3U8.
         val m3u8UrlRegex = Regex("\"file\":\"(https?://[^\"?]+\\.m3u8[^\"?]*)\"")
-        val m3u8UrlMatch = m3u8UrlRegex.find(cybervynxResponse)
+        val m3u8UrlMatch = m3u8UrlRegex.find(dhcplayResponse)
         val m3u8FullUrl = m3u8UrlMatch?.groupValues?.get(1)
 
         if (m3u8FullUrl.isNullOrBlank()) {
-            Log.e("PlayHubLite", "loadLinks: No se pudo extraer la URL M3U8 de la respuesta de Cybervynx. Verifique el formato: ${cybervynxResponse.take(200)}")
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer la URL M3U8 de la respuesta de dhcplay.com. " +
+                    "Verifique el formato JSON/script esperado. Respuesta: ${dhcplayResponse.take(200)}")
             return false
         }
-        Log.d("PlayHubLite", "loadLinks: URL M3U8 extraída: $m3u8FullUrl")
+        Log.d("PlayHubLite", "loadLinks: URL M3u8 extraída: $m3u8FullUrl")
 
-        // Extraer CDN base y randomId de la URL M3U8 para construir la URL final (como ya lo tenías)
+        // Extraer CDN base (ej: https://ye0r0rrinu.cdn-centaurus.com) de la URL M3U8 para construir la URL final y subtítulos
         val cdnBaseUrlMatch = Regex("(https?://[^/]+)/hls2/").find(m3u8FullUrl)
         val cdnBaseUrl = cdnBaseUrlMatch?.groupValues?.get(1)
-        val hlsPathMatch = Regex("/hls2/([^/]+)/").find(m3u8FullUrl)
-        val randomId = hlsPathMatch?.groupValues?.get(1)
 
-        val finalM3u8Url = if (cdnBaseUrl != null && randomId != null) {
-            "$cdnBaseUrl/hls2/$randomId/$fileCode/master.m3u8"
-        } else {
-            m3u8FullUrl // Usar la URL original si no se puede reconstruir la "limpia"
-        }
+        // El ID aleatorio y el file_code ya están en la URL del master.m3u8,
+        // pero podemos "limpiar" la URL de parámetros de seguimiento si se prefiere.
+        // O simplemente usar m3u8FullUrl directamente.
+        val finalM3u8Url = m3u8FullUrl // Por simplicidad, usamos la URL completa extraída
+
         Log.d("PlayHubLite", "loadLinks: URL final del M3U8 para callback: $finalM3u8Url")
 
-        // Cabeceras para la solicitud del M3U8
+        // Cabeceras para la solicitud del M3U8 (el stream real)
         val m3u8Headers = mapOf(
-            "Referer" to cybervynxApiUrl, // El Referer para el M3U8 debe ser la URL de la XHR a cybervynx
-            "Origin" to "https://cybervynx.com",
-            "User-Agent" to USER_AGENT // Es bueno mantener el User-Agent
+            "Referer" to "https://dhcplay.com/", // El Referer para el M3U8 debe ser la URL del reproductor (dhcplay.com)
+            "Origin" to "https://dhcplay.com",
+            "User-Agent" to DESKTOP_USER_AGENT, // Usar el mismo User-Agent
+            "Accept" to "*/*",
+            "Accept-Language" to "es-ES,es;q=0.6",
+            "Cache-Control" to "no-cache",
+            "Pragma" to "no-cache",
+            "Connection" to "keep-alive",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "cross-site",
+            "Sec-GPC" to "1",
+            "sec-ch-ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\""
         )
 
         callback.invoke(
@@ -590,14 +625,15 @@ class PlayhubProvider : MainAPI() {
                 url = finalM3u8Url,
                 type = ExtractorLinkType.M3U8
             ) {
-                this.referer = cybervynxApiUrl
+                // Configurar el Referer y las cabeceras para el extractor
+                this.referer = "https://dhcplay.com/"
                 this.quality = Qualities.Unknown.value
                 this.headers = m3u8Headers
             }
         )
 
-        // Subtítulos (reutilizando la lógica existente)
-        if (cdnBaseUrl != null) {
+        // Subtítulos
+        if (cdnBaseUrl != null && !fileCode.isNullOrBlank()) {
             val subtitleLanguages = mapOf(
                 "spa" to "Español",
                 "eng" to "English",
@@ -606,9 +642,21 @@ class PlayhubProvider : MainAPI() {
                 "por" to "Português"
             )
 
+            val vttPathSegmentMatch = Regex("/hls2/([^/]+/[^/]+)/").find(m3u8FullUrl)
+            val vttPathSegment = vttPathSegmentMatch?.groupValues?.get(1) // Debería ser "01/09571"
+
             subtitleLanguages.forEach { (langCode, langName) ->
-                val subtitleUrl = "$cdnBaseUrl/vtt/$fileCode/${fileCode}_${langCode}.vtt"
+                val subtitleUrl = if (!vttPathSegment.isNullOrBlank()) {
+                    "$cdnBaseUrl/vtt/$vttPathSegment/${fileCode}_${langCode}.vtt"
+                } else {
+                    "$cdnBaseUrl/vtt/${fileCode}_${langCode}.vtt"
+                }
+
                 Log.d("PlayHubLite", "loadLinks: Intentando añadir subtítulo: $subtitleUrl")
+                // Crea el SubtitleFile con solo lang y url
+                // La versión de Cloudstream que estás usando no permite adjuntar referer/headers
+                // directamente a SubtitleFile. El reproductor podría intentar usar las cabeceras
+                // del stream principal o el referer global.
                 subtitleCallback.invoke(
                     SubtitleFile(
                         langName,
@@ -617,7 +665,7 @@ class PlayhubProvider : MainAPI() {
                 )
             }
         } else {
-            Log.w("PlayHubLite", "loadLinks: No se pudo determinar la URL base del CDN para los subtítulos.")
+            Log.w("PlayHubLite", "loadLinks: No se pudo determinar la URL base del CDN o fileCode para los subtítulos.")
         }
 
         return true
