@@ -13,6 +13,16 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
+// Extensión para crear slugs URL-friendly
+private fun String.toUrlSlug(): String {
+    return this
+        .replace(Regex("[^a-zA-Z0-9\\s-]"), "") // Elimina caracteres no alfanuméricos excepto espacios y guiones
+        .replace(" ", "-") // Reemplaza espacios con guiones
+        .lowercase() // CORREGIDO: Usa .lowercase()
+        .replace(Regex("-+"), "-") // Reemplaza múltiples guiones con uno solo
+        .trim('-') // Elimina guiones al inicio o al final
+}
+
 // Clase principal del proveedor para Playhub
 class PlayhubProvider : MainAPI() {
 
@@ -65,7 +75,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("next_page_url") val nextPageUrl: String? = null,
         @JsonProperty("path") val path: String? = null,
         @JsonProperty("per_page") val perPage: Int? = null,
-        @JsonProperty("prev_page_url") val prevPageUrl: String? = null
+        @JsonProperty("prev_page_url") val prevPage_url: String? = null // Typo corregido si existía
     )
 
     data class PlayHubMovieData(
@@ -236,7 +246,7 @@ class PlayhubProvider : MainAPI() {
 
     data class Seasons (
         @JsonProperty("id"            ) var id           : Int? = null,
-        @JsonProperty("serie_id"      ) var serieId      : Int? = null,
+        @JsonProperty("serie_id"      ) var serieId       : Int? = null,
         @JsonProperty("season_number" ) var seasonNumber : Int? = null
     )
 
@@ -276,7 +286,7 @@ class PlayhubProvider : MainAPI() {
                 val alternateType = if (initialTypeFromUrl == TvType.Movie) TvType.TvSeries else TvType.Movie
                 apiDetailUrl = if (alternateType == TvType.Movie) "${playhubAPI}movies/$id" else "${playhubAPI}series/$id"
                 apiResponse = app.get(apiDetailUrl, headers = playhubHeaders)
-                if (apiResponse.code == 200) apiResponse.parsed<PlayhubLoadMain>() else throw Exception("Ambas URLs fallaron")
+                if (apiResponse.code == 200) apiResponse.parsed<PlayhubLoadMain>() else throw Exception("Ambas URLs de la API fallaron o dieron 404.")
             } else {
                 apiResponse.parsed<PlayhubLoadMain>()
             }
@@ -326,14 +336,22 @@ class PlayhubProvider : MainAPI() {
                         val epPlot = ep.overview
                         val epNum = ep.episodeNumber
                         val airDate = ep.airDate
-                        val episodeSourceDataUrl = "$mainUrl/series/$seriesID/season/$seasonNum/episode/$epNum" // Usar la URL de la página del episodio
+                        // Construir la URL de la página del episodio de Playhublite.com
+                        val seriesTitleSlug = res.name?.toUrlSlug()
+                        val episodeSourceDataUrl = if (!seriesTitleSlug.isNullOrBlank()) {
+                            "$mainUrl/series/${seriesID}-${seasonNum}-${epNum}/${seriesTitleSlug}"
+                        } else {
+                            // Fallback si no se puede generar el slug
+                            "$mainUrl/series/${seriesID}/season/${seasonNum}/episode/${epNum}"
+                        }
+
                         Log.d("PlayHubLite", "load: Añadiendo episodio S${seasonNum}E${epNum}: $eptitle con dataUrl para loadLinks: $episodeSourceDataUrl")
 
                         episodes.add(newEpisode(episodeSourceDataUrl) {
                             this.name = eptitle
                             this.season = seasonNum
                             this.episode = epNum
-                            this.posterUrl = fixUrlNull(epthumb)
+                            this.posterUrl = epthumb // Ya es String?, no necesita fixUrlNull
                             this.description = epPlot
                             addDate(airDate)
                         })
@@ -361,7 +379,13 @@ class PlayhubProvider : MainAPI() {
                 this.recommendations = recs
             }
             TvType.Movie -> {
-                val movieSourceDataUrl = "$mainUrl/movies/$id" // Usar la URL de la página de la película
+                // Construir la URL de la página de la película de Playhublite.com
+                val movieTitleSlug = res.title?.toUrlSlug()
+                val movieSourceDataUrl = if (!movieTitleSlug.isNullOrBlank()) {
+                    "$mainUrl/movies/$id-$movieTitleSlug"
+                } else {
+                    "$mainUrl/movies/$id"
+                }
                 Log.d("PlayHubLite", "load: URL de datos de fuente para película: $movieSourceDataUrl")
                 newMovieLoadResponse(title, url, actualType, movieSourceDataUrl) {
                     this.posterUrl = poster
@@ -395,7 +419,7 @@ class PlayhubProvider : MainAPI() {
     )
     // --- FIN DATA CLASSES para Carga de Enlaces ---
 
-    // Función de desencriptación (copy-paste de SoloLatinoProvider)
+    // La función de desencriptación (decryptLink) y decodePackedJs ya no son relevantes si el iframe no usa este método.
     private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
         try {
             val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
@@ -419,13 +443,11 @@ class PlayhubProvider : MainAPI() {
         }
     }
 
-    // Función para desofuscar el P.A.C.K.E.D. JS
     private fun decodePackedJs(p: String, a: Int, c: Int, k: List<String>): String {
         var decodedP = p
         var currentC = c
         while (currentC-- > 0) {
             if (k.isNotEmpty() && currentC < k.size && k[currentC].isNotEmpty()) {
-                // Escapamos los caracteres especiales para la regex
                 val replacement = Regex.escapeReplacement(k[currentC])
                 val regex = "\\b" + currentC.toString(a) + "\\b"
                 decodedP = decodedP.replace(regex.toRegex(), replacement)
@@ -435,86 +457,64 @@ class PlayhubProvider : MainAPI() {
     }
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        Log.d("PlayHubLite", "loadLinks - Data de entrada (URL de la página del reproductor): $data")
+        Log.d("PlayHubLite", "loadLinks - Data de entrada (URL de la página del reproductor de Playhublite): $data")
 
         if (data.isBlank()) {
-            Log.e("PlayHubLite", "loadLinks: La URL de la página del reproductor está vacía.")
+            Log.e("PlayHubLite", "loadLinks: La URL de la página del reproductor de Playhublite está vacía.")
             return false
         }
 
-        // 1. Obtener el HTML de la página del reproductor
-        val playerPageResponse = app.get(data, headers = mapOf("Referer" to mainUrl)) // Añadir referer
-        val playerPageHtml = playerPageResponse.text
+        // 1. Obtener el HTML de la página de Playhublite.com
+        val playhubPageResponse = app.get(data, headers = mapOf("Referer" to mainUrl))
+        val playhubPageHtml = playhubPageResponse.text
+        Log.d("PlayHubLite", "loadLinks: HTML de Playhublite.com (primeros 500 chars): ${playhubPageHtml.take(500)}")
 
-        // Extraer el file_code de la URL de la página de datos
-        // El file_code puede ser el ID numérico o el ID alfanumérico como '5tajj3vt6jno'
-        val fileCodeMatch = Regex("/([^/]+)(?:/season/(\\d+)/episode/(\\d+))?$").find(data)
-        val fileCode = fileCodeMatch?.groupValues?.get(1) // Captura el ID principal (ej: 47856551 o 5tajj3vt6jno)
-        val seasonNum = fileCodeMatch?.groupValues?.get(2)
-        val episodeNum = fileCodeMatch?.groupValues?.get(3)
+        // 2. Extraer la URL del iframe de cybervynx.com (Actualizado)
+        val iframeUrlRegex = Regex("<iframe src=\"(https://cybervynx.com/e/[^\"]+)\"")
+        val iframeMatch = iframeUrlRegex.find(playhubPageHtml)
+        val iframeUrl = iframeMatch?.groupValues?.get(1)
 
-        if (fileCode.isNullOrBlank()) {
-            Log.e("PlayHubLite", "loadLinks: No se pudo extraer el file_code de la URL: $data")
+        if (iframeUrl.isNullOrBlank()) {
+            Log.e("PlayHubLite", "loadLinks: No se pudo encontrar la URL del iframe de cybervynx.com en la página de Playhublite.com: $data")
             return false
         }
-        Log.d("PlayHubLite", "loadLinks: File Code extraído: $fileCode")
+        Log.d("PlayHubLite", "loadLinks: URL del iframe encontrada: $iframeUrl")
 
+        // 3. Obtener el HTML de la página del iframe (cybervynx.com)
+        val iframePageResponse = app.get(iframeUrl, headers = mapOf("Referer" to data))
+        val iframePageHtml = iframePageResponse.text
+        Log.d("PlayHubLite", "loadLinks: HTML del iframe (primeros 500 chars): ${iframePageHtml.take(500)}")
 
-        // 2. Extraer la clave JWPlayer
-        val jwPlayerKeyMatch = Regex("jwplayer\\.key = \"([^\"]+)\";").find(playerPageHtml)
-        val jwPlayerKey = jwPlayerKeyMatch?.groupValues?.get(1)
-        if (jwPlayerKey.isNullOrBlank()) {
-            Log.w("PlayHubLite", "loadLinks: No se pudo encontrar la clave de JWPlayer en el HTML. Esto puede no ser crítico.")
-            // No es un error crítico si la clave JWPlayer no está directamente, la URL del stream es más importante.
-        } else {
-            Log.d("PlayHubLite", "loadLinks: JWPlayer Key encontrada: $jwPlayerKey")
-        }
+        // Extraer el file_code de la URL del iframe (ej: 5tajj3vt6jno)
+        val fileCodeMatch = Regex("/e/([^/]+)").find(iframeUrl)
+        val fileCode = fileCodeMatch?.groupValues?.get(1) ?: "" // Aseguramos que no sea nulo
 
-
-        // 3. Desofuscar el script `eval`
-        val evalRegex = Regex("eval\\(function\\(p, a, c, k, e, d\\) \\{.*?return p \\}\\('([^']+)', (\\d+), (\\d+), \\[([^\\]]*?)\\](?:,.*?)*\\)\\);")
-        val evalMatch = evalRegex.find(playerPageHtml)
-
-        if (evalMatch == null) {
-            Log.e("PlayHubLite", "loadLinks: No se encontró el script ofuscado `eval` en el HTML.")
+        if (fileCode.isBlank()) {
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer el file_code del iframe URL: $iframeUrl")
             return false
         }
+        Log.d("PlayHubLite", "loadLinks: File Code extraído del iframe: $fileCode")
 
-        val p = evalMatch.groupValues[1]
-        val a = evalMatch.groupValues[2].toIntOrNull() ?: 0
-        val c = evalMatch.groupValues[3].toIntOrNull() ?: 0
-        val kString = evalMatch.groupValues[4].replace("'", "").split(",").map { it.trim() } // Clean up and split k values
-
-        Log.d("PlayHubLite", "loadLinks: Desofuscando script con p: ${p.take(50)}, a: $a, c: $c, k-size: ${kString.size}")
-
-        val deobfuscatedScript = decodePackedJs(p, a, c, kString)
-        Log.d("PlayHubLite", "loadLinks: Script desofuscado (primeros 500 chars): ${deobfuscatedScript.take(500)}")
-
-        // 4. Parsear el script desofuscado para obtener la URL del M3U8 y el token
-        // "file":"https://ye0r0rrinu.cdn-centaurus.com/hls2/01/09571/5tajj3vt6jno_h/master.m3u8?t=7lrfQg7XLF8pWleX2zfYpx..."
+        // 4. Buscar la URL del M3U8 directamente en el HTML del iframe
         val m3u8UrlRegex = Regex("\"file\":\"(https://[^\"?]+\\.m3u8\\?t=[^\"]+)\"")
-        val m3u8UrlMatch = m3u8UrlRegex.find(deobfuscatedScript)
+        val m3u8UrlMatch = m3u8UrlRegex.find(iframePageHtml)
 
-        val m3u8FullUrl = m3u8UrlMatch?.groupValues?.get(1)
+        val m3u8FullUrl = m3u8UrlMatch?.groupValues?.get(1) ?: "" // Aseguramos que no sea nulo
 
-        if (m3u8FullUrl.isNullOrBlank()) {
-            Log.e("PlayHubLite", "loadLinks: No se pudo extraer la URL completa del M3U8 y su token del script desofuscado.")
+        if (m3u8FullUrl.isBlank()) {
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer la URL completa del M3U8 del HTML del iframe.")
             return false
         }
         Log.d("PlayHubLite", "loadLinks: URL completa del M3u8 extraída: $m3u8FullUrl")
 
         // 5. Construir la URL final del M3U8 y añadir los ExtractorLinks
-        // Se observa que el `file_code` en la URL del CDN tiene un `_h` al final (ej: 5tajj3vt6jno_h)
-        // El `fileCode` que extraemos de la URL de `data` (ej: 47856551 o 5tajj3vt6jno) debe ser el mismo.
-        // Si el `fileCode` en la URL del M3U8 es diferente, se reemplaza.
-        // Asumimos que el fileCode en la URL del M3U8 se encuentra antes de "_h".
-        val finalM3u8Url = m3u8FullUrl.replace(Regex("(/hls2/[^/]+/[^/]+/)([^/]+)_h(/master\\.m3u8)"), "$1${fileCode}_h$3")
+        val finalM3u8Url = m3u8FullUrl.replace(Regex("(/hls2/[^/]+/[^/]+/)([^/]+)(/master\\.m3u8)"), "$1${fileCode}$3")
         Log.d("PlayHubLite", "loadLinks: URL final del M3U8 para callback: $finalM3u8Url")
 
         // Headers para la solicitud del M3U8
         val m3u8Headers = mapOf(
-            "Referer" to data, // El referer debe ser la URL de la página del reproductor
-            "Origin" to mainUrl // El origin debe ser el dominio principal
+            "Referer" to iframeUrl,
+            "Origin" to "https://cybervynx.com" // CORREGIDO: El origin debe ser el dominio del iframe (cybervynx.com)
         )
 
         // Añadir el ExtractorLink
@@ -525,20 +525,17 @@ class PlayhubProvider : MainAPI() {
                 url = finalM3u8Url,
                 type = ExtractorLinkType.M3U8
             ) {
-                this.referer = data
+                this.referer = iframeUrl // CORREGIDO: referer a String
                 this.quality = Qualities.Unknown.value
                 this.headers = m3u8Headers
             }
         )
 
         // 6. Extraer y añadir subtítulos
-        // Las URLs de los subtítulos se ven como: https://ye0r0rrinu.cdn-centaurus.com/vtt/5tajj3vt6jno/5tajj3vt6jno_spa.vtt
-        // Y provienen del mismo CDN que el M3U8.
-        // La URL base del CDN la obtenemos de la m3u8FullUrl.
         val cdnBaseUrlMatch = Regex("(https://[^/]+)/hls2/").find(m3u8FullUrl)
-        val cdnBaseUrl = cdnBaseUrlMatch?.groupValues?.get(1) // Esto debería capturar "https://ye0r0rrinu.cdn-centaurus.com"
+        val cdnBaseUrl = cdnBaseUrlMatch?.groupValues?.get(1) ?: "" // Aseguramos que no sea nulo
 
-        if (!cdnBaseUrl.isNullOrBlank()) {
+        if (cdnBaseUrl.isNotBlank()) {
             val subtitleLanguages = mapOf(
                 "spa" to "Español",
                 "eng" to "English",
@@ -548,14 +545,12 @@ class PlayhubProvider : MainAPI() {
             )
 
             subtitleLanguages.forEach { (langCode, langName) ->
-                val subtitleUrl = "$cdnBaseUrl/vtt/$fileCode/${fileCode}_${langCode}.vtt" // Correcto
+                val subtitleUrl = "$cdnBaseUrl/vtt/$fileCode/${fileCode}_${langCode}.vtt"
                 Log.d("PlayHubLite", "loadLinks: Intentando añadir subtítulo: $subtitleUrl")
                 subtitleCallback.invoke(
                     SubtitleFile(
                         langName,
                         subtitleUrl
-                        // El constructor de SubtitleFile en CloudStream3 a menudo solo toma lang y url.
-                        // Si se necesitan más argumentos, revisa la definición de SubtitleFile en tu dependencia de CloudStream3.
                     )
                 )
             }
