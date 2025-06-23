@@ -53,6 +53,7 @@ class SoloLatinoProvider : MainAPI() {
             val homeItems = doc.select("div.items article.item").mapNotNull {
                 val title = it.selectFirst("a div.data h3")?.text()
                 val link = it.selectFirst("a")?.attr("href")
+                // Se prefiere data-srcset para imágenes responsivas, si no, se usa src
                 val img = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: it.selectFirst("div.poster img")?.attr("src")
 
                 if (title != null && link != null) {
@@ -79,6 +80,7 @@ class SoloLatinoProvider : MainAPI() {
         return doc.select("div.items article.item").mapNotNull {
             val title = it.selectFirst("a div.data h3")?.text()
             val link = it.selectFirst("a")?.attr("href")
+            // Se prefiere data-srcset para imágenes responsivas, si no, se usa src
             val img = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: it.selectFirst("div.poster img")?.attr("src")
 
             if (title != null && link != null) {
@@ -86,7 +88,7 @@ class SoloLatinoProvider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries
+                    this.type = TvType.TvSeries // Esto podría ser TvType.Movie/Anime dependiendo del resultado de búsqueda real
                     this.posterUrl = img
                 }
             } else null
@@ -102,11 +104,13 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "load - URL de entrada: $url")
 
         var cleanUrl = url
+        // Intenta extraer la URL de un JSON si viene codificada así
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("SoloLatino", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
+            // Asegura que la URL comience con HTTPS si es necesario
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                 cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("SoloLatino", "load - URL limpiada con HTTPS: $cleanUrl")
@@ -120,27 +124,28 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val doc = app.get(cleanUrl).document
-        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries
+        val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries // Determina el tipo basado en la URL
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.wp-content")?.text() ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
+
         val episodes = if (tvType == TvType.TvSeries) {
             doc.select("div#seasons div.se-c").flatMap { seasonElement ->
                 seasonElement.select("ul.episodios li").mapNotNull { element ->
                     val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
                     val epTitle = element.selectFirst("div.episodiotitle div.epst")?.text() ?: ""
 
-                    val seasonNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
-                    val episodeNumber = element.selectFirst("div.episodiotitle div.numerando")?.text()
-                        ?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
+                    // Extrae número de temporada y episodio
+                    val numerandoText = element.selectFirst("div.episodiotitle div.numerando")?.text()
+                    val seasonNumber = numerandoText?.split("-")?.getOrNull(0)?.trim()?.toIntOrNull()
+                    val episodeNumber = numerandoText?.split("-")?.getOrNull(1)?.trim()?.toIntOrNull()
 
                     val realimg = element.selectFirst("div.imagen img")?.attr("src")
 
                     if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                         newEpisode(
-                            EpisodeLoadData(epTitle, epurl).toJson()
+                            EpisodeLoadData(epTitle, epurl).toJson() // Almacena el título y la URL del episodio para loadLinks
                         ) {
                             this.name = epTitle
                             this.season = seasonNumber
@@ -150,7 +155,7 @@ class SoloLatinoProvider : MainAPI() {
                     } else null
                 }
             }
-        } else listOf()
+        } else listOf() // Si es película, no hay episodios
 
         return when (tvType) {
             TvType.TvSeries -> {
@@ -172,7 +177,7 @@ class SoloLatinoProvider : MainAPI() {
                     name = title,
                     url = cleanUrl,
                     type = tvType,
-                    dataUrl = cleanUrl
+                    dataUrl = cleanUrl // Usa la URL de la película como dataUrl para loadLinks
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -181,7 +186,7 @@ class SoloLatinoProvider : MainAPI() {
                 }
             }
 
-            else -> null
+            else -> null // En caso de tipo desconocido
         }
     }
 
@@ -197,6 +202,7 @@ class SoloLatinoProvider : MainAPI() {
         val sortedEmbeds: List<SortedEmbed>
     )
 
+    // Función de desencriptación (se mantiene igual, ya que es correcta)
     private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
         try {
             val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
@@ -229,6 +235,7 @@ class SoloLatinoProvider : MainAPI() {
         Log.d("SoloLatino", "loadLinks - Data de entrada: $data")
 
         var cleanedData = data
+        // Intenta limpiar la data si viene con comillas extra
         val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
         val match = regexExtractUrl.find(data)
 
@@ -240,11 +247,13 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val targetUrl: String
+        // Si la data es un JSON de EpisodeLoadData (para episodios de series)
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
         if (parsedEpisodeData != null) {
             targetUrl = parsedEpisodeData.url
             Log.d("SoloLatino", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
+            // Si no es JSON, es una URL directa (para películas)
             targetUrl = fixUrl(cleanedData)
             Log.d("SoloLatino", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
@@ -280,7 +289,7 @@ class SoloLatinoProvider : MainAPI() {
 
         // --- LÓGICA PRINCIPAL: Manejar diferentes dominios de iframes ---
 
-        // 1. Manejar Xupalace.org (¡MODIFICADO!)
+        // 1. Manejar Xupalace.org
         if (iframeSrc.contains("xupalace.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe: $iframeSrc")
             val xupalaceDoc = try {
@@ -290,10 +299,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
-            // Regex para extraer la URL de go_to_playerVast
             val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
-
-            // Buscar elementos con onclick que contengan 'go_to_playerVast'
             val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
 
             if (elementsWithOnclick.isEmpty()) {
@@ -329,7 +335,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 2. Manejar re.sololatino.net/embed.php (¡MODIFICADO!)
+        // 2. Manejar re.sololatino.net/embed.php
         else if (iframeSrc.contains("re.sololatino.net/embed.php")) {
             Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $iframeSrc")
             val embedDoc = try {
@@ -339,10 +345,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
-            // Regex para extraer la URL de go_to_player
             val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""")
-
-            // Buscar elementos con onclick que contengan 'go_to_player'
             val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
 
             if (elementsWithOnclick.isEmpty()) {
@@ -378,23 +381,46 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 3. Manejar embed69.org (Lógica de dataLink existente - FUNCIONANDO BIEN)
+        // 3. Manejar embed69.org (Lógica de dataLink con reintentos)
         else if (iframeSrc.contains("embed69.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado embed69.org iframe: $iframeSrc")
-            val frameDoc = try {
-                app.get(fixUrl(iframeSrc)).document
-            } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el contenido del iframe ($iframeSrc): ${e.message}")
+
+            var frameDoc: Element? = null
+            val maxRetries = 3 // Número de intentos
+            val retryDelayMs = 2000L // Retraso entre intentos en milisegundos (2 segundos)
+            val timeoutMs = 15000L // Timeout para la petición individual (15 segundos)
+
+            for (i in 0 until maxRetries) {
+                try {
+                    Log.d("SoloLatino", "Intentando obtener contenido de iframe de embed69.org (intento ${i + 1}/$maxRetries): $iframeSrc")
+                    frameDoc = app.get(fixUrl(iframeSrc), timeout = timeoutMs).document
+                    Log.d("SoloLatino", "Contenido del iframe de embed69.org obtenido con éxito en intento ${i + 1}.")
+                    break // Si tiene éxito, sal del bucle
+                } catch (e: Exception) {
+                    Log.e("SoloLatino", "Error en el intento ${i + 1} al obtener contenido del iframe de embed69.org ($iframeSrc): ${e.message}")
+                    if (i < maxRetries - 1) {
+                        kotlinx.coroutines.delay(retryDelayMs) // Espera antes de reintentar
+                    } else {
+                        Log.e("SoloLatino", "Fallaron todos los intentos para obtener contenido de embed69.org.")
+                        return false // Después del último intento fallido, retorna false
+                    }
+                }
+            }
+
+            if (frameDoc == null) {
+                Log.e("SoloLatino", "No se pudo obtener el contenido del iframe de embed69.org después de varios intentos, frameDoc es nulo.")
                 return false
             }
 
             val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
-            val dataLinkRegex = """const dataLink = (\[.*?\]);""".toRegex()
+            // *** Regex ajustada para dataLink, confirmada con el JS proporcionado ***
+            // Busca la declaración completa de 'const dataLink = [...]'
+            val dataLinkRegex = """const\s+dataLink\s*=\s*(\[.*?\]);""".toRegex()
             val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
 
             if (dataLinkJsonString.isNullOrBlank()) {
-                Log.e("SoloLatino", "No se encontró la variable dataLink en el script de embed69.org.")
+                Log.e("SoloLatino", "No se encontró la variable dataLink en el script de embed69.org con la regex. Contenido del script (primeras 500 chars): ${scriptContent.take(500)}...")
                 return false
             }
 
@@ -407,17 +433,23 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
-            val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+            val secretKey = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE" // Clave secreta confirmada del JS
 
             val foundEmbed69Links = mutableListOf<String>()
             for (entry in dataLinkEntries) {
+                // Iterar sobre todos los embeds, no solo los que coinciden con el idioma si no se necesita
+                // Por ahora, solo tomamos el primer set de embeds o todos si hay múltiples sets de dataLink
                 for (embed in entry.sortedEmbeds) {
-                    if (embed.type == "video") {
+                    if (embed.type == "video") { // Asegúrate de que sea un enlace de video
                         val decryptedLink = decryptLink(embed.link, secretKey)
                         if (decryptedLink != null) {
                             Log.d("SoloLatino", "Link desencriptado para ${embed.servername}: $decryptedLink")
                             foundEmbed69Links.add(decryptedLink)
+                        } else {
+                            Log.e("SoloLatino", "Falló la desencriptación para ${embed.servername} con enlace: ${embed.link}")
                         }
+                    } else {
+                        Log.d("SoloLatino", "Ignorando embed de tipo no video: ${embed.servername} (${embed.type})")
                     }
                 }
             }
