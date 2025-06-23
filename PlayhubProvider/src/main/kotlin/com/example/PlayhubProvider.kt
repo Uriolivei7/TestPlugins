@@ -1,9 +1,9 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.cloudstream3.* // Import
-import com.lagradost.cloudstream3.utils.* // ¡CRÍTICO! Importa todas las utilidades. Esto debería traer fixUrl, apmap, base64Decode, etc.
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Importación explícita para tryParseJson
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import android.util.Log
 import java.lang.Exception
 import android.util.Base64
@@ -16,10 +16,9 @@ import kotlin.text.Charsets.UTF_8
 // Clase principal del proveedor para Playhub
 class PlayhubProvider : MainAPI() {
 
-    // CAMBIO CRÍTICO: Usar 'override var' para las propiedades que son 'var' en MainAPI
     override var mainUrl = "https://playhublite.com"
     override var name = "Playhub"
-    override var lang = "es" // Se usa 'var' porque es 'var' en MainAPI
+    override var lang = "es"
 
     override val hasQuickSearch = false
     override val hasMainPage = true
@@ -32,7 +31,6 @@ class PlayhubProvider : MainAPI() {
         TvType.Cartoon,
     )
 
-    // Objeto compañero para constantes y propiedades estáticas
     companion object  {
         private const val playhubAPI = "http://v3.playhublite.com/api/"
         private val playhubHeaders = mapOf(
@@ -40,7 +38,7 @@ class PlayhubProvider : MainAPI() {
             "User-Agent" to USER_AGENT,
             "Accept" to "application/json, text/plain, */*",
             "Accept-Language" to "en-US,en;q=0.5",
-            "Authorization" to "Bearer null", // Mantener como "Bearer null" a menos que sepas que se necesita un token real.
+            "Authorization" to "Bearer null",
             "X-Requested-With" to "XMLHttpRequest",
             "Origin" to "https://playhublite.com",
             "DNT" to "1",
@@ -53,7 +51,6 @@ class PlayhubProvider : MainAPI() {
         )
     }
 
-    // Función para obtener URL de imagen, adaptando si es un path de TMDB
     private fun getImageUrl(link: String?): String? {
         if (link == null) return null
         return if (link.startsWith("/")) "https://image.tmdb.org/t/p/w1280/$link" else link
@@ -82,7 +79,6 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("last_air_date") val lastAirDate: String? = null
     )
 
-    // Sobrescribe la función para obtener la página principal
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
@@ -117,7 +113,7 @@ class PlayhubProvider : MainAPI() {
             newMovieSearchResponse(
                 title,
                 dataUrl,
-                tvType // Usa el tvType determinado
+                tvType
             ) {
                 this.posterUrl = poster
             }
@@ -166,9 +162,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("release_date"     ) var releaseDate    : String? = null,
         @JsonProperty("runtime"          ) var runtime        : String? = null,
     )
-    // --- FIN DATA CLASSES para Búsqueda ---
 
-    // Sobrescribe la función de búsqueda
     override suspend fun search(query: String): List<SearchResponse>? {
         val url = "${playhubAPI}search?q=$query"
         val search = ArrayList<SearchResponse>()
@@ -209,8 +203,8 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("logo"            ) var logo            : String?                    = null,
         @JsonProperty("poster_path"     ) var posterPath      : String?                    = null,
         @JsonProperty("overview"        ) var overview        : String?                    = null,
-        @JsonProperty("release_date"    ) var releaseDate     : String?                    = null, // Para películas
-        @JsonProperty("runtime"         ) var runtime         : String?                    = null, // Para películas
+        @JsonProperty("release_date"    ) var releaseDate     : String?                    = null,
+        @JsonProperty("runtime"         ) var runtime         : String?                    = null,
         @JsonProperty("status"          ) var status          : String?                    = null,
         @JsonProperty("vote_average"    ) var voteAverage     : Double?                    = null,
         @JsonProperty("created_at"      ) var createdAt       : String?                    = null,
@@ -218,13 +212,13 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("view_count"      ) var viewCount       : Int?                       = null,
         @JsonProperty("recommendations" ) var recommendations : ArrayList<PlayhubRecommendations>? = arrayListOf(),
         @JsonProperty("categories"      ) var categories      : ArrayList<Categories>?      = arrayListOf(),
-        @JsonProperty("seasons"         ) var seasons        : ArrayList<Seasons>?   = arrayListOf(), // Para series
-        @JsonProperty("name"            ) var name           : String?               = null, // Para series
-        @JsonProperty("original_name"   ) var originalName   : String?               = null, // Para series
-        @JsonProperty("episode_run_time" ) var episodeRunTime : String?               = null, // Para series
-        @JsonProperty("first_air_date"   ) var firstAirDate   : String?               = null, // Para series
-        @JsonProperty("in_production"    ) var inProduction   : Int?                  = null, // Para series
-        @JsonProperty("last_air_date"    ) var lastAirDate    : String?               = null, // Para series
+        @JsonProperty("seasons"         ) var seasons        : ArrayList<Seasons>?   = arrayListOf(),
+        @JsonProperty("name"            ) var name           : String?               = null,
+        @JsonProperty("original_name"   ) var originalName   : String?               = null,
+        @JsonProperty("episode_run_time" ) var episodeRunTime : String?               = null,
+        @JsonProperty("first_air_date"   ) var firstAirDate   : String?               = null,
+        @JsonProperty("in_production"    ) var inProduction   : Int?                  = null,
+        @JsonProperty("last_air_date"    ) var lastAirDate    : String?               = null,
     )
 
     data class PlayhubRecommendations (
@@ -232,7 +226,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("title"         ) var title        : String? = null,
         @JsonProperty("poster_path"   ) var posterPath   : String? = null,
         @JsonProperty("backdrop_path" ) var backdropPath : String? = null,
-        @JsonProperty("name"          ) var name         : String? = null, // Añadido para recomendaciones de series
+        @JsonProperty("name"          ) var name         : String? = null,
     )
 
     data class Categories (
@@ -265,7 +259,6 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("still_path"     ) var stillPath     : String? = null
     )
 
-    // Sobrescribe la función para cargar detalles de películas/series
     override suspend fun load(url: String): LoadResponse? {
         val initialTypeFromUrl = if (url.contains("/movies/")) TvType.Movie else TvType.TvSeries
         val id = url.substringAfterLast("/")
@@ -333,8 +326,7 @@ class PlayhubProvider : MainAPI() {
                         val epPlot = ep.overview
                         val epNum = ep.episodeNumber
                         val airDate = ep.airDate
-                        // Ajusta esta URL según la API real (usa el endpoint que genera el .m3u8)
-                        val episodeSourceDataUrl = "https://playhublite.com/api/stream/${seriesID}_s${seasonNum}_e${epNum}" // Placeholder
+                        val episodeSourceDataUrl = "$mainUrl/series/$seriesID/season/$seasonNum/episode/$epNum" // Usar la URL de la página del episodio
                         Log.d("PlayHubLite", "load: Añadiendo episodio S${seasonNum}E${epNum}: $eptitle con dataUrl para loadLinks: $episodeSourceDataUrl")
 
                         episodes.add(newEpisode(episodeSourceDataUrl) {
@@ -369,8 +361,7 @@ class PlayhubProvider : MainAPI() {
                 this.recommendations = recs
             }
             TvType.Movie -> {
-                // Ajusta esta URL según la API real (usa el endpoint que genera el .m3u8)
-                val movieSourceDataUrl = "https://playhublite.com/api/stream/$id" // Placeholder
+                val movieSourceDataUrl = "$mainUrl/movies/$id" // Usar la URL de la página de la película
                 Log.d("PlayHubLite", "load: URL de datos de fuente para película: $movieSourceDataUrl")
                 newMovieLoadResponse(title, url, actualType, movieSourceDataUrl) {
                     this.posterUrl = poster
@@ -393,7 +384,7 @@ class PlayhubProvider : MainAPI() {
         @JsonProperty("id"         ) var id        : Int?    = null,
         @JsonProperty("vid"        ) var vid       : String? = null,
         @JsonProperty("url"        ) var url       : String? = null,
-        @JsonProperty("server"     ) var server    : String? = null,
+        @JsonProperty("server"    ) var server    : String? = null,
         @JsonProperty("language"   ) var language  : String? = null,
         @JsonProperty("quality"    ) var quality   : String? = null,
         @JsonProperty("user_id"    ) var userId    : String? = null,
@@ -428,156 +419,150 @@ class PlayhubProvider : MainAPI() {
         }
     }
 
-    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        Log.d("PlayHubLite", "loadLinks - Data de entrada (API de Fuentes): $data")
-
-        if (data.isBlank()) {
-            Log.e("PlayHubLite", "loadLinks: La URL de datos de fuentes está vacía.")
-            return false
-        }
-
-        // URLs a probar
-        val identifierUrl = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
-        val fileIdUrl = "https://tpz6t.com/bkg/file/46146551?ref=playhublite.com"
-        Log.d("PlayHubLite", "loadLinks: Probando URLs iniciales: $identifierUrl, $fileIdUrl")
-
-        // Cabeceras replicadas del navegador
-        val baseHeaders = playhubHeaders + mapOf(
-            "Accept" to "*/*",
-            "Accept-Encoding" to "gzip, deflate, br, zstd",
-            "Accept-Language" to "es-ES,es;q=0.5",
-            "Sec-Fetch-Dest" to "empty",
-            "Sec-Fetch-Mode" to "cors",
-            "Sec-Fetch-Site" to "same-origin",
-            "Sec-Gpc" to "1",
-            "Origin" to "https://tpz6t.com",
-            "Referer" to "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com",
-            "X-Application-Key" to "ypvrgnttsmn6piLiktV5u4tf74610w",
-            "Cookie" to "file_id=46146551; aff=84338; ref_url=playhublite.com; oAID=0801cce...; oAIDs=17498492...; prefetchCha...=true; syncedCo...=true; cf_clearance=4W0b8HD2L...; cf_nextLing=es; sso-rw=eyJhbGciOiJIUzI1Ni...; stblid=2d551924-f4...", // Cookies actualizadas
-            "Sec-Ch-Ua" to "\"Brave\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
-            "Sec-Ch-Ua-Mobile" to "?0",
-            "Sec-Ch-Ua-Platform" to "\"Windows\"",
-            "DNT" to "1",
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
-        )
-
-        // Intenta capturar cookies dinámicas
-        val initialResponse = app.get("https://tpz6t.com/", headers = baseHeaders, allowRedirects = true, timeout = 30)
-        val cookies = initialResponse.headers["Set-Cookie"]?.split(";")?.mapNotNull { it.split("=").getOrNull(0)?.let { it to it.split("=").getOrNull(1) } }?.toMap() ?: emptyMap()
-        val updatedCookies = "file_id=46146551; aff=84338; ref_url=playhublite.com; oAID=0801cce...; oAIDs=17498492...; prefetchCha...=true; syncedCo...=true; cf_clearance=4W0b8HD2L...; cf_nextLing=es; sso-rw=eyJhbGciOiJIUzI1Ni...; stblid=2d551924-f4..." +
-                (cookies["__cfduid"]?.let { "; __cfduid=$it" } ?: "")
-        val enhancedHeaders = baseHeaders + mapOf("Cookie" to updatedCookies)
-
-        // Prueba con el identificador
-        var response = try {
-            val apiResponse = app.get(identifierUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
-            Log.d("PlayHubLite", "loadLinks: Código de estado (identificador): ${apiResponse.code}")
-            Log.d("PlayHubLite", "loadLinks: Cuerpo (primeros 500 chars): ${apiResponse.text.take(500)}")
-            apiResponse
-        } catch (e: Exception) {
-            Log.e("PlayHubLite", "loadLinks: Error con identificador $identifierUrl: ${e.message}", e)
-            null
-        }
-
-        // Si falla, prueba con file_id
-        if (response == null || response.code !in 200..299) {
-            response = try {
-                val apiResponse = app.get(fileIdUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
-                Log.d("PlayHubLite", "loadLinks: Código de estado (file_id): ${apiResponse.code}")
-                Log.d("PlayHubLite", "loadLinks: Cuerpo (primeros 500 chars): ${apiResponse.text.take(500)}")
-                apiResponse
-            } catch (e: Exception) {
-                Log.e("PlayHubLite", "loadLinks: Error con file_id $fileIdUrl: ${e.message}", e)
-                null
+    // Función para desofuscar el P.A.C.K.E.D. JS
+    private fun decodePackedJs(p: String, a: Int, c: Int, k: List<String>): String {
+        var decodedP = p
+        var currentC = c
+        while (currentC-- > 0) {
+            if (k.isNotEmpty() && currentC < k.size && k[currentC].isNotEmpty()) {
+                // Escapamos los caracteres especiales para la regex
+                val replacement = Regex.escapeReplacement(k[currentC])
+                val regex = "\\b" + currentC.toString(a) + "\\b"
+                decodedP = decodedP.replace(regex.toRegex(), replacement)
             }
         }
-
-        if (response == null || response.code !in 200..299) {
-            Log.e("PlayHubLite", "loadLinks: Ambas URLs fallaron. Código: ${response?.code}. Cuerpo: ${response?.text}")
-            return false
-        }
-
-        // Verifica si la respuesta contiene un enlace .m3u8 o redirige
-        val link = response.text.trim()
-        if (link.isNotBlank() && link.endsWith(".m3u8")) {
-            Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 detectado: $link")
-            callback.invoke(
-                newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = link,
-                    type = ExtractorLinkType.M3U8
-                ).apply {
-                    this.referer = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
-                    this.quality = Qualities.Unknown.value
-                    this.headers = enhancedHeaders
-                }
-            )
-            return true
-        } else {
-            // Busca redirecciones o el src del iframe
-            val locationHeader = response.headers["Location"]
-            val iframeSrcMatch = Regex("src=['\"](https?://[^'\"]+)['\"]").find(response.text)
-            if (locationHeader != null || iframeSrcMatch != null) {
-                val finalUrl = locationHeader ?: iframeSrcMatch?.groupValues?.get(1)
-                if (finalUrl != null) {
-                    Log.d("PlayHubLite", "loadLinks: Enlace extraído con redirección/iframe: $finalUrl")
-                    val iframeResponse = app.get(finalUrl, headers = enhancedHeaders, allowRedirects = true, timeout = 30)
-                    val m3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(iframeResponse.text)?.groupValues?.get(1)
-                    if (m3u8Link != null) {
-                        Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 encontrado en iframe: $m3u8Link")
-                        callback.invoke(
-                            newExtractorLink(
-                                source = name,
-                                name = name,
-                                url = m3u8Link,
-                                type = ExtractorLinkType.M3U8
-                            ).apply {
-                                this.referer = finalUrl
-                                this.quality = Qualities.Unknown.value
-                                this.headers = enhancedHeaders
-                            }
-                        )
-                        return true
-                    }
-                }
-            }
-            // Intenta mxafthohnoyh.com como fallback
-            val mxafthResponse = app.get("https://mxafthohnoyh.com/", headers = enhancedHeaders, allowRedirects = true, timeout = 30)
-            val mxafthM3u8Link = Regex("src=['\"](https?://[^'\"]+\\.m3u8[^'\"]*)['\"]").find(mxafthResponse.text)?.groupValues?.get(1)
-            if (mxafthM3u8Link != null) {
-                Log.d("PlayHubLite", "loadLinks: Enlace .m3u8 encontrado en mxafthohnoyh.com: $mxafthM3u8Link")
-                callback.invoke(
-                    newExtractorLink(
-                        source = name,
-                        name = name,
-                        url = mxafthM3u8Link,
-                        type = ExtractorLinkType.M3U8
-                    ).apply {
-                        this.referer = "https://mxafthohnoyh.com/"
-                        this.quality = Qualities.Unknown.value
-                        this.headers = enhancedHeaders
-                    }
-                )
-                return true
-            }
-            // Fallback final
-            val fallbackUrl = "https://fin-3dg-b1.i8yz83pn.com/hls2/02/09229/46146551_x/master.m3u8?t=placeholder_token"
-            Log.w("PlayHubLite", "loadLinks: Usando URL fallback: $fallbackUrl")
-            callback.invoke(
-                newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = fallbackUrl,
-                    type = ExtractorLinkType.M3U8
-                ).apply {
-                    this.referer = "https://tpz6t.com/bkg/8ga80911jrjl?ref=playhublite.com"
-                    this.quality = Qualities.Unknown.value
-                    this.headers = enhancedHeaders
-                }
-            )
-            return true
-        }
+        return decodedP
     }
 
+    override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
+        Log.d("PlayHubLite", "loadLinks - Data de entrada (URL de la página del reproductor): $data")
+
+        if (data.isBlank()) {
+            Log.e("PlayHubLite", "loadLinks: La URL de la página del reproductor está vacía.")
+            return false
+        }
+
+        // 1. Obtener el HTML de la página del reproductor
+        val playerPageResponse = app.get(data, headers = mapOf("Referer" to mainUrl)) // Añadir referer
+        val playerPageHtml = playerPageResponse.text
+
+        // Extraer el file_code de la URL de la página de datos
+        // El file_code puede ser el ID numérico o el ID alfanumérico como '5tajj3vt6jno'
+        val fileCodeMatch = Regex("/([^/]+)(?:/season/(\\d+)/episode/(\\d+))?$").find(data)
+        val fileCode = fileCodeMatch?.groupValues?.get(1) // Captura el ID principal (ej: 47856551 o 5tajj3vt6jno)
+        val seasonNum = fileCodeMatch?.groupValues?.get(2)
+        val episodeNum = fileCodeMatch?.groupValues?.get(3)
+
+        if (fileCode.isNullOrBlank()) {
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer el file_code de la URL: $data")
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: File Code extraído: $fileCode")
+
+
+        // 2. Extraer la clave JWPlayer
+        val jwPlayerKeyMatch = Regex("jwplayer\\.key = \"([^\"]+)\";").find(playerPageHtml)
+        val jwPlayerKey = jwPlayerKeyMatch?.groupValues?.get(1)
+        if (jwPlayerKey.isNullOrBlank()) {
+            Log.w("PlayHubLite", "loadLinks: No se pudo encontrar la clave de JWPlayer en el HTML. Esto puede no ser crítico.")
+            // No es un error crítico si la clave JWPlayer no está directamente, la URL del stream es más importante.
+        } else {
+            Log.d("PlayHubLite", "loadLinks: JWPlayer Key encontrada: $jwPlayerKey")
+        }
+
+
+        // 3. Desofuscar el script `eval`
+        val evalRegex = Regex("eval\\(function\\(p, a, c, k, e, d\\) \\{.*?return p \\}\\('([^']+)', (\\d+), (\\d+), \\[([^\\]]*?)\\](?:,.*?)*\\)\\);")
+        val evalMatch = evalRegex.find(playerPageHtml)
+
+        if (evalMatch == null) {
+            Log.e("PlayHubLite", "loadLinks: No se encontró el script ofuscado `eval` en el HTML.")
+            return false
+        }
+
+        val p = evalMatch.groupValues[1]
+        val a = evalMatch.groupValues[2].toIntOrNull() ?: 0
+        val c = evalMatch.groupValues[3].toIntOrNull() ?: 0
+        val kString = evalMatch.groupValues[4].replace("'", "").split(",").map { it.trim() } // Clean up and split k values
+
+        Log.d("PlayHubLite", "loadLinks: Desofuscando script con p: ${p.take(50)}, a: $a, c: $c, k-size: ${kString.size}")
+
+        val deobfuscatedScript = decodePackedJs(p, a, c, kString)
+        Log.d("PlayHubLite", "loadLinks: Script desofuscado (primeros 500 chars): ${deobfuscatedScript.take(500)}")
+
+        // 4. Parsear el script desofuscado para obtener la URL del M3U8 y el token
+        // "file":"https://ye0r0rrinu.cdn-centaurus.com/hls2/01/09571/5tajj3vt6jno_h/master.m3u8?t=7lrfQg7XLF8pWleX2zfYpx..."
+        val m3u8UrlRegex = Regex("\"file\":\"(https://[^\"?]+\\.m3u8\\?t=[^\"]+)\"")
+        val m3u8UrlMatch = m3u8UrlRegex.find(deobfuscatedScript)
+
+        val m3u8FullUrl = m3u8UrlMatch?.groupValues?.get(1)
+
+        if (m3u8FullUrl.isNullOrBlank()) {
+            Log.e("PlayHubLite", "loadLinks: No se pudo extraer la URL completa del M3U8 y su token del script desofuscado.")
+            return false
+        }
+        Log.d("PlayHubLite", "loadLinks: URL completa del M3u8 extraída: $m3u8FullUrl")
+
+        // 5. Construir la URL final del M3U8 y añadir los ExtractorLinks
+        // Se observa que el `file_code` en la URL del CDN tiene un `_h` al final (ej: 5tajj3vt6jno_h)
+        // El `fileCode` que extraemos de la URL de `data` (ej: 47856551 o 5tajj3vt6jno) debe ser el mismo.
+        // Si el `fileCode` en la URL del M3U8 es diferente, se reemplaza.
+        // Asumimos que el fileCode en la URL del M3U8 se encuentra antes de "_h".
+        val finalM3u8Url = m3u8FullUrl.replace(Regex("(/hls2/[^/]+/[^/]+/)([^/]+)_h(/master\\.m3u8)"), "$1${fileCode}_h$3")
+        Log.d("PlayHubLite", "loadLinks: URL final del M3U8 para callback: $finalM3u8Url")
+
+        // Headers para la solicitud del M3U8
+        val m3u8Headers = mapOf(
+            "Referer" to data, // El referer debe ser la URL de la página del reproductor
+            "Origin" to mainUrl // El origin debe ser el dominio principal
+        )
+
+        // Añadir el ExtractorLink
+        callback.invoke(
+            newExtractorLink(
+                source = name,
+                name = "Playhub",
+                url = finalM3u8Url,
+                type = ExtractorLinkType.M3U8
+            ) {
+                this.referer = data
+                this.quality = Qualities.Unknown.value
+                this.headers = m3u8Headers
+            }
+        )
+
+        // 6. Extraer y añadir subtítulos
+        // Las URLs de los subtítulos se ven como: https://ye0r0rrinu.cdn-centaurus.com/vtt/5tajj3vt6jno/5tajj3vt6jno_spa.vtt
+        // Y provienen del mismo CDN que el M3U8.
+        // La URL base del CDN la obtenemos de la m3u8FullUrl.
+        val cdnBaseUrlMatch = Regex("(https://[^/]+)/hls2/").find(m3u8FullUrl)
+        val cdnBaseUrl = cdnBaseUrlMatch?.groupValues?.get(1) // Esto debería capturar "https://ye0r0rrinu.cdn-centaurus.com"
+
+        if (!cdnBaseUrl.isNullOrBlank()) {
+            val subtitleLanguages = mapOf(
+                "spa" to "Español",
+                "eng" to "English",
+                "ger" to "Deutsch",
+                "jpn" to "日本語",
+                "por" to "Português"
+            )
+
+            subtitleLanguages.forEach { (langCode, langName) ->
+                val subtitleUrl = "$cdnBaseUrl/vtt/$fileCode/${fileCode}_${langCode}.vtt" // Correcto
+                Log.d("PlayHubLite", "loadLinks: Intentando añadir subtítulo: $subtitleUrl")
+                subtitleCallback.invoke(
+                    SubtitleFile(
+                        langName,
+                        subtitleUrl
+                        // El constructor de SubtitleFile en CloudStream3 a menudo solo toma lang y url.
+                        // Si se necesitan más argumentos, revisa la definición de SubtitleFile en tu dependencia de CloudStream3.
+                    )
+                )
+            }
+        } else {
+            Log.w("PlayHubLite", "loadLinks: No se pudo determinar la URL base del CDN para los subtítulos.")
+        }
+
+        return true
+    }
 }
