@@ -492,14 +492,10 @@ class PlayhubProvider : MainAPI() {
         val base64ResponseString = try {
             val res = app.get(firstXhrApiUrl, headers = firstXhrHeaders)
             Log.d("PlayHubLite", "loadLinks: Código de estado de la primera XHR: ${res.code}")
-            Log.d("PlayHubLite", "loadLinks: Cuerpo de la respuesta de la primera XHR (cadena Base64): ${res.text.take(500)}")
+            Log.d("PlayHubLite", "loadLinks: Cuerpo de la respuesta de la primera XHR (cadena Base64 CRUDA): ${res.text.take(500)}")
 
-            if (res.code == 403) {
-                Log.e("PlayHubLite", "loadLinks: La primera XHR fue bloqueada por Cloudflare (403 Forbidden). " +
-                        "Esto indica que el sitio está detectando el bot. Intente ajustar las cabeceras o la URL.")
-                return false
-            }
-            res.text
+            // Eliminar las comillas dobles al inicio y al final si existen
+            res.text.removePrefix("\"").removeSuffix("\"")
         } catch (e: Exception) {
             Log.e("PlayHubLite", "loadLinks: ERROR en la primera XHR (obtener Base64): ${e.message}", e)
             return false
