@@ -318,9 +318,11 @@ class SoloLatinoProvider : MainAPI() {
             Log.d("SoloLatino", "Iframe anidado encontrado en ghbrisk.com: $nestedIframeSrc")
             finalIframeSrc = nestedIframeSrc // Actualizar la URL del iframe final a la de embed69.org
         }
-        // *** NUEVA LÓGICA XUPALACE.ORG como intermediario ***
+        // *** MODIFICACIÓN ADICIONAL: Mejorado el manejo de Xupalace.org ***
+        // Este bloque ahora maneja tanto el caso de iframe anidado (playerwish.com)
+        // como los enlaces directos 'go_to_playerVast' dentro de Xupalace.org.
         else if (initialIframeSrc.contains("xupalace.org")) {
-            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe intermediario: $initialIframeSrc. Buscando iframe anidado (playerwish.com).")
+            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe intermediario/directo: $initialIframeSrc.")
             val xupalaceDoc = try {
                 app.get(fixUrl(initialIframeSrc)).document // Obtener el contenido del iframe de Xupalace
             } catch (e: Exception) {
@@ -328,14 +330,52 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
 
-            // Buscar el iframe con id="IFR" dentro de Xupalace
+            // Primero, intenta buscar el iframe con id="IFR" (playerwish.com)
             val nestedIframeSrc = xupalaceDoc.selectFirst("iframe#IFR")?.attr("src")
-            if (nestedIframeSrc.isNullOrBlank()) {
-                Log.e("SoloLatino", "No se encontró un iframe anidado (playerwish.com) dentro de Xupalace.org.")
-                return false
+
+            if (!nestedIframeSrc.isNullOrBlank()) {
+                Log.d("SoloLatino", "Iframe anidado (playerwish.com) encontrado en Xupalace.org: $nestedIframeSrc")
+                finalIframeSrc = nestedIframeSrc // Actualizar a la URL de playerwish.com
+                // El flujo continuará al bloque de playerwish.com en el siguiente 'if'.
+            } else {
+                Log.w("SoloLatino", "No se encontró un iframe anidado (playerwish.com) dentro de Xupalace.org. Intentando buscar enlaces directos 'go_to_playerVast'.")
+                // Si no se encuentra playerwish.com, busca los enlaces go_to_playerVast directamente en Xupalace.org
+                val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
+                val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
+
+                if (elementsWithOnclick.isEmpty()) {
+                    Log.e("SoloLatino", "No se encontraron elementos con 'go_to_playerVast' ni iframe 'IFR' en xupalace.org.")
+                    return false // No se encontró ninguna opción de video viable en Xupalace
+                }
+
+                val foundXupalaceLinks = mutableListOf<String>()
+                for (element in elementsWithOnclick) {
+                    val onclickAttr = element.attr("onclick")
+                    val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
+
+                    if (matchPlayerUrl != null) {
+                        val videoUrl = matchPlayerUrl.groupValues[1]
+                        val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
+                        Log.d("SoloLatino", "Xupalace: Encontrado servidor '$serverName' con URL: $videoUrl")
+                        if (videoUrl.isNotBlank()) {
+                            foundXupalaceLinks.add(videoUrl)
+                        }
+                    } else {
+                        Log.w("SoloLatino", "Xupalace: No se pudo extraer la URL del onclick: $onclickAttr")
+                    }
+                }
+
+                if (foundXupalaceLinks.isNotEmpty()) {
+                    foundXupalaceLinks.apmap { playerUrl ->
+                        Log.d("SoloLatino", "Cargando extractor para link de Xupalace (go_to_playerVast): $playerUrl")
+                        loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
+                    }
+                    return true // Se encontraron y procesaron enlaces directos de Xupalace
+                } else {
+                    Log.d("SoloLatino", "No se encontraron enlaces de video de Xupalace.org (go_to_playerVast).")
+                    return false
+                }
             }
-            Log.d("SoloLatino", "Iframe anidado encontrado en Xupalace.org: $nestedIframeSrc")
-            finalIframeSrc = nestedIframeSrc // Actualizar a la URL de playerwish.com
         }
 
 
@@ -383,54 +423,17 @@ class SoloLatinoProvider : MainAPI() {
             }
         }
         // 2. Manejar Xupalace.org (Este bloque ahora manejará la lógica de su botón de "player" si no lleva a playerwish.com)
+        // ESTE BLOQUE YA NO ES NECESARIO AQUÍ YA QUE LA LÓGICA SE MOVIÓ AL MANEJO INICIAL DE XUPALACE.ORG
+        // Si finalIframeSrc llega a este punto y contiene xupalace.org, significa que NO SE ENCONTRÓ PLAYERWISH.COM
+        // EN EL BLOQUE INICIAL DE XUPALACE.ORG, Y POR LO TANTO, YA DEBIÓ HABER INTENTADO CARGAR
+        // LOS ENLACES 'go_to_playerVast' DIRECTAMENTE.
+        // MANTENGO EL COMENTARIO PARA CLARIDAD.
+        /*
         else if (finalIframeSrc.contains("xupalace.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe directo o secundario: $finalIframeSrc")
-            // Si Xupalace.org ya fue procesado como intermediario para playerwish.com, este bloque se ejecutará
-            // solo si hay otros tipos de reproductores directos de Xupalace, o si initialIframeSrc apuntó directamente aquí.
-
-            val xupalaceDoc = try {
-                app.get(fixUrl(finalIframeSrc)).document
-            } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el contenido del iframe de Xupalace ($finalIframeSrc): ${e.message}")
-                return false
-            }
-
-            val regexPlayerUrl = Regex("""go_to_playerVast\('([^']+)'""")
-            val elementsWithOnclick = xupalaceDoc.select("*[onclick*='go_to_playerVast']")
-
-            if (elementsWithOnclick.isEmpty()) {
-                Log.w("SoloLatino", "No se encontraron elementos con 'go_to_playerVast' en xupalace.org con el selector general.")
-                return false
-            }
-
-            val foundXupalaceLinks = mutableListOf<String>()
-            for (element in elementsWithOnclick) {
-                val onclickAttr = element.attr("onclick")
-                val matchPlayerUrl = regexPlayerUrl.find(onclickAttr)
-
-                if (matchPlayerUrl != null) {
-                    val videoUrl = matchPlayerUrl.groupValues[1]
-                    val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
-                    Log.d("SoloLatino", "Xupalace: Encontrado servidor '$serverName' con URL: $videoUrl")
-                    if (videoUrl.isNotBlank()) {
-                        foundXupalaceLinks.add(videoUrl)
-                    }
-                } else {
-                    Log.w("SoloLatino", "Xupalace: No se pudo extraer la URL del onclick: $onclickAttr")
-                }
-            }
-
-            if (foundXupalaceLinks.isNotEmpty()) {
-                foundXupalaceLinks.apmap { playerUrl ->
-                    Log.d("SoloLatino", "Cargando extractor para link de Xupalace: $playerUrl")
-                    loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
-                }
-                return true
-            } else {
-                Log.d("SoloLatino", "No se encontraron enlaces de video de Xupalace.org.")
-                return false
-            }
+            // ... lógica anterior de Xupalace.org ...
         }
+        */
         // 3. Manejar re.sololatino.net/embed.php
         else if (finalIframeSrc.contains("re.sololatino.net/embed.php")) {
             Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $finalIframeSrc")
