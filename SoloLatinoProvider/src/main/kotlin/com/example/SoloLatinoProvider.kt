@@ -318,9 +318,11 @@ class SoloLatinoProvider : MainAPI() {
             Log.d("SoloLatino", "Iframe anidado encontrado en ghbrisk.com: $nestedIframeSrc")
             finalIframeSrc = nestedIframeSrc // Actualizar la URL del iframe final a la de embed69.org
         }
-        // *** MODIFICACIÓN ADICIONAL: Mejorado el manejo de Xupalace.org ***
+        // *** NUEVA LÓGICA XUPALACE.ORG/PLAYERWISH.COM: (Modificado por última vez aquí) ***
         // Este bloque ahora maneja tanto el caso de iframe anidado (playerwish.com)
         // como los enlaces directos 'go_to_playerVast' dentro de Xupalace.org.
+        // La lógica de playerwish.com dentro de este bloque, si se detecta vía go_to_playerVast,
+        // ahora pasa directamente a loadExtractor sin la extracción de VAST interna del plugin.
         else if (initialIframeSrc.contains("xupalace.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe intermediario/directo: $initialIframeSrc.")
             val xupalaceDoc = try {
@@ -383,58 +385,16 @@ class SoloLatinoProvider : MainAPI() {
 
         // El orden de estos 'else if' es importante para que el flujo sea lógico.
 
-        // 1. Manejar PlayerWish.com (el más profundo en el caso de Xupalace)
+        // *** MODIFICACIÓN APLICADA AQUÍ ***
+        // 1. Manejar PlayerWish.com (simplemente pasarlo al extractor general de CloudStream)
         if (finalIframeSrc.contains("playerwish.com")) {
-            Log.d("SoloLatino", "loadLinks - Detectado playerwish.com iframe: $finalIframeSrc")
-
-            val playerwishDoc = try {
-                app.get(fixUrl(finalIframeSrc)).document
-            } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el contenido del iframe de playerwish.com ($finalIframeSrc): ${e.message}")
-                return false
-            }
-
-            // La URL de VAST es constante según los scripts proporcionados
-            val vastUrl = "https://1wincdn.b-cdn.net/vast_1win_v2.xml"
-            val vastXmlDoc = try {
-                app.get(vastUrl).document
-            } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el XML VAST de $vastUrl: ${e.message}")
-                return false
-            }
-
-            // Buscar la URL del MP4 dentro del XML VAST
-            val videoUrlElement = vastXmlDoc.selectFirst("MediaFile[type=\"video/mp4\"]")
-            val finalVideoLink = videoUrlElement?.text()?.trim()
-
-            if (finalVideoLink.isNullOrBlank()) {
-                Log.e("SoloLatino", "No se encontró un enlace de video MP4 en el XML VAST de playerwish.com.")
-                return false
-            }
-            Log.d("SoloLatino", "URL de video obtenida del XML VAST en playerwish.com: $finalVideoLink")
-
-
-            if (!finalVideoLink.isNullOrBlank()) {
-                loadExtractor(fixUrl(finalVideoLink), finalIframeSrc, subtitleCallback, callback)
-                return true
-            } else {
-                Log.e("SoloLatino", "No se pudo obtener el enlace final de video de playerwish.com.")
-                return false
-            }
+            Log.d("SoloLatino", "loadLinks - Detectado playerwish.com. Pasando al extractor general de CloudStream: $finalIframeSrc")
+            loadExtractor(fixUrl(finalIframeSrc), finalIframeSrc, subtitleCallback, callback)
+            return true
         }
-        // 2. Manejar Xupalace.org (Este bloque ahora manejará la lógica de su botón de "player" si no lleva a playerwish.com)
-        // ESTE BLOQUE YA NO ES NECESARIO AQUÍ YA QUE LA LÓGICA SE MOVIÓ AL MANEJO INICIAL DE XUPALACE.ORG
-        // Si finalIframeSrc llega a este punto y contiene xupalace.org, significa que NO SE ENCONTRÓ PLAYERWISH.COM
-        // EN EL BLOQUE INICIAL DE XUPALACE.ORG, Y POR LO TANTO, YA DEBIÓ HABER INTENTADO CARGAR
-        // LOS ENLACES 'go_to_playerVast' DIRECTAMENTE.
-        // MANTENGO EL COMENTARIO PARA CLARIDAD.
-        /*
-        else if (finalIframeSrc.contains("xupalace.org")) {
-            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe directo o secundario: $finalIframeSrc")
-            // ... lógica anterior de Xupalace.org ...
-        }
-        */
-        // 3. Manejar re.sololatino.net/embed.php
+        // --- FIN MODIFICACIÓN APLICADA AQUÍ ---
+
+        // 2. Manejar re.sololatino.net/embed.php
         else if (finalIframeSrc.contains("re.sololatino.net/embed.php")) {
             Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $finalIframeSrc")
             val embedDoc = try {
@@ -475,7 +435,7 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 4. Manejar embed69.org (Lógica de dataLink con reintentos)
+        // 3. Manejar embed69.org (Lógica de dataLink con reintentos)
         else if (finalIframeSrc.contains("embed69.org")) {
             Log.d("SoloLatino", "loadLinks - Detectado embed69.org iframe: $finalIframeSrc")
 
