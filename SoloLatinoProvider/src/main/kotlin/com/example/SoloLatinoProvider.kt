@@ -16,6 +16,7 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
+import kotlinx.coroutines.delay // Importar para usar delay en los reintentos
 
 // ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
@@ -264,11 +265,17 @@ class SoloLatinoProvider : MainAPI() {
         }
 
         val doc = app.get(targetUrl).document
-        val iframeSrc = doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
+
+        // *** MODIFICACIÓN AQUÍ: Mejorar la selección del iframe principal ***
+        // Prioriza el iframe con id="iframePlayer"
+        val initialIframeSrc = doc.selectFirst("iframe#iframePlayer")?.attr("src")
+        // Mantiene el selector antiguo como fallback
+            ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe.metaframe")?.attr("src")
+            // Mantiene el otro selector antiguo como fallback
             ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
 
-        if (iframeSrc.isNullOrBlank()) {
-            Log.d("SoloLatino", "No se encontró iframe del reproductor con el selector específico en SoloLatino.net. Intentando buscar en scripts de la página principal.")
+        if (initialIframeSrc.isNullOrBlank()) {
+            Log.d("SoloLatino", "No se encontró iframe del reproductor principal con el selector específico en SoloLatino.net. Intentando buscar en scripts de la página principal.")
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
             val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
@@ -285,17 +292,106 @@ class SoloLatinoProvider : MainAPI() {
             return false
         }
 
-        Log.d("SoloLatino", "Iframe encontrado: $iframeSrc")
+        Log.d("SoloLatino", "Iframe principal encontrado: $initialIframeSrc")
 
-        // --- LÓGICA PRINCIPAL: Manejar diferentes dominios de iframes ---
+        // Variable para almacenar la URL del iframe final (puede ser initialIframeSrc o el anidado)
+        var finalIframeSrc: String = initialIframeSrc
 
-        // 1. Manejar Xupalace.org
-        if (iframeSrc.contains("xupalace.org")) {
-            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe: $iframeSrc")
-            val xupalaceDoc = try {
-                app.get(fixUrl(iframeSrc)).document
+        // *** LÓGICA GHBRISK.COM: Manejar ghbrisk.com como intermediario de iframe anidado ***
+        if (initialIframeSrc.contains("ghbrisk.com")) {
+            Log.d("SoloLatino", "loadLinks - Detectado ghbrisk.com iframe intermediario: $initialIframeSrc. Buscando iframe anidado.")
+            val ghbriskDoc = try {
+                app.get(fixUrl(initialIframeSrc)).document // Obtener el contenido del iframe de ghbrisk.com
             } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el contenido del iframe de Xupalace ($iframeSrc): ${e.message}")
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de ghbrisk.com ($initialIframeSrc): ${e.message}")
+                return false
+            }
+
+            // Buscar el iframe de embed69.org dentro del iframe de ghbrisk.com
+            val nestedIframeSrc = ghbriskDoc.selectFirst("iframe.metaframe.rptss")?.attr("src")
+                ?: ghbriskDoc.selectFirst("iframe")?.attr("src") // Fallback por si no tiene la clase exacta
+
+            if (nestedIframeSrc.isNullOrBlank()) {
+                Log.e("SoloLatino", "No se encontró un iframe anidado (posiblemente embed69.org) dentro de ghbrisk.com.")
+                return false
+            }
+            Log.d("SoloLatino", "Iframe anidado encontrado en ghbrisk.com: $nestedIframeSrc")
+            finalIframeSrc = nestedIframeSrc // Actualizar la URL del iframe final a la de embed69.org
+        }
+        // *** NUEVA LÓGICA XUPALACE.ORG como intermediario ***
+        else if (initialIframeSrc.contains("xupalace.org")) {
+            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe intermediario: $initialIframeSrc. Buscando iframe anidado (playerwish.com).")
+            val xupalaceDoc = try {
+                app.get(fixUrl(initialIframeSrc)).document // Obtener el contenido del iframe de Xupalace
+            } catch (e: Exception) {
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de Xupalace ($initialIframeSrc): ${e.message}")
+                return false
+            }
+
+            // Buscar el iframe con id="IFR" dentro de Xupalace
+            val nestedIframeSrc = xupalaceDoc.selectFirst("iframe#IFR")?.attr("src")
+            if (nestedIframeSrc.isNullOrBlank()) {
+                Log.e("SoloLatino", "No se encontró un iframe anidado (playerwish.com) dentro de Xupalace.org.")
+                return false
+            }
+            Log.d("SoloLatino", "Iframe anidado encontrado en Xupalace.org: $nestedIframeSrc")
+            finalIframeSrc = nestedIframeSrc // Actualizar a la URL de playerwish.com
+        }
+
+
+        // --- LÓGICA PRINCIPAL: Ahora usamos finalIframeSrc para los dominios conocidos ---
+
+        // El orden de estos 'else if' es importante para que el flujo sea lógico.
+
+        // 1. Manejar PlayerWish.com (el más profundo en el caso de Xupalace)
+        if (finalIframeSrc.contains("playerwish.com")) {
+            Log.d("SoloLatino", "loadLinks - Detectado playerwish.com iframe: $finalIframeSrc")
+
+            val playerwishDoc = try {
+                app.get(fixUrl(finalIframeSrc)).document
+            } catch (e: Exception) {
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de playerwish.com ($finalIframeSrc): ${e.message}")
+                return false
+            }
+
+            // La URL de VAST es constante según los scripts proporcionados
+            val vastUrl = "https://1wincdn.b-cdn.net/vast_1win_v2.xml"
+            val vastXmlDoc = try {
+                app.get(vastUrl).document
+            } catch (e: Exception) {
+                Log.e("SoloLatino", "Error al obtener el XML VAST de $vastUrl: ${e.message}")
+                return false
+            }
+
+            // Buscar la URL del MP4 dentro del XML VAST
+            val videoUrlElement = vastXmlDoc.selectFirst("MediaFile[type=\"video/mp4\"]")
+            val finalVideoLink = videoUrlElement?.text()?.trim()
+
+            if (finalVideoLink.isNullOrBlank()) {
+                Log.e("SoloLatino", "No se encontró un enlace de video MP4 en el XML VAST de playerwish.com.")
+                return false
+            }
+            Log.d("SoloLatino", "URL de video obtenida del XML VAST en playerwish.com: $finalVideoLink")
+
+
+            if (!finalVideoLink.isNullOrBlank()) {
+                loadExtractor(fixUrl(finalVideoLink), finalIframeSrc, subtitleCallback, callback)
+                return true
+            } else {
+                Log.e("SoloLatino", "No se pudo obtener el enlace final de video de playerwish.com.")
+                return false
+            }
+        }
+        // 2. Manejar Xupalace.org (Este bloque ahora manejará la lógica de su botón de "player" si no lleva a playerwish.com)
+        else if (finalIframeSrc.contains("xupalace.org")) {
+            Log.d("SoloLatino", "loadLinks - Detectado Xupalace.org iframe directo o secundario: $finalIframeSrc")
+            // Si Xupalace.org ya fue procesado como intermediario para playerwish.com, este bloque se ejecutará
+            // solo si hay otros tipos de reproductores directos de Xupalace, o si initialIframeSrc apuntó directamente aquí.
+
+            val xupalaceDoc = try {
+                app.get(fixUrl(finalIframeSrc)).document
+            } catch (e: Exception) {
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de Xupalace ($finalIframeSrc): ${e.message}")
                 return false
             }
 
@@ -327,7 +423,7 @@ class SoloLatinoProvider : MainAPI() {
             if (foundXupalaceLinks.isNotEmpty()) {
                 foundXupalaceLinks.apmap { playerUrl ->
                     Log.d("SoloLatino", "Cargando extractor para link de Xupalace: $playerUrl")
-                    loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
+                    loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
                 }
                 return true
             } else {
@@ -335,29 +431,25 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 2. Manejar re.sololatino.net/embed.php
-        else if (iframeSrc.contains("re.sololatino.net/embed.php")) {
-            Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $iframeSrc")
+        // 3. Manejar re.sololatino.net/embed.php
+        else if (finalIframeSrc.contains("re.sololatino.net/embed.php")) {
+            Log.d("SoloLatino", "loadLinks - Detectado re.sololatino.net/embed.php iframe: $finalIframeSrc")
             val embedDoc = try {
-                app.get(fixUrl(iframeSrc)).document
+                app.get(fixUrl(finalIframeSrc)).document
             } catch (e: Exception) {
-                Log.e("SoloLatino", "Error al obtener el contenido del iframe de re.sololatino.net ($iframeSrc): ${e.message}")
+                Log.e("SoloLatino", "Error al obtener el contenido del iframe de re.sololatino.net ($finalIframeSrc): ${e.message}")
                 return false
             }
-
             val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""")
             val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
-
             if (elementsWithOnclick.isEmpty()) {
                 Log.w("SoloLatino", "No se encontraron elementos con 'go_to_player' en re.sololatino.net/embed.php con el selector general.")
                 return false
             }
-
             val foundReSoloLatinoLinks = mutableListOf<String>()
             for (element in elementsWithOnclick) {
                 val onclickAttr = element.attr("onclick")
                 val matchPlayerUrl = regexGoToPlayerUrl.find(onclickAttr)
-
                 if (matchPlayerUrl != null) {
                     val videoUrl = matchPlayerUrl.groupValues[1]
                     val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
@@ -369,11 +461,10 @@ class SoloLatinoProvider : MainAPI() {
                     Log.w("SoloLatino", "re.sololatino.net: No se pudo extraer la URL del onclick: $onclickAttr")
                 }
             }
-
             if (foundReSoloLatinoLinks.isNotEmpty()) {
                 foundReSoloLatinoLinks.apmap { playerUrl ->
                     Log.d("SoloLatino", "Cargando extractor para link de re.sololatino.net: $playerUrl")
-                    loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
+                    loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
                 }
                 return true
             } else {
@@ -381,28 +472,28 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
-        // 3. Manejar embed69.org (Lógica de dataLink con reintentos)
-        else if (iframeSrc.contains("embed69.org")) {
-            Log.d("SoloLatino", "loadLinks - Detectado embed69.org iframe: $iframeSrc")
+        // 4. Manejar embed69.org (Lógica de dataLink con reintentos)
+        else if (finalIframeSrc.contains("embed69.org")) {
+            Log.d("SoloLatino", "loadLinks - Detectado embed69.org iframe: $finalIframeSrc")
 
             var frameDoc: Element? = null
-            val maxRetries = 3 // Número de intentos
-            val retryDelayMs = 2000L // Retraso entre intentos en milisegundos (2 segundos)
-            val timeoutMs = 15000L // Timeout para la petición individual (15 segundos)
+            val maxRetries = 3
+            val retryDelayMs = 2000L
+            val timeoutMs = 15000L
 
             for (i in 0 until maxRetries) {
                 try {
-                    Log.d("SoloLatino", "Intentando obtener contenido de iframe de embed69.org (intento ${i + 1}/$maxRetries): $iframeSrc")
-                    frameDoc = app.get(fixUrl(iframeSrc), timeout = timeoutMs).document
+                    Log.d("SoloLatino", "Intentando obtener contenido de iframe de embed69.org (intento ${i + 1}/$maxRetries): $finalIframeSrc")
+                    frameDoc = app.get(fixUrl(finalIframeSrc), timeout = timeoutMs).document
                     Log.d("SoloLatino", "Contenido del iframe de embed69.org obtenido con éxito en intento ${i + 1}.")
-                    break // Si tiene éxito, sal del bucle
+                    break
                 } catch (e: Exception) {
-                    Log.e("SoloLatino", "Error en el intento ${i + 1} al obtener contenido del iframe de embed69.org ($iframeSrc): ${e.message}")
+                    Log.e("SoloLatino", "Error en el intento ${i + 1} al obtener contenido del iframe de embed69.org ($finalIframeSrc): ${e.message}")
                     if (i < maxRetries - 1) {
-                        kotlinx.coroutines.delay(retryDelayMs) // Espera antes de reintentar
+                        delay(retryDelayMs)
                     } else {
                         Log.e("SoloLatino", "Fallaron todos los intentos para obtener contenido de embed69.org.")
-                        return false // Después del último intento fallido, retorna false
+                        return false
                     }
                 }
             }
@@ -414,8 +505,6 @@ class SoloLatinoProvider : MainAPI() {
 
             val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
-            // *** Regex ajustada para dataLink, confirmada con el JS proporcionado ***
-            // Busca la declaración completa de 'const dataLink = [...]'
             val dataLinkRegex = """const\s+dataLink\s*=\s*(\[.*?\]);""".toRegex()
             val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
 
@@ -437,10 +526,8 @@ class SoloLatinoProvider : MainAPI() {
 
             val foundEmbed69Links = mutableListOf<String>()
             for (entry in dataLinkEntries) {
-                // Iterar sobre todos los embeds, no solo los que coinciden con el idioma si no se necesita
-                // Por ahora, solo tomamos el primer set de embeds o todos si hay múltiples sets de dataLink
                 for (embed in entry.sortedEmbeds) {
-                    if (embed.type == "video") { // Asegúrate de que sea un enlace de video
+                    if (embed.type == "video") {
                         val decryptedLink = decryptLink(embed.link, secretKey)
                         if (decryptedLink != null) {
                             Log.d("SoloLatino", "Link desencriptado para ${embed.servername}: $decryptedLink")
@@ -457,7 +544,7 @@ class SoloLatinoProvider : MainAPI() {
             if (foundEmbed69Links.isNotEmpty()) {
                 foundEmbed69Links.apmap { playerUrl ->
                     Log.d("SoloLatino", "Cargando extractor para link desencriptado (embed69.org): $playerUrl")
-                    loadExtractor(fixUrl(playerUrl), iframeSrc, subtitleCallback, callback)
+                    loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
                 }
                 return true
             } else {
@@ -465,8 +552,14 @@ class SoloLatinoProvider : MainAPI() {
                 return false
             }
         }
+        // Manejar otros dominios comunes de reproductores directos (ej. Fembed, Streamlare, etc.)
+        else if (finalIframeSrc.contains("fembed.com") || finalIframeSrc.contains("streamlare.com") || finalIframeSrc.contains("player.sololatino.net")) {
+            Log.d("SoloLatino", "loadLinks - Detectado reproductor directo (Fembed/Streamlare/player.sololatino.net): $finalIframeSrc")
+            loadExtractor(fixUrl(finalIframeSrc), targetUrl, subtitleCallback, callback)
+            return true
+        }
         else {
-            Log.w("SoloLatino", "Tipo de iframe desconocido o no manejado: $iframeSrc")
+            Log.w("SoloLatino", "Tipo de iframe desconocido o no manejado: $finalIframeSrc")
             return false
         }
     }
