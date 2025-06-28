@@ -16,6 +16,12 @@ import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
 class KatanimeProvider : MainAPI() {
+
+    // AÑADIDO: Log en el constructor para verificar la instanciación
+    init {
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado.")
+    }
+
     override var mainUrl = "https://katanime.net"
     override var name = "Katanime"
     override val supportedTypes = setOf(
@@ -29,6 +35,9 @@ class KatanimeProvider : MainAPI() {
     override val hasDownloadSupport = true
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        Log.d("Katanime", "getMainPage - URL de Capítulos Recientes: $mainUrl/capitulos/page/$page/")
+        Log.d("Katanime", "getMainPage - URL de Animes Recientes: $mainUrl/page/$page/")
+
         val items = ArrayList<HomePageList>()
         val urls = listOf(
             Pair("Capítulos Recientes", "$mainUrl/capitulos/page/$page/"),
@@ -36,43 +45,50 @@ class KatanimeProvider : MainAPI() {
         )
 
         val homePageLists = urls.apmap { (name, url) ->
-            val doc = app.get(url).document
+            val doc = try {
+                app.get(url).document
+            } catch (e: Exception) {
+                Log.e("Katanime", "Error al obtener el documento para $url: ${e.message}", e)
+                return@apmap HomePageList(name, emptyList()) // Devolver lista vacía en caso de error
+            }
 
             val homeItems = if (name == "Capítulos Recientes") {
-                // Selector para "Capítulos recientes":
-                // Los ítems están en div#content-left > div#article-div > div[class*="chap__2MjKi"]
-                doc.select("div#content-left div#article-div div[class*=\"chap__2MjKi\"]").mapNotNull { itemDiv ->
-                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]") // Más específico para el anchor
+                val selectedItems = doc.select("div#content-left div#article-div div[class*=\"chap__2MjKi\"]")
+                Log.d("Katanime", "Capítulos Recientes - Items encontrados: ${selectedItems.size}")
+
+                selectedItems.mapNotNull { itemDiv ->
+                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
                     val link = anchor?.attr("href")
-                    // Imagen: div[class*="_1-8M9__"] img
                     val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
-                    // Título del capítulo: span[class*="_2y8kd"][class*="etag"]
                     val chapterTitle = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
-                    // Título de la serie: div[class*="_2NNxg"] a
-                    val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text() // Más específico para el título de la serie
+                    val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
 
                     if (link != null && chapterTitle != null && seriesTitle != null) {
+                        Log.d("Katanime", "Capítulo: $seriesTitle - $chapterTitle, Link: $link, Img: $img")
                         newAnimeSearchResponse(
-                            "$seriesTitle - $chapterTitle", // Combinar título de serie y capítulo
+                            "$seriesTitle - $chapterTitle",
                             fixUrl(link)
                         ) {
                             this.type = TvType.Anime
                             this.posterUrl = img
                         }
-                    } else null
+                    } else {
+                        Log.w("Katanime", "Capítulo Reciente - Elemento incompleto encontrado. Link: $link, ChapterTitle: $chapterTitle, SeriesTitle: $seriesTitle")
+                        null
+                    }
                 }
             } else {
-                // Selector para "Animes recientes":
-                // Los ítems están en div#content-full > div#article-div.recientes > div[class*="extra__2MjKi"]
-                doc.select("div#content-full div#article-div.recientes div[class*=\"extra__2MjKi\"]").mapNotNull { itemDiv ->
+                val selectedItems = doc.select("div#content-full div#article-div.recientes div[class*=\"extra__2MjKi\"]")
+                Log.d("Katanime", "Animes Recientes - Items encontrados: ${selectedItems.size}")
+
+                selectedItems.mapNotNull { itemDiv ->
                     val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
                     val link = anchor?.attr("href")
-                    // Imagen: div[class*="_1-8M9__"] img
                     val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
-                    // Título del anime: div[class*="_2NNxg"] a
                     val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
 
                     if (title != null && link != null) {
+                        Log.d("Katanime", "Anime: $title, Link: $link, Img: $img")
                         newAnimeSearchResponse(
                             title,
                             fixUrl(link)
@@ -80,7 +96,10 @@ class KatanimeProvider : MainAPI() {
                             this.type = TvType.Anime
                             this.posterUrl = img
                         }
-                    } else null
+                    } else {
+                        Log.w("Katanime", "Anime Reciente - Elemento incompleto encontrado. Title: $title, Link: $link")
+                        null
+                    }
                 }
             }
             HomePageList(name, homeItems)
@@ -93,17 +112,24 @@ class KatanimeProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
-        val doc = app.get(url).document
-        // Los resultados de búsqueda están en div#article-div > div[class*="full__2MjKi"]
-        return doc.select("div#article-div div[class*=\"full__2MjKi\"]").mapNotNull { itemDiv ->
+        Log.d("Katanime", "search - URL de búsqueda: $url")
+
+        val doc = try {
+            app.get(url).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "Error al obtener el documento para la búsqueda $url: ${e.message}", e)
+            return emptyList()
+        }
+
+        val selectedItems = doc.select("div#article-div div[class*=\"full__2MjKi\"]")
+        Log.d("Katanime", "Buscador - Items encontrados: ${selectedItems.size}")
+
+        return selectedItems.mapNotNull { itemDiv ->
             val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
-            // Título: div[class*="_2NNxg"] a
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
-            // Imagen: div[class*="_1-8M9__"] img
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
 
-            // El tag de tipo (Anime/Pelicula) está en span[class*="_2y8kd"][class*="etag"][class*="tag"]
             val typeTag = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]")?.text()
             val tvType = when {
                 typeTag?.contains("Pelicula", ignoreCase = true) == true -> TvType.Movie
@@ -111,6 +137,7 @@ class KatanimeProvider : MainAPI() {
             }
 
             if (title != null && link != null) {
+                Log.d("Katanime", "Buscador - Título: $title, Link: $link, Img: $img")
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
@@ -118,7 +145,10 @@ class KatanimeProvider : MainAPI() {
                     this.type = tvType
                     this.posterUrl = img
                 }
-            } else null
+            } else {
+                Log.w("Katanime", "Buscador - Elemento incompleto encontrado. Title: $title, Link: $link")
+                null
+            }
         }
     }
 
@@ -137,19 +167,29 @@ class KatanimeProvider : MainAPI() {
             return null
         }
 
-        val doc = app.get(cleanUrl).document
+        val doc = try {
+            app.get(cleanUrl).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "Error al obtener el documento para la carga de $cleanUrl: ${e.message}", e)
+            return null
+        }
+
         val tvType = TvType.Anime
 
         val title = doc.selectFirst("h1[class*=\"comics-title\"]")?.text() ?: ""
+        Log.d("Katanime", "load - Título del anime: $title")
 
         val poster = doc.selectFirst("div#animeinfo img[class*=\"lozad\"]")?.attr("data-src")
             ?: doc.selectFirst("div#animeinfo img[class*=\"lozad\"]")?.attr("src")
             ?: doc.selectFirst("meta[property=\"og:image\"]")?.attr("content")
             ?: ""
+        Log.d("Katanime", "load - URL del póster: $poster")
 
         val description = doc.selectFirst("div#sinopsis")?.text() ?: ""
+        Log.d("Katanime", "load - Descripción: ${description.take(50)}...")
 
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
+        Log.d("Katanime", "load - Tags: $tags")
 
         val episodes = doc.select("div#c_list li a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
@@ -161,6 +201,7 @@ class KatanimeProvider : MainAPI() {
             val realimg = poster
 
             if (epurl.isNotBlank() && epTitle.isNotBlank()) {
+                Log.d("Katanime", "load - Episodio encontrado: $epTitle, URL: $epurl")
                 newEpisode(
                     EpisodeLoadData(epTitle, epurl).toJson()
                 ) {
@@ -169,8 +210,12 @@ class KatanimeProvider : MainAPI() {
                     this.episode = episodeNumber
                     this.posterUrl = realimg
                 }
-            } else null
+            } else {
+                Log.w("Katanime", "load - Episodio incompleto encontrado. Title: $epTitle, URL: $epurl")
+                null
+            }
         }
+        Log.d("Katanime", "load - Total de episodios encontrados: ${episodes.size}")
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -218,9 +263,16 @@ class KatanimeProvider : MainAPI() {
             return false
         }
 
-        val doc = app.get(targetUrl).document
+        val doc = try {
+            app.get(targetUrl).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "Error al obtener el documento para loadLinks $targetUrl: ${e.message}", e)
+            return false
+        }
 
         val playerOptions = doc.select("ul#ul-drop-dropcaps li a")
+        Log.d("Katanime", "loadLinks - Opciones de reproductor encontradas: ${playerOptions.size}")
+
 
         if (playerOptions.isEmpty()) {
             Log.e("Katanime", "No se encontraron opciones de reproductor en la página: $targetUrl")
@@ -266,17 +318,18 @@ class KatanimeProvider : MainAPI() {
         for (option in playerOptions) {
             val encodedUrl = option.attr("data-player")
             val serverName = option.attr("data-player-name")
+            Log.d("Katanime", "loadLinks - Procesando opción de reproductor: $serverName, encoded: $encodedUrl")
 
             if (encodedUrl.isNotBlank()) {
                 val decodedUrl = decodeBase64(encodedUrl)
                 if (decodedUrl != null) {
-                    Log.d("Katanime", "Servidor: $serverName, URL decodificada: $decodedUrl")
+                    Log.d("Katanime", "loadLinks - Servidor: $serverName, URL decodificada: $decodedUrl")
                     loadExtractor(fixUrl(decodedUrl), targetUrl, subtitleCallback, callback)
                 } else {
-                    Log.e("Katanime", "No se pudo decodificar la URL para el servidor: $serverName, encoded: $encodedUrl")
+                    Log.e("Katanime", "loadLinks - No se pudo decodificar la URL para el servidor: $serverName, encoded: $encodedUrl")
                 }
             } else {
-                Log.w("Katanime", "La opción de reproductor '$serverName' no tiene un atributo 'data-player'.")
+                Log.w("Katanime", "loadLinks - La opción de reproductor '$serverName' no tiene un atributo 'data-player'.")
             }
         }
 
