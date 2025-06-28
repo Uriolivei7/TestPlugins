@@ -40,17 +40,16 @@ class KatanimeProvider : MainAPI() {
 
             val homeItems = if (name == "Capítulos Recientes") {
                 // Selector para "Capítulos recientes":
-                // Contenedor: div#content-left div#article-div
-                // Item individual: div[class*="_135yj__"][class*="chap__2MjKi"]
-                doc.select("div#content-left div#article-div div[class*=\"chap__2MjKi\"]").mapNotNull {
-                    val anchor = it.selectFirst("a[itemprop=\"url\"]")
+                // Los ítems están en div#content-left > div#article-div > div[class*="chap__2MjKi"]
+                doc.select("div#content-left div#article-div div[class*=\"chap__2MjKi\"]").mapNotNull { itemDiv ->
+                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]") // Más específico para el anchor
                     val link = anchor?.attr("href")
                     // Imagen: div[class*="_1-8M9__"] img
-                    val img = it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
+                    val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
                     // Título del capítulo: span[class*="_2y8kd"][class*="etag"]
-                    val chapterTitle = it.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
+                    val chapterTitle = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
                     // Título de la serie: div[class*="_2NNxg"] a
-                    val seriesTitle = it.selectFirst("div[class*=\"_2NNxg\"] a")?.text()
+                    val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text() // Más específico para el título de la serie
 
                     if (link != null && chapterTitle != null && seriesTitle != null) {
                         newAnimeSearchResponse(
@@ -64,15 +63,14 @@ class KatanimeProvider : MainAPI() {
                 }
             } else {
                 // Selector para "Animes recientes":
-                // Contenedor: div#content-full div#article-div.recientes
-                // Item individual: div[class*="_135yj__"][class*="extra__2MjKi"]
-                doc.select("div#content-full div#article-div.recientes div[class*=\"extra__2MjKi\"]").mapNotNull {
-                    val anchor = it.selectFirst("a[itemprop=\"url\"]")
+                // Los ítems están en div#content-full > div#article-div.recientes > div[class*="extra__2MjKi"]
+                doc.select("div#content-full div#article-div.recientes div[class*=\"extra__2MjKi\"]").mapNotNull { itemDiv ->
+                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
                     val link = anchor?.attr("href")
                     // Imagen: div[class*="_1-8M9__"] img
-                    val img = it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
+                    val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
                     // Título del anime: div[class*="_2NNxg"] a
-                    val title = it.selectFirst("div[class*=\"_2NNxg\"] a")?.text()
+                    val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
 
                     if (title != null && link != null) {
                         newAnimeSearchResponse(
@@ -96,18 +94,17 @@ class KatanimeProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
         val doc = app.get(url).document
-        // Los resultados de búsqueda están en div#article-div
-        // Y los items individuales tienen una clase que contiene "full__2MjKi"
-        // Este selector ya parece correcto según la última revisión, pero lo mantengo explícito.
-        return doc.select("div#article-div div[class*=\"full__2MjKi\"]").mapNotNull {
-            val anchor = it.selectFirst("a[itemprop=\"url\"]")
+        // Los resultados de búsqueda están en div#article-div > div[class*="full__2MjKi"]
+        return doc.select("div#article-div div[class*=\"full__2MjKi\"]").mapNotNull { itemDiv ->
+            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
             // Título: div[class*="_2NNxg"] a
-            val title = it.selectFirst("div[class*=\"_2NNxg\"] a")?.text()
+            val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
             // Imagen: div[class*="_1-8M9__"] img
-            val img = it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: it.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
+            val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
 
-            val typeTag = it.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]")?.text() // Asegurarse de que el tag es el correcto
+            // El tag de tipo (Anime/Pelicula) está en span[class*="_2y8kd"][class*="etag"][class*="tag"]
+            val typeTag = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]")?.text()
             val tvType = when {
                 typeTag?.contains("Pelicula", ignoreCase = true) == true -> TvType.Movie
                 else -> TvType.Anime
@@ -143,41 +140,32 @@ class KatanimeProvider : MainAPI() {
         val doc = app.get(cleanUrl).document
         val tvType = TvType.Anime
 
-        // Título de la serie: h1[class*="comics-title"]
         val title = doc.selectFirst("h1[class*=\"comics-title\"]")?.text() ?: ""
 
-        // Poster: img[class*="lozad"] dentro de div#animeinfo
         val poster = doc.selectFirst("div#animeinfo img[class*=\"lozad\"]")?.attr("data-src")
             ?: doc.selectFirst("div#animeinfo img[class*=\"lozad\"]")?.attr("src")
             ?: doc.selectFirst("meta[property=\"og:image\"]")?.attr("content")
             ?: ""
 
-        // Descripción: div#sinopsis
         val description = doc.selectFirst("div#sinopsis")?.text() ?: ""
 
-        // Tags/Géneros: span[id="ranking"] (si es que contiene el género principal)
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
-        // Si hay otros elementos de tags en la página de detalles, se añadirán aquí.
-        // Ej: doc.select("div.genre-list a").map { it.text() }
 
-        // Lógica para extraer episodios.
-        // Los episodios están en div#c_list ul li a.cap_list
         val episodes = doc.select("div#c_list li a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
-            // Título del capítulo: h3[class*="entry-title-h2"]
             val epTitle = element.selectFirst("h3[class*=\"entry-title-h2\"]")?.text() ?: ""
 
             val episodeNumberRegex = Regex("""Capítulo\s*(\d+)""")
             val episodeNumber = episodeNumberRegex.find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
 
-            val realimg = poster // Usar el poster de la serie para el episodio.
+            val realimg = poster
 
             if (epurl.isNotBlank() && epTitle.isNotBlank()) {
                 newEpisode(
                     EpisodeLoadData(epTitle, epurl).toJson()
                 ) {
                     this.name = epTitle
-                    this.season = 1 // Asumimos temporada 1.
+                    this.season = 1
                     this.episode = episodeNumber
                     this.posterUrl = realimg
                 }
@@ -199,8 +187,7 @@ class KatanimeProvider : MainAPI() {
 
     private fun decodeBase64(encodedString: String): String? {
         return try {
-            // Asegurarse de que no haya padding incorrecto (a veces hay un '=' extra)
-            val cleanEncodedString = encodedString.replace("=", "") // Eliminar padding extra si existe
+            val cleanEncodedString = encodedString.replace("=", "")
             String(Base64.decode(cleanEncodedString, Base64.DEFAULT), UTF_8)
         } catch (e: IllegalArgumentException) {
             Log.e("Katanime", "Error al decodificar Base64: ${e.message}", e)
@@ -233,21 +220,17 @@ class KatanimeProvider : MainAPI() {
 
         val doc = app.get(targetUrl).document
 
-        // Buscar la lista de opciones de reproductores
-        // Las opciones están en ul#ul-drop-dropcaps li a
         val playerOptions = doc.select("ul#ul-drop-dropcaps li a")
 
         if (playerOptions.isEmpty()) {
             Log.e("Katanime", "No se encontraron opciones de reproductor en la página: $targetUrl")
-            // Fallback: Si no hay opciones de reproductor, intentar buscar iframes directamente como antes.
-            // Según las últimas imágenes, el iframe principal está en section#player_section > div > iframe
-            val fallbackIframeSrc = doc.selectFirst("section#player_section div iframe[class=\"embed-responsive-item\"]")?.attr("src")
-                ?: doc.selectFirst("div.elementor-widget-container iframe")?.attr("src") // Antiguo selector general
-                ?: doc.selectFirst("iframe[src*=\"player.\"]")?.attr("src") // Intento general si el anterior falla
+            // Fallback: Buscar iframe principal directamente
+            val fallbackIframeSrc = doc.selectFirst("section#player_section div iframe[class*=\"embed-responsive-item\"]")?.attr("src")
+                ?: doc.selectFirst("div.elementor-widget-container iframe")?.attr("src")
+                ?: doc.selectFirst("iframe[src*=\"player.\"]")?.attr("src")
 
             if (!fallbackIframeSrc.isNullOrBlank()) {
                 Log.d("Katanime", "Usando iframe de fallback: $fallbackIframeSrc")
-                // Si la URL del iframe es la URL del reproductor de Katanime.net, necesitamos ir más profundo
                 if (fallbackIframeSrc.contains("katanime.net/reproductor?url=")) {
                     val encodedInnerUrl = fallbackIframeSrc.substringAfter("url=")
                     val decodedInnerUrl = decodeBase64(encodedInnerUrl)
@@ -263,7 +246,6 @@ class KatanimeProvider : MainAPI() {
                 return true
             }
 
-            // Último fallback: buscar videos directos en scripts
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
             val directVideoRegex = Regex("""["'](https?:\/\/[^"']+\.(?:mp4|m3u8|avi|mkv|mov|flv|webm))["']""")
             val directVideoMatches = directVideoRegex.findAll(scriptContent)
@@ -281,7 +263,6 @@ class KatanimeProvider : MainAPI() {
             return false
         }
 
-        // Si se encontraron opciones de reproductor (lo más probable)
         for (option in playerOptions) {
             val encodedUrl = option.attr("data-player")
             val serverName = option.attr("data-player-name")
