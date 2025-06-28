@@ -34,20 +34,30 @@ class KatanimeProvider : MainAPI() {
     override val hasDownloadSupport = true
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        Log.d("Katanime", "getMainPage - Intentando obtener documento de $mainUrl/page/$page/")
+        // CAMBIO CRÍTICO: Ajustar la URL para la paginación
+        val targetUrl = if (page <= 1) { // Para la primera página o si se pide <= 1
+            mainUrl // Usar la URL base sin /page/X/
+        } else {
+            // Si hay paginación para animes/capítulos más antiguos, necesitamos encontrar el patrón.
+            // Por ahora, asumiremos que no hay paginación más allá de la página principal,
+            // o que la paginación es simplemente mainUrl/page/X/ si existe.
+            // Si devuelve 404, significa que la paginación estándar no funciona para el contenido principal.
+            "$mainUrl/page/$page/" // Intentar con paginación para páginas > 1
+        }
+
+        Log.d("Katanime", "getMainPage - Intentando obtener documento de $targetUrl")
         val doc = try {
-            app.get("$mainUrl/page/$page/").document // Obtener el documento de la página principal (o paginada)
+            app.get(targetUrl).document
         } catch (e: Exception) {
             Log.e("Katanime", "Error al obtener el documento para la página principal: ${e.message}", e)
             return null
         }
-        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido. HTML muestra: ${doc.outerHtml().take(500)}...") // Log de parte del HTML para verificar codificación
+        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido. HTML muestra: ${doc.outerHtml().take(500)}...")
 
         val items = ArrayList<HomePageList>()
 
         // Seccion de "Capítulos Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Capítulos Recientes'")
-        // CAMBIO: Usar un selector más robusto para el h3, sin la "í" y con contains parcial de clase
         val capitulosRecientesH3 = doc.selectFirst("h3[class*=\"carousel\"]:contains(Capitulos recientes)")
         Log.d("Katanime", "Capítulos Recientes - h3 encontrado: ${capitulosRecientesH3?.outerHtml()?.take(100)}...")
 
@@ -83,7 +93,6 @@ class KatanimeProvider : MainAPI() {
 
         // Sección de "Animes Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Animes Recientes'")
-        // CAMBIO: Usar un selector más robusto para el h3, sin la "í" y con contains parcial de clase
         val animesRecientesH3 = doc.selectFirst("h3[class*=\"carousel\"]:contains(Animes recientes)")
         Log.d("Katanime", "Animes Recientes - h3 encontrado: ${animesRecientesH3?.outerHtml()?.take(100)}...")
 
