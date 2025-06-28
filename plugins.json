@@ -234,5 +234,23 @@
     "iconUrl": "https://doramasflix.co/favicon.ico",
     "language": "es",
     "fileSize": 31000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/KatanimeProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 13,
+    "name": "KatAnime",
+    "internalName": "KatanimeProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para katanime.net",
+    "tvTypes": [
+      "Anime"
+    ],
+    "iconUrl": "https://katanime.net/favicon.ico?v=5.0.48",
+    "language": "es",
+    "fileSize": 16000
   }
 ]
