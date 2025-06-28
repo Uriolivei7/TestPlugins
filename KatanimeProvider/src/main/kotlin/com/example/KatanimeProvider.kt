@@ -34,15 +34,10 @@ class KatanimeProvider : MainAPI() {
     override val hasDownloadSupport = true
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        // CAMBIO CRÍTICO: Ajustar la URL para la paginación
-        val targetUrl = if (page <= 1) { // Para la primera página o si se pide <= 1
-            mainUrl // Usar la URL base sin /page/X/
+        val targetUrl = if (page <= 1) {
+            mainUrl
         } else {
-            // Si hay paginación para animes/capítulos más antiguos, necesitamos encontrar el patrón.
-            // Por ahora, asumiremos que no hay paginación más allá de la página principal,
-            // o que la paginación es simplemente mainUrl/page/X/ si existe.
-            // Si devuelve 404, significa que la paginación estándar no funciona para el contenido principal.
-            "$mainUrl/page/$page/" // Intentar con paginación para páginas > 1
+            "$mainUrl/page/$page/"
         }
 
         Log.d("Katanime", "getMainPage - Intentando obtener documento de $targetUrl")
@@ -52,18 +47,21 @@ class KatanimeProvider : MainAPI() {
             Log.e("Katanime", "Error al obtener el documento para la página principal: ${e.message}", e)
             return null
         }
-        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido. HTML muestra: ${doc.outerHtml().take(500)}...")
+        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido. Título del HTML: ${doc.selectFirst("title")?.text()} ...")
+        Log.d("Katanime", "getMainPage - Primeros 1000 caracteres del HTML: ${doc.outerHtml().take(1000)}...") // Más HTML para depurar
 
         val items = ArrayList<HomePageList>()
 
         // Seccion de "Capítulos Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Capítulos Recientes'")
-        val capitulosRecientesH3 = doc.selectFirst("h3[class*=\"carousel\"]:contains(Capitulos recientes)")
+        // Nuevo intento con contains(Capitulos) y clase 't'
+        val capitulosRecientesH3 = doc.selectFirst("h3.t:contains(Capitulos)")
         Log.d("Katanime", "Capítulos Recientes - h3 encontrado: ${capitulosRecientesH3?.outerHtml()?.take(100)}...")
 
         val capitulosRecientesContainer = capitulosRecientesH3?.nextElementSibling()
-        Log.d("Katanime", "Capítulos Recientes - Contenedor nextElementSibling: ${capitulosRecientesContainer?.tagName()}#${capitulosRecientesContainer?.id()} ${capitulosRecientesContainer?.classNames()} - ${capitulosRecientesContainer?.outerHtml()?.take(100)}...")
+        Log.d("Katanime", "Capítulos Recientes - Contenedor nextElementSibling: ${capitulosRecientesContainer?.tagName()}#${capitulosRecientesContainer?.id()} ${capitulosRecientesContainer?.classNames()} - ${capitulosRecientesContainer?.outerHtml()?.take(500)}...") // Más HTML del contenedor
 
+        // Selector original para ítems, reevaluar si es necesario
         val homeItemsCapitulos = capitulosRecientesContainer?.select("div[class*=\"chap_2MjKi\"]")?.mapNotNull { itemDiv ->
             val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
             val link = anchor?.attr("href")
@@ -97,8 +95,9 @@ class KatanimeProvider : MainAPI() {
         Log.d("Katanime", "Animes Recientes - h3 encontrado: ${animesRecientesH3?.outerHtml()?.take(100)}...")
 
         val animesRecientesContainer = animesRecientesH3?.nextElementSibling()
-        Log.d("Katanime", "Animes Recientes - Contenedor nextElementSibling: ${animesRecientesContainer?.tagName()}#${animesRecientesContainer?.id()} ${animesRecientesContainer?.classNames()} - ${animesRecientesContainer?.outerHtml()?.take(100)}...")
+        Log.d("Katanime", "Animes Recientes - Contenedor nextElementSibling: ${animesRecientesContainer?.tagName()}#${animesRecientesContainer?.id()} ${animesRecientesContainer?.classNames()} - ${animesRecientesContainer?.outerHtml()?.take(500)}...") // Más HTML del contenedor
 
+        // Selector original para ítems, reevaluar si es necesario
         val homeItemsAnimes = animesRecientesContainer?.select("div[class*=\"extra_2MjKi\"]")?.mapNotNull { itemDiv ->
             val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
             val link = anchor?.attr("href")
@@ -124,7 +123,14 @@ class KatanimeProvider : MainAPI() {
         items.add(HomePageList("Animes Recientes", homeItemsAnimes))
         Log.d("Katanime", "Animes Recientes - Total de ítems encontrados: ${homeItemsAnimes.size}")
 
-        return newHomePageResponse(items, false)
+        // Deshabilitar paginación si no funciona para páginas > 1
+        val hasNextPage = if (page <= 1) {
+            true // Permitir avanzar a la página 2 para probar la paginación de la URL
+        } else {
+            false // Por ahora, si no es la página 1, asumir que no hay más paginación de este tipo
+        }
+
+        return newHomePageResponse(items, hasNextPage)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
