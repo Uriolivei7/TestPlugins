@@ -17,7 +17,6 @@ import kotlinx.coroutines.delay
 
 class KatanimeProvider : MainAPI() {
 
-    // AÑADIDO: Log en el constructor para verificar la instanciación
     init {
         Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado.")
     }
@@ -35,77 +34,83 @@ class KatanimeProvider : MainAPI() {
     override val hasDownloadSupport = true
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
-        Log.d("Katanime", "getMainPage - URL de Capítulos Recientes: $mainUrl/capitulos/page/$page/")
-        Log.d("Katanime", "getMainPage - URL de Animes Recientes: $mainUrl/page/$page/")
-
-        val items = ArrayList<HomePageList>()
-        val urls = listOf(
-            Pair("Capítulos Recientes", "$mainUrl/capitulos/page/$page/"),
-            Pair("Animes Recientes", "$mainUrl/page/$page/")
-        )
-
-        val homePageLists = urls.apmap { (name, url) ->
-            val doc = try {
-                app.get(url).document
-            } catch (e: Exception) {
-                Log.e("Katanime", "Error al obtener el documento para $url: ${e.message}", e)
-                return@apmap HomePageList(name, emptyList()) // Devolver lista vacía en caso de error
-            }
-
-            val homeItems = if (name == "Capítulos Recientes") {
-                val selectedItems = doc.select("div#content-left div#article-div div[class*=\"chap__2MjKi\"]")
-                Log.d("Katanime", "Capítulos Recientes - Items encontrados: ${selectedItems.size}")
-
-                selectedItems.mapNotNull { itemDiv ->
-                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
-                    val link = anchor?.attr("href")
-                    val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
-                    val chapterTitle = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
-                    val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
-
-                    if (link != null && chapterTitle != null && seriesTitle != null) {
-                        Log.d("Katanime", "Capítulo: $seriesTitle - $chapterTitle, Link: $link, Img: $img")
-                        newAnimeSearchResponse(
-                            "$seriesTitle - $chapterTitle",
-                            fixUrl(link)
-                        ) {
-                            this.type = TvType.Anime
-                            this.posterUrl = img
-                        }
-                    } else {
-                        Log.w("Katanime", "Capítulo Reciente - Elemento incompleto encontrado. Link: $link, ChapterTitle: $chapterTitle, SeriesTitle: $seriesTitle")
-                        null
-                    }
-                }
-            } else {
-                val selectedItems = doc.select("div#content-full div#article-div.recientes div[class*=\"extra__2MjKi\"]")
-                Log.d("Katanime", "Animes Recientes - Items encontrados: ${selectedItems.size}")
-
-                selectedItems.mapNotNull { itemDiv ->
-                    val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
-                    val link = anchor?.attr("href")
-                    val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
-                    val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
-
-                    if (title != null && link != null) {
-                        Log.d("Katanime", "Anime: $title, Link: $link, Img: $img")
-                        newAnimeSearchResponse(
-                            title,
-                            fixUrl(link)
-                        ) {
-                            this.type = TvType.Anime
-                            this.posterUrl = img
-                        }
-                    } else {
-                        Log.w("Katanime", "Anime Reciente - Elemento incompleto encontrado. Title: $title, Link: $link")
-                        null
-                    }
-                }
-            }
-            HomePageList(name, homeItems)
+        // CAMBIO: Ambas listas ahora provienen de la página principal (mainUrl)
+        // La distinción se hará por los contenedores HTML
+        val doc = try {
+            app.get("$mainUrl/page/$page/").document // Obtener el documento de la página principal (o paginada)
+        } catch (e: Exception) {
+            Log.e("Katanime", "Error al obtener el documento para la página principal: ${e.message}", e)
+            return null
         }
 
-        items.addAll(homePageLists)
+        val items = ArrayList<HomePageList>()
+
+        // Seccion de "Capítulos Recientes"
+        // Buscamos el h3 con "Capítulos recientes" y luego su div hermano con id="content-left"
+        val capitulosRecientesContainer = doc.selectFirst("h3.carousel:contains(Capítulos recientes)")
+            ?.nextElementSibling() // Esto debería darnos div#content-left
+
+        Log.d("Katanime", "getMainPage - Procesando 'Capítulos Recientes'")
+
+        val homeItemsCapitulos = capitulosRecientesContainer?.select("div[class*=\"chap_2MjKi\"]")?.mapNotNull { itemDiv -> // CAMBIO en el selector
+            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
+            val link = anchor?.attr("href")
+            val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src") // CAMBIO en el selector
+                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") // CAMBIO en el selector
+            val chapterTitle = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
+            val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
+
+            if (link != null && chapterTitle != null && seriesTitle != null) {
+                Log.d("Katanime", "Capítulo: $seriesTitle - $chapterTitle, Link: $link, Img: $img")
+                newAnimeSearchResponse(
+                    "$seriesTitle - $chapterTitle",
+                    fixUrl(link)
+                ) {
+                    this.type = TvType.Anime
+                    this.posterUrl = img
+                }
+            } else {
+                Log.w("Katanime", "Capítulo Reciente - Elemento incompleto encontrado. Link: $link, ChapterTitle: $chapterTitle, SeriesTitle: $seriesTitle")
+                null
+            }
+        } ?: emptyList() // Si no se encuentra el contenedor o los ítems, que sea una lista vacía
+
+        items.add(HomePageList("Capítulos Recientes", homeItemsCapitulos))
+        Log.d("Katanime", "Capítulos Recientes - Items encontrados: ${homeItemsCapitulos.size}")
+
+
+        // Sección de "Animes Recientes"
+        // Buscamos el h3 con "Animes recientes" y luego su div hermano con id="content-full" y clase "recientes"
+        val animesRecientesContainer = doc.selectFirst("h3.carousel:contains(Animes recientes)")
+            ?.nextElementSibling() // Esto debería darnos div#content-full
+
+        Log.d("Katanime", "getMainPage - Procesando 'Animes Recientes'")
+
+        val homeItemsAnimes = animesRecientesContainer?.select("div[class*=\"extra_2MjKi\"]")?.mapNotNull { itemDiv -> // CAMBIO en el selector
+            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
+            val link = anchor?.attr("href")
+            val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src") // CAMBIO en el selector
+                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") // CAMBIO en el selector
+            val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
+
+            if (title != null && link != null) {
+                Log.d("Katanime", "Anime: $title, Link: $link, Img: $img")
+                newAnimeSearchResponse(
+                    title,
+                    fixUrl(link)
+                ) {
+                    this.type = TvType.Anime
+                    this.posterUrl = img
+                }
+            } else {
+                Log.w("Katanime", "Anime Reciente - Elemento incompleto encontrado. Title: $title, Link: $link")
+                null
+            }
+        } ?: emptyList()
+
+        items.add(HomePageList("Animes Recientes", homeItemsAnimes))
+        Log.d("Katanime", "Animes Recientes - Items encontrados: ${homeItemsAnimes.size}")
+
 
         return newHomePageResponse(items, false)
     }
@@ -121,14 +126,17 @@ class KatanimeProvider : MainAPI() {
             return emptyList()
         }
 
-        val selectedItems = doc.select("div#article-div div[class*=\"full__2MjKi\"]")
+        // El selector para resultados de búsqueda parece ser el mismo que antes, pero verificamos.
+        // Las imágenes muestran div class="135yj _2FQAt full_2MjKi"
+        val selectedItems = doc.select("div#article-div div[class*=\"full_2MjKi\"]") // CAMBIO en el selector
         Log.d("Katanime", "Buscador - Items encontrados: ${selectedItems.size}")
 
         return selectedItems.mapNotNull { itemDiv ->
             val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
-            val img = itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("data-src") ?: itemDiv.selectFirst("div[class*=\"_1-8M9__\"] img")?.attr("src")
+            val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src") // CAMBIO en el selector
+                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") // CAMBIO en el selector
 
             val typeTag = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]")?.text()
             val tvType = when {
@@ -191,6 +199,8 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
         Log.d("Katanime", "load - Tags: $tags")
 
+        // Episodes:
+        // El selector div#c_list li a.cap_list y h3.entry-title-h2 parecen correctos.
         val episodes = doc.select("div#c_list li a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
             val epTitle = element.selectFirst("h3[class*=\"entry-title-h2\"]")?.text() ?: ""
@@ -270,6 +280,7 @@ class KatanimeProvider : MainAPI() {
             return false
         }
 
+        // Selectores basados en las imágenes (image_070643.png, image_070600.png)
         val playerOptions = doc.select("ul#ul-drop-dropcaps li a")
         Log.d("Katanime", "loadLinks - Opciones de reproductor encontradas: ${playerOptions.size}")
 
@@ -277,6 +288,7 @@ class KatanimeProvider : MainAPI() {
         if (playerOptions.isEmpty()) {
             Log.e("Katanime", "No se encontraron opciones de reproductor en la página: $targetUrl")
             // Fallback: Buscar iframe principal directamente
+            // Selectores basados en las imágenes (image_0702e1.png, image_070281.png)
             val fallbackIframeSrc = doc.selectFirst("section#player_section div iframe[class*=\"embed-responsive-item\"]")?.attr("src")
                 ?: doc.selectFirst("div.elementor-widget-container iframe")?.attr("src")
                 ?: doc.selectFirst("iframe[src*=\"player.\"]")?.attr("src")
