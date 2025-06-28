@@ -41,13 +41,14 @@ class KatanimeProvider : MainAPI() {
             Log.e("Katanime", "Error al obtener el documento para la página principal: ${e.message}", e)
             return null
         }
-        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido.")
+        Log.d("Katanime", "getMainPage - Documento de la página principal obtenido. HTML muestra: ${doc.outerHtml().take(500)}...") // Log de parte del HTML para verificar codificación
 
         val items = ArrayList<HomePageList>()
 
         // Seccion de "Capítulos Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Capítulos Recientes'")
-        val capitulosRecientesH3 = doc.selectFirst("h3.carousel:contains(Capítulos recientes)")
+        // CAMBIO: Usar un selector más robusto para el h3, sin la "í" y con contains parcial de clase
+        val capitulosRecientesH3 = doc.selectFirst("h3[class*=\"carousel\"]:contains(Capitulos recientes)")
         Log.d("Katanime", "Capítulos Recientes - h3 encontrado: ${capitulosRecientesH3?.outerHtml()?.take(100)}...")
 
         val capitulosRecientesContainer = capitulosRecientesH3?.nextElementSibling()
@@ -82,7 +83,8 @@ class KatanimeProvider : MainAPI() {
 
         // Sección de "Animes Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Animes Recientes'")
-        val animesRecientesH3 = doc.selectFirst("h3.carousel:contains(Animes recientes)")
+        // CAMBIO: Usar un selector más robusto para el h3, sin la "í" y con contains parcial de clase
+        val animesRecientesH3 = doc.selectFirst("h3[class*=\"carousel\"]:contains(Animes recientes)")
         Log.d("Katanime", "Animes Recientes - h3 encontrado: ${animesRecientesH3?.outerHtml()?.take(100)}...")
 
         val animesRecientesContainer = animesRecientesH3?.nextElementSibling()
