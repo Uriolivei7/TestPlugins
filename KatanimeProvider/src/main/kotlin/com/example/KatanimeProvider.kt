@@ -65,7 +65,7 @@ class KatanimeProvider : MainAPI() {
                 title = animeLinkElement.text()?.trim()
                 // Para capítulos recientes, `data-src` es común, pero `src` también es un buen fallback.
                 posterUrl = posterImgElement.attr("data-src")?.let { fixUrl(it) }
-                    ?: posterImgElement.attr("src")?.let { fixUrl(it) }
+                    ?: posterImgElement.attr("src")?.let { fixUrl(it) } // Priorizar data-src si es una imagen lazy-loaded
 
                 if (title.isNullOrBlank() || link.isNullOrBlank() || posterUrl.isNullOrBlank()) {
                     Log.w("Katanime", "parseAnimeItem - Datos incompletos (capítulo reciente), saltando: Title='$title', Link='$link', Poster='$posterUrl'")
@@ -107,6 +107,10 @@ class KatanimeProvider : MainAPI() {
         ) {
             this.posterUrl = posterUrl
             this.type = TvType.Anime
+            // Los errores de apiName y posterUrl en la línea 50/51 del log anterior
+            // se referían a esto. Si estás usando una versión más antigua de Cloudstream,
+            // 'apiName' podría no existir. 'posterUrl' sí existe y se usa arriba.
+            // Asegúrate de que no haya líneas comentadas o incorrectas en tu versión real.
         }
     }
 
@@ -205,17 +209,27 @@ class KatanimeProvider : MainAPI() {
         val doc = app.get(cleanUrl, interceptor = cfKiller).document
 
         val title = doc.selectFirst("h1.comics-title.ajp")?.text() ?: ""
-        // CORRECCIÓN CLAVE para el poster principal: priorizar src, luego data-src
-        // Tu HTML mostró que src ya tiene la URL buena.
-        val posterUrl = doc.selectFirst("div#animeinfo img")?.attr("src")?.let { fixUrl(it) }
-            ?: doc.selectFirst("div#animeinfo img")?.attr("data-src")?.let { fixUrl(it) }
+
+        // --- INICIO DE CAMBIO DE PÓSTER EN LA FUNCIÓN LOAD ---
+        // Nuevo intento para el poster principal:
+        // Buscamos el div con id "animeinfo", y dentro, la imagen.
+        // Dadas tus capturas, `src` debería ser el que contenga la URL correcta.
+        val posterElement = doc.selectFirst("div#animeinfo img")
+        val posterUrl = posterElement?.attr("src")?.let { fixUrl(it) }
+            ?: posterElement?.attr("data-src")?.let { fixUrl(it) }
+            ?: "" // Si no se encuentra ninguna, dejarlo vacío, para que no sea null.
+
+        if (posterUrl.isBlank()) {
+            Log.w("Katanime", "load - No se pudo extraer el poster principal del anime en: $cleanUrl. Selector: div#animeinfo img")
+        }
+        // --- FIN DE CAMBIO DE PÓSTER EN LA FUNCIÓN LOAD ---
 
 
         val description = doc.selectFirst("div#sinopsis p")?.text()?.trim() ?: ""
         val tags = doc.select("div.anime-genres a").map { it.text().trim() }
 
         Log.d("Katanime", "load - Title: $title")
-        Log.d("Katanime", "load - Poster URL: $posterUrl")
+        Log.d("Katanime", "load - Poster URL: $posterUrl") // Ahora debería mostrar el URL correcto o vacío, no null
         Log.d("Katanime", "load - Description: $description")
         Log.d("Katanime", "load - Tags: $tags")
 
@@ -271,6 +285,22 @@ class KatanimeProvider : MainAPI() {
 
         while (hasMorePages) {
             Log.d("Katanime", "getEpisodes - Intentando obtener página $currentPage de episodios de: $episodesApiUrl")
+
+            // --- INICIO DE CAMBIO PARA CSRF ---
+            // Intento #1 para el CSRF: Forzar una petición GET antes del POST.
+            // Esto asegura que las cookies de sesión (incluida la XSRF-TOKEN de la cookie)
+            // se actualicen antes de la solicitud POST.
+            try {
+                // Hacer una petición GET a la misma refererUrl (la URL del anime)
+                // Esto podría ayudar a CloudflareKiller/OkHttp a actualizar las cookies de sesión.
+                app.get(refererUrl, interceptor = cfKiller)
+                Log.d("Katanime", "getEpisodes - Realizada petición GET a refererUrl para actualizar cookies.")
+            } catch (e: Exception) {
+                Log.e("Katanime", "getEpisodes - Error al realizar GET previo a $refererUrl: ${e.message}")
+                // No es crítico si falla el GET previo, el POST intentará de todas formas.
+            }
+            // --- FIN DE CAMBIO PARA CSRF ---
+
 
             val requestBody = FormBody.Builder()
                 .add("_token", csrfToken)
