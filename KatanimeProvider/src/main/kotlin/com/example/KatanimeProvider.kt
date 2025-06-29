@@ -150,9 +150,9 @@ class KatanimeProvider : MainAPI() {
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
             // Intenta ser más directo en la búsqueda de la imagen, ya que el log mostraba Img: vacío
-            val img = itemDiv.selectFirst("img[data-src]")?.attr("data-src") // Busca img con data-src
-                ?: itemDiv.selectFirst("img[src]")?.attr("src") // Si no, busca img con src
-                ?: "" // Fallback a cadena vacía
+            val img = itemDiv.selectFirst("img[data-src]")?.attr("data-src")
+                ?: itemDiv.selectFirst("img[src]")?.attr("src")
+                ?: ""
 
             Log.d("Katanime", "Buscador - Imagen obtenida para '$title': $img")
 
@@ -217,12 +217,12 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
         Log.d("Katanime", "load - Tags: $tags")
 
-        // CORREGIDO: Removido 'li' del selector de episodios
+        // CORREGIDO: Removido 'li' del selector de episodios y ajustado el selector de 'epTitle'
         val episodes = doc.select("div#c_list a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
-            // Revertido a 'h3.entry-title-h2' basado en image_076c17.png
-            val epTitle = element.selectFirst("h3.entry-title-h2")?.text() ?: ""
-            Log.d("Katanime", "load - Extrayendo episodio: URL=$epurl, Título encontrado='$epTitle'") // Log para depurar título
+            // CORRECCIÓN REAL: Selecciona directamente el h3 dentro del elemento 'a.cap_list'
+            val epTitle = element.selectFirst("h3")?.text()?.trim() ?: ""
+            Log.d("Katanime", "load - Extrayendo episodio: URL=$epurl, Título encontrado='$epTitle'")
 
             val episodeNumberRegex = Regex("""Capítulo\s*(\d+)""")
             val episodeNumber = episodeNumberRegex.find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
