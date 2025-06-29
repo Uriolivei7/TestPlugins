@@ -1,4 +1,4 @@
-package com.lagradost.cloudstream3.plugins
+package com.example // Asegúrate de que este paquete coincida con tu KatanimePlugin.kt
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -25,20 +25,47 @@ class KatanimeProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
 
     // Función auxiliar para parsear un elemento de anime (usado en search y getMainPage)
+    // Se ha modificado para ser más flexible y manejar diferentes estructuras
     private fun parseAnimeItem(element: Element): SearchResponse? {
-        // Selector para el enlace principal del anime
-        val linkElement = element.selectFirst("a.1A2Dc._38LRT") ?: return null
-        val link = linkElement.attr("href")?.let { fixUrl(it) } ?: return null
+        val link: String?
+        val title: String?
+        val posterUrl: String?
 
-        // El título
-        val title = element.selectFirst("a.1A2Dc._2uHIS")?.text()?.trim()
-            ?: element.selectFirst("h3")?.text()?.trim() // Fallback por si usan h3 en otros contextos
-            ?: return null
+        // Intenta parsear como un elemento de búsqueda/recientes
+        val searchLinkElement = element.selectFirst("a._1A2Dc._38LRT")
+        val searchTitleElement = element.selectFirst("a._1A2Dc._2uHIS")
+        val searchPosterElement = element.selectFirst("img")
 
-        // La imagen puede estar en data-src o src
-        val posterElement = element.selectFirst("img")
-        val posterUrl = posterElement?.attr("data-src")?.let { fixUrl(it) }
-            ?: posterElement?.attr("src")?.let { fixUrl(it) }
+        if (searchLinkElement != null && searchTitleElement != null && searchPosterElement != null) {
+            // Es un elemento de búsqueda o reciente (div._135yj _2FQAt ...)
+            link = searchLinkElement.attr("href")?.let { fixUrl(it) }
+            title = searchTitleElement.text()?.trim()
+            posterUrl = searchPosterElement.attr("src")?.let { fixUrl(it) }
+                ?: searchPosterElement.attr("data-src")?.let { fixUrl(it) } // Fallback para data-src
+        } else {
+            // Intenta parsear como un elemento del slider (li.slider-item)
+            val sliderLinkElement = element.selectFirst("a.viewBtn")
+            val sliderTitleElement = element.selectFirst(".slider_info h1")
+            val sliderPosterElement = element.selectFirst(".sliderimg img")
+
+            if (sliderLinkElement != null && sliderTitleElement != null && sliderPosterElement != null) {
+                link = sliderLinkElement.attr("href")?.let { fixUrl(it) }
+                title = sliderTitleElement.text()?.trim()
+                posterUrl = sliderPosterElement.attr("data-src")?.let { fixUrl(it) }
+                    ?: sliderPosterElement.attr("src")?.let { fixUrl(it) } // Fallback para src
+            } else {
+                Log.w("Katanime", "parseAnimeItem - Elemento no coincide con estructura de búsqueda/recientes ni de slider.")
+                return null // No se pudo parsear
+            }
+        }
+
+        // Si alguno de los datos críticos (título, enlace, poster) es nulo, no añadimos este elemento
+        if (title.isNullOrBlank() || link.isNullOrBlank() || posterUrl.isNullOrBlank()) {
+            Log.w("Katanime", "parseAnimeItem - Datos incompletos, saltando: Title='$title', Link='$link', Poster='$posterUrl'")
+            return null
+        }
+
+        Log.d("Katanime", "parseAnimeItem - Parseado: Title='$title', Link='$link', Poster='$posterUrl'")
 
         return newTvSeriesSearchResponse(
             name = title,
@@ -48,6 +75,7 @@ class KatanimeProvider : MainAPI() {
             this.type = TvType.Anime
         }
     }
+
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
@@ -59,60 +87,65 @@ class KatanimeProvider : MainAPI() {
             return null
         }
 
-        // --- 1. Animes Populares ---
-        // Basado en image_710b7c.png: div#widget.dark
-        val popularWidget = doc.selectFirst("div#widget.dark")
-        if (popularWidget != null) {
-            val popularAnimeElements = popularWidget.select("div._type3.flex") // Contenedor de cada anime popular
-            val popularItems = popularAnimeElements.mapNotNull { parseAnimeItem(it) }
-            if (popularItems.isNotEmpty()) {
-                items.add(HomePageList("Animes Populares", popularItems))
-                Log.d("Katanime", "getMainPage - Se añadió la sección 'Animes Populares' con ${popularItems.size} elementos.")
-            } else {
-                Log.w("Katanime", "getMainPage - 'Animes Populares' no encontró elementos con los selectores internos.")
-            }
+        // --- 1. Carrusel Principal (Slider) ---
+        // Selector para los elementos del slider principal
+        val sliderElements = doc.select("ul#mainslider li.slider-item")
+        val sliderItems = sliderElements.mapNotNull { parseAnimeItem(it) }
+        if (sliderItems.isNotEmpty()) {
+            items.add(HomePageList("Animes Destacados", sliderItems))
+            Log.d("Katanime", "getMainPage - Se añadió la sección 'Animes Destacados' con ${sliderItems.size} elementos.")
         } else {
-            Log.w("Katanime", "getMainPage - No se encontró el widget de 'Animes Populares' (div#widget.dark).")
+            Log.w("Katanime", "getMainPage - 'Animes Destacados' no encontró elementos con los selectores internos (ul#mainslider li.slider-item).")
         }
 
 
-        // --- 2. Animes Recientes ---
-        // Asumiendo que "Animes Recientes" son los carruseles principales fuera del widget de populares.
-        // Las capturas de búsqueda (`image_710f77.png`, `image_710f19.png`) muestran `div id="content-full"`
-        // y dentro de este, contenedores de anime como `div._135yj._2FQAt.full._2MJki` o `div._2NNxg.flex`.
-        // Buscaremos estos contenedores directamente dentro de `#content-full` y los agruparemos como "Animes Recientes".
+        // --- 2. Capítulos Recientes (Animes Recientes) ---
+        // Buscamos la sección con el h3 "Capítulos recientes" y luego sus elementos individuales
+        val recentChaptersTitle = doc.selectFirst("h3.carousel.t:contains(Capítulos recientes)")
+        if (recentChaptersTitle != null) {
+            val recentAnimeElements = recentChaptersTitle.nextElementSibling()?.select("div._135yj._2FQAt.chap._2mJki")
+            val recentItems = recentAnimeElements?.mapNotNull { chapterElement ->
+                // Para los capítulos recientes, necesitamos el link al ANIME, no al capítulo
+                // El link al anime está en el <a> con clase _1A2Dc _2uHIS
+                val animeLinkElement = chapterElement.selectFirst("div._2NNxg a._1A2Dc._2uHIS")
+                val animeLink = animeLinkElement?.attr("href")?.let { fixUrl(it) }
+                val animeTitle = animeLinkElement?.text()?.trim()
 
-        val contentFullDiv = doc.selectFirst("div#content-full")
-        if (contentFullDiv != null) {
-            // Selectores para los contenedores de anime dentro de content-full
-            val recentAnimeContainers = contentFullDiv.select("div._135yj._2FQAt.full._2MJki, div._2NNxg.flex")
+                // El póster es el mismo que el del capítulo
+                val posterElement = chapterElement.selectFirst("img")
+                val posterUrl = posterElement?.attr("data-src")?.let { fixUrl(it) }
+                    ?: posterElement?.attr("src")?.let { fixUrl(it) } // Fallback para src
 
-            // Asegurémonos de que no estamos volviendo a seleccionar los de "Animes Populares" si también aparecen aquí (aunque no deberían por el ID del widget)
-            val recentItems = recentAnimeContainers.mapNotNull { element ->
-                // Opcional: si "Animes Recientes" tiene un título distintivo, podemos buscarlo:
-                // val h2Title = element.selectFirst("h2.carousel__title")?.text()?.trim()
-                // if (h2Title == "Animes Recientes" || h2Title == "Novedades") {
-                //    parseAnimeItem(element)
-                // } else { null }
-
-                // Por ahora, simplemente parsearemos todos los elementos encontrados en #content-full
-                parseAnimeItem(element)
-            }
+                if (animeTitle.isNullOrBlank() || animeLink.isNullOrBlank() || posterUrl.isNullOrBlank()) {
+                    Log.w("Katanime", "getMainPage - Capítulos Recientes: Datos incompletos para capítulo, saltando. Title='$animeTitle', Link='$animeLink', Poster='$posterUrl'")
+                    null
+                } else {
+                    newTvSeriesSearchResponse(
+                        name = animeTitle,
+                        url = animeLink
+                    ) {
+                        this.posterUrl = posterUrl
+                        this.type = TvType.Anime
+                    }
+                }
+            } ?: emptyList()
 
             if (recentItems.isNotEmpty()) {
-                items.add(HomePageList("Animes Recientes", recentItems))
-                Log.d("Katanime", "getMainPage - Se añadió la sección 'Animes Recientes' con ${recentItems.size} elementos.")
+                items.add(HomePageList("Capítulos Recientes", recentItems))
+                Log.d("Katanime", "getMainPage - Se añadió la sección 'Capítulos Recientes' con ${recentItems.size} elementos.")
             } else {
-                Log.w("Katanime", "getMainPage - 'Animes Recientes' no encontró elementos con los selectores internos o está vacía.")
+                Log.w("Katanime", "getMainPage - 'Capítulos Recientes' no encontró elementos válidos o está vacía después de parsear.")
             }
         } else {
-            Log.w("Katanime", "getMainPage - No se encontró el contenedor principal 'div#content-full'.")
+            Log.w("Katanime", "getMainPage - No se encontró la sección 'Capítulos Recientes'.")
         }
 
+        // El widget.dark de "Animes Populares" no está en la Home principal, está en /populares/
+        // O si está, tiene que tener un selector muy específico y no parece ser un carousel en la Home.
+        // Lo dejamos fuera de la Home por ahora, o buscaré en el HTML completo de /populares/
 
         return newHomePageResponse(items, false)
     }
-
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
@@ -125,16 +158,19 @@ class KatanimeProvider : MainAPI() {
             return emptyList()
         }
 
-        // Selector específico para los resultados de búsqueda: `div._135yj._2FQAt.full._2MJki`
-        val searchResults = response.select("div._135yj._2FQAt.full._2MJki")
+        // Selector específico para los contenedores de resultados de búsqueda
+        // Aquí usamos el selector general que incluye '_2mJki' y que funcionó.
+        val searchResults = response.select("div._135yj._2FQAt.full._2mJki")
 
-        Log.d("Katanime", "search - Número de resultados encontrados con selector 'div._135yj._2FQAt.full._2MJki': ${searchResults.size}")
+        Log.d("Katanime", "search - Número de resultados encontrados con selector 'div._135yj._2FQAt.full._2mJki': ${searchResults.size}")
 
         val animeList = searchResults.mapNotNull { parseAnimeItem(it) }
 
         Log.d("Katanime", "search - Total de animes en la lista después de parsear: ${animeList.size}")
         return animeList
     }
+
+    // ... (El resto del código de load, getEpisodes, EpisodeLoadData, EpisodeResponse, etc., se mantiene igual)
 
     data class EpisodeLoadData(
         val title: String,
@@ -150,7 +186,6 @@ class KatanimeProvider : MainAPI() {
 
         // Selectores de la página de carga de anime
         val title = doc.selectFirst("h1.title")?.text() ?: ""
-        // Asumiendo que la portada grande sigue en div.cover img, si no, inspeccionar
         val posterUrl = doc.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
         val description = doc.selectFirst("div.description-p p")?.text()?.trim() ?: ""
         val tags = doc.select("ul.genres li a").map { it.text().trim() }
