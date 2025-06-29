@@ -45,7 +45,7 @@ class KatanimeProvider : MainAPI() {
         override var backgroundPosterUrl: String?,
         override var contentRating: String?,
         val episodes: List<Episode>?
-        // **ELIMINADO**: 'uniqueUrl' no es parte de la interfaz LoadResponse según tu definición.
+        // **uniqueUrl ELIMINADO COMPLETAMENTE DE AQUÍ**
     ) : LoadResponse
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -107,7 +107,7 @@ class KatanimeProvider : MainAPI() {
             posterHeaders = null,
             backgroundPosterUrl = posterUrl,
             contentRating = null
-            // **ELIMINADO**: 'uniqueUrl' no es un parámetro para LoadResponse.
+            // **uniqueUrl ELIMINADO COMPLETAMENTE DE AQUÍ**
         )
     }
 
