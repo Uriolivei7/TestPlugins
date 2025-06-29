@@ -253,5 +253,25 @@
     "iconUrl": "https://pelispedia.is/wp-content/uploads/2022/01/cropped-pelispediafavicon-e1642201982676-32x32.png",
     "language": "es",
     "fileSize": 14000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/MhdflixProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 14,
+    "name": "MhdFlix",
+    "internalName": "MhdflixProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para ww1.mhdflix.com",
+    "tvTypes": [
+      "TvSeries",
+      "Movie",
+      "Anime"
+    ],
+    "iconUrl": "https://ww1.mhdflix.com/favicon.ico",
+    "language": "es",
+    "fileSize": 15000
   }
 ]
