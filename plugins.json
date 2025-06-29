@@ -236,21 +236,22 @@
     "fileSize": 31000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/KatanimeProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/PelispediaProvider.cs3",
     "status": 1,
     "version": 1,
     "apiVersion": 13,
-    "name": "Katanime",
-    "internalName": "KatanimeProvider",
+    "name": "Pelispedia",
+    "internalName": "PelispediaProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para katanime.net",
+    "description": "Plugin para pelispedia.is",
     "tvTypes": [
-      "Anime"
+      "TvSeries",
+      "Movie"
     ],
-    "iconUrl": "https://katanime.net/favicon.ico?v=5.0.48",
+    "iconUrl": "https://pelispedia.is/wp-content/uploads/2022/01/cropped-pelispediafavicon-e1642201982676-32x32.png",
     "language": "es",
-    "fileSize": 26000
+    "fileSize": 14000
   }
 ]
