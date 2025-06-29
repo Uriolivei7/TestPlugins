@@ -66,7 +66,7 @@ class KatanimeProvider : MainAPI() {
             val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT")
             val link = anchor?.attr("href")
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
-                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") ?: "" // Se añade ?: "" para asegurar String
+                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") ?: ""
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
 
             if (title != null && link != null) {
@@ -99,7 +99,7 @@ class KatanimeProvider : MainAPI() {
             val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT")
             val link = anchor?.attr("href")
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
-                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") ?: "" // Se añade ?: ""
+                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") ?: ""
             val chapterTitle = itemDiv.selectFirst("span[class*=\"_2y8kd\"][class*=\"etag\"]")?.text()
             val seriesTitle = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
 
@@ -149,8 +149,10 @@ class KatanimeProvider : MainAPI() {
             val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT")
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
-            val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
-                ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src") ?: "" // Se añade ?: ""
+            // Intenta ser más directo en la búsqueda de la imagen, ya que el log mostraba Img: vacío
+            val img = itemDiv.selectFirst("img[data-src]")?.attr("data-src") // Busca img con data-src
+                ?: itemDiv.selectFirst("img[src]")?.attr("src") // Si no, busca img con src
+                ?: "" // Fallback a cadena vacía
 
             Log.d("Katanime", "Buscador - Imagen obtenida para '$title': $img")
 
@@ -215,10 +217,12 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
         Log.d("Katanime", "load - Tags: $tags")
 
-        val episodes = doc.select("div#c_list li a.cap_list").mapNotNull { element ->
+        // CORREGIDO: Removido 'li' del selector de episodios
+        val episodes = doc.select("div#c_list a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
-            // CORREGIDO: El h3 no tiene una clase específica aquí, es solo el h3 dentro del elemento <a>
-            val epTitle = element.selectFirst("h3")?.text() ?: ""
+            // Revertido a 'h3.entry-title-h2' basado en image_076c17.png
+            val epTitle = element.selectFirst("h3.entry-title-h2")?.text() ?: ""
+            Log.d("Katanime", "load - Extrayendo episodio: URL=$epurl, Título encontrado='$epTitle'") // Log para depurar título
 
             val episodeNumberRegex = Regex("""Capítulo\s*(\d+)""")
             val episodeNumber = episodeNumberRegex.find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
@@ -226,7 +230,7 @@ class KatanimeProvider : MainAPI() {
             val realimg = poster
 
             if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                Log.d("Katanime", "load - Episodio encontrado: $epTitle, URL: $epurl")
+                Log.d("Katanime", "load - Episodio válido: $epTitle, URL: $epurl, Número: $episodeNumber")
                 newEpisode(
                     EpisodeLoadData(epTitle, epurl).toJson()
                 ) {
@@ -236,7 +240,7 @@ class KatanimeProvider : MainAPI() {
                     this.posterUrl = realimg
                 }
             } else {
-                Log.w("Katanime", "load - Episodio incompleto encontrado. Title: $epTitle, URL: $epurl")
+                Log.w("Katanime", "load - Episodio incompleto encontrado o no extraído. Title: '$epTitle', URL: '$epurl'")
                 null
             }
         }
