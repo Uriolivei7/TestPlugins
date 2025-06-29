@@ -6,7 +6,7 @@ import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.app // Importamos 'app'
+import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.TvSeriesSearchResponse
@@ -17,11 +17,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.TrailerData
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
-// Hemos eliminado:
-// import com.lagradost.cloudstream3.get
-// import com.lagradost.cloudstream3.post
-
 
 class KatanimeProvider : MainAPI() {
     override var name = "Katanime"
@@ -50,11 +45,11 @@ class KatanimeProvider : MainAPI() {
         override var backgroundPosterUrl: String?,
         override var contentRating: String?,
         val episodes: List<Episode>?
+        // ELIMINADO: override var uniqueUrl: String // Quitamos esta línea, ya que no existe en tu LoadResponse
     ) : LoadResponse
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
-        // Usamos app.get() directamente, sin importaciones conflictivas
         val response = app.get(url, interceptor = cfKiller).document
         val searchResults = response.select("a.anime-card")
         val animeList = ArrayList<SearchResponse>()
@@ -81,7 +76,6 @@ class KatanimeProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val cleanUrl = fixUrl(url)
-        // Usamos app.get() directamente
         val doc = app.get(cleanUrl, interceptor = cfKiller).document
         val title = doc.selectFirst("h1.title")?.text() ?: "N/A"
         val posterUrl = doc.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
@@ -113,6 +107,7 @@ class KatanimeProvider : MainAPI() {
             posterHeaders = null,
             backgroundPosterUrl = posterUrl,
             contentRating = null
+            // ELIMINADO: uniqueUrl = cleanUrl // Quitamos este parámetro
         )
     }
 
@@ -148,13 +143,12 @@ class KatanimeProvider : MainAPI() {
 
             try {
                 println("Katanime: Intentando refrescar cookies antes de POST para episodios.")
-                app.get(refererUrl, interceptor = cfKiller) // Usamos app.get()
+                app.get(refererUrl, interceptor = cfKiller)
                 println("Katanime: Cookies refrescadas (GET a refererUrl) exitosamente.")
             } catch (e: Exception) {
                 println("Katanime: Error al intentar refrescar cookies: ${e.message}")
             }
 
-            // Usamos app.post() directamente
             val response = app.post(dataUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
             val jsonString = response.body.string()
             println("Katanime: load - HTML de episodios (primeros 1000 caracteres): ${jsonString.take(1000)}")
@@ -223,7 +217,7 @@ class KatanimeProvider : MainAPI() {
         val active: Boolean
     )
 
-    // El método loadLinks está comentado, como acordamos.
+    // El método loadLinks está comentado.
     /*
     override suspend fun loadLinks(
         data: String,
