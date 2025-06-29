@@ -25,7 +25,7 @@ class KatanimeProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
 
     // Función auxiliar para parsear un elemento de anime (usado en search y getMainPage)
-    // He agregado un parámetro 'isSlider' y 'isRecentEpisodeCard' para diferenciar el parseo
+    // Se ha agregado un parámetro 'isSlider' y 'isRecentEpisodeCard' para diferenciar el parseo
     // y usar el selector de póster más adecuado.
     private fun parseAnimeItem(element: Element, isSlider: Boolean = false, isRecentEpisodeCard: Boolean = false): SearchResponse? {
         var link: String? = null
@@ -107,10 +107,6 @@ class KatanimeProvider : MainAPI() {
         ) {
             this.posterUrl = posterUrl
             this.type = TvType.Anime
-            // Los errores de apiName y posterUrl en la línea 50/51 del log anterior
-            // se referían a esto. Si estás usando una versión más antigua de Cloudstream,
-            // 'apiName' podría no existir. 'posterUrl' sí existe y se usa arriba.
-            // Asegúrate de que no haya líneas comentadas o incorrectas en tu versión real.
         }
     }
 
@@ -210,17 +206,16 @@ class KatanimeProvider : MainAPI() {
 
         val title = doc.selectFirst("h1.comics-title.ajp")?.text() ?: ""
 
-        // --- INICIO DE CAMBIO DE PÓSTER EN LA FUNCIÓN LOAD ---
-        // Nuevo intento para el poster principal:
-        // Buscamos el div con id "animeinfo", y dentro, la imagen.
-        // Dadas tus capturas, `src` debería ser el que contenga la URL correcta.
-        val posterElement = doc.selectFirst("div.anime-poster img")
+        // --- INICIO DE CAMBIO DE PÓSTER EN LA FUNCIÓN LOAD (SELECTOR BASADO EN TUS LOGS ANTERIORES) ---
+        // Se busca el div con ID "animeinfo", y dentro, la imagen.
+        // Si este selector no funciona, tendrás que inspeccionar la página actual.
+        val posterElement = doc.selectFirst("div#animeinfo img") // <-- Selector ajustado
         val posterUrl = posterElement?.attr("src")?.let { fixUrl(it) }
             ?: posterElement?.attr("data-src")?.let { fixUrl(it) }
             ?: "" // Si no se encuentra ninguna, dejarlo vacío, para que no sea null.
 
         if (posterUrl.isBlank()) {
-            Log.w("Katanime", "load - No se pudo extraer el poster principal del anime en: $cleanUrl. Selector: div#animeinfo img")
+            Log.w("Katanime", "load - No se pudo extraer el poster principal del anime en: $cleanUrl. Selector: div#animeinfo img (Verificar selector en HTML si esto falla).")
         }
         // --- FIN DE CAMBIO DE PÓSTER EN LA FUNCIÓN LOAD ---
 
@@ -229,7 +224,7 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("div.anime-genres a").map { it.text().trim() }
 
         Log.d("Katanime", "load - Title: $title")
-        Log.d("Katanime", "load - Poster URL: $posterUrl") // Ahora debería mostrar el URL correcto o vacío, no null
+        Log.d("Katanime", "load - Poster URL: $posterUrl") // Ahora debería mostrar el URL correcto o vacío
         Log.d("Katanime", "load - Description: $description")
         Log.d("Katanime", "load - Tags: $tags")
 
@@ -245,8 +240,11 @@ class KatanimeProvider : MainAPI() {
             return null
         }
 
-        val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content") ?: ""
-        Log.d("Katanime", "load - CSRF Token: $csrfToken")
+        // --- INICIO DE CAMBIO PARA EXTRACCIÓN DE CSRF TOKEN ---
+        // Extrae el token CSRF del input oculto, como se vio en el HTML y JS
+        val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value") ?: ""
+        Log.d("Katanime", "load - CSRF Token extraído de input[name=_token]: $csrfToken")
+        // --- FIN DE CAMBIO PARA EXTRACCIÓN DE CSRF TOKEN ---
 
         val episodesList = getEpisodes(episodesDataUrl, csrfToken, cleanUrl)
 
@@ -286,39 +284,9 @@ class KatanimeProvider : MainAPI() {
         while (hasMorePages) {
             Log.d("Katanime", "getEpisodes - Intentando obtener página $currentPage de episodios de: $episodesApiUrl")
 
-            // *** Estrategia mejorada para CSRF y cookies ***
-            // 1. Obtener cookies actualizadas de la página principal (si no se obtuvieron ya o si caducaron)
-            // Esto es crucial para la cookie XSRF-TOKEN que se usa con el CSRF token.
-            val initialResponse = try {
-                app.get(refererUrl, interceptor = cfKiller) // Usa refererUrl para obtener la página del anime
-            } catch (e: Exception) {
-                Log.e("Katanime", "getEpisodes - Error al realizar GET inicial a $refererUrl: ${e.message}")
-                // Si falla el GET inicial, no podemos continuar de forma fiable
-                return emptyList()
-            }
-
-            // Extrae el token CSRF de la página, por si acaso se refrescó o cambió
-            val newCsrfToken = initialResponse.document.selectFirst("meta[name=\"csrf-token\"]")?.attr("content") ?: csrfToken // Usar el nuevo token si está disponible, si no, el anterior.
-            Log.d("Katanime", "getEpisodes - Nuevo CSRF Token (posiblemente actualizado): $newCsrfToken")
-
-            // Intenta extraer y usar la cookie XSRF-TOKEN directamente si es posible
-            val xsrfCookie = initialResponse.headers["Set-Cookie"]?.let {
-                // Esto es un ejemplo, el parsing de Set-Cookie puede ser más complejo.
-                // Busca la cookie 'XSRF-TOKEN' o 'laravel_session' si existe.
-                // Por simplicidad, Cloudstream/OkHttp ya deberían manejar esto automáticamente con `app.get`.
-                // Si esto no funciona, el problema no es que no se establezca, sino que no se envíe.
-                val cookieHeader = initialResponse.headers.filter { it.first.equals("Set-Cookie", ignoreCase = true) }
-                val xsrf = cookieHeader.firstOrNull { it.second.contains("XSRF-TOKEN", ignoreCase = true) }?.second
-                // Puedes parsear xsrf para obtener solo el valor de la cookie
-                // Por ejemplo: "XSRF-TOKEN=eyJ...; expires=...; path=/; httponly; samesite=lax" -> "eyJ..."
-                Log.d("Katanime", "getEpisodes - Headers Set-Cookie: $cookieHeader")
-                xsrf
-            } ?: ""
-            Log.d("Katanime", "getEpisodes - XSRF-TOKEN cookie encontrada: ${xsrfCookie.take(50)}") // Muestra solo el inicio por brevedad
-
-
+            // No se recarga la página principal aquí; se usa el csrfToken pasado desde 'load'
             val requestBody = FormBody.Builder()
-                .add("_token", newCsrfToken) // Usa el token potencialmente actualizado
+                .add("_token", csrfToken) // Usa el token CSRF pasado
                 .add("pagina", currentPage.toString())
                 .build()
 
@@ -331,9 +299,8 @@ class KatanimeProvider : MainAPI() {
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
                 "Origin" to mainUrl, // La base del sitio es el origen
-                "X-CSRF-TOKEN" to newCsrfToken // Asegúrate de enviar el token también en esta cabecera
+                "X-CSRF-TOKEN" to csrfToken // Sigue enviando el token en esta cabecera por si acaso
                 // Cloudstream y OkHttp deberían manejar las cookies automáticamente si el dominio es el mismo.
-                // No necesitamos añadir un "Cookie" header explícito a menos que haya un problema con OkHttp.
             )
 
             val response = try {
@@ -371,7 +338,7 @@ class KatanimeProvider : MainAPI() {
                     currentPage++
                 }
             } else {
-                Log.d("Katanime", "getEpisodes - No se encontraron datos de episodios o JSON nulo/vac├¡o para la p├ígina $currentPage. Finalizando.")
+                Log.d("Katanime", "getEpisodes - No se encontraron datos de episodios o JSON nulo/vacío para la página $currentPage. Finalizando.")
                 hasMorePages = false
             }
         }
