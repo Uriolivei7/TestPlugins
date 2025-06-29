@@ -11,6 +11,68 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import okhttp3.FormBody
 import kotlinx.coroutines.delay
+import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
+
+
+// Puedes definir esta clase en algún lugar accesible de tu plugin
+// Representa la estructura de un episodio en la respuesta JSON
+// (Ya la tenías, la he incluido para el contexto completo)
+data class KatanimeEpisode(
+    @JsonProperty("chapter") val chapter: String,
+    @JsonProperty("link") val link: String // El enlace al capítulo individual
+)
+
+// Y la respuesta completa de la API de episodios
+// (Ya la tenías, la he incluido para el contexto completo)
+data class EpisodeResponse( // Cambiado a EpisodeResponse para evitar conflicto con la tuya
+    val ep: EpisodesWrapper?, // Make nullable just in case
+    val valoration: String?,
+    val last: LastEpisode?
+)
+
+data class EpisodesWrapper(
+    val current_page: Int,
+    val data: List<EpisodeItem>,
+    val first_page_url: String?,
+    val from: Int,
+    val last_page: Int,
+    val links: List<LinkItem>?,
+    val next_page_url: String?,
+    val path: String,
+    val per_page: Int,
+    val prev_page_url: String?,
+    val to: Int,
+    val total: Int
+)
+
+data class EpisodeItem(
+    val id: Int?,
+    val title: String?,
+    val numero: String?,
+    val thumb: String?,
+    val created_at: String?,
+    val url: String
+)
+
+data class LastEpisode(
+    val numero: String?
+)
+
+data class LinkItem(
+    val url: String?,
+    val label: String,
+    val active: Boolean
+)
+
+// Clase auxiliar para pasar datos entre load y loadLinks (si la usas)
+data class EpisodeLoadData(
+    val title: String,
+    val url: String, // Esta URL SIEMPRE debe ser la URL del CAPÍTULO para loadLinks
+    val poster: String?
+)
+
 
 class KatanimeProvider : MainAPI() {
     override var name = "Katanime"
@@ -22,8 +84,14 @@ class KatanimeProvider : MainAPI() {
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
 
+    // Cliente para Cloudflare, asegúrate de que esté correctamente inicializado y utilizado.
     private val cfKiller = CloudflareKiller()
 
+    // ObjectMapper para JSON
+    private val mapper = ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+
+
+    // --- parseAnimeItem: Refinado para consistencia en URLs de ANIME ---
     private fun parseAnimeItem(element: Element, isSlider: Boolean = false, isRecentEpisodeCard: Boolean = false): SearchResponse? {
         var link: String? = null
         var title: String? = null
@@ -50,53 +118,12 @@ class KatanimeProvider : MainAPI() {
                 return null
             }
         } else if (isRecentEpisodeCard) {
-            // Lógica para las cards de "Capítulos Recientes"
+            // Para las cards de "Capítulos Recientes", el primer <a> con estas clases es el link al ANIME.
             val animeLinkElement = element.selectFirst("div._2NNxg a._1A2Dc._2uHIS")
             val posterImgElement = element.selectFirst("img")
 
             if (animeLinkElement != null && posterImgElement != null) {
-                // *** CAMBIO CRÍTICO AQUÍ: Extraer el URL del ANIME, no del capítulo ***
-                // Asumo que el elemento `a._1A2Dc._2uHIS` en los capítulos recientes
-                // te lleva a la página del ANIME. Si no es así, necesitarás ajustar el selector.
                 link = animeLinkElement.attr("href")?.let { fixUrl(it) }
-                // Asegurarse de que el enlace es del anime, no del capítulo
-                if (link?.contains("/capitulo/") == true) {
-                    // Si el link aún apunta a un capítulo, intenta extraer el enlace del anime del mismo elemento
-                    // o busca un elemento padre que contenga el enlace al anime.
-                    // Por ahora, asumimos que `animeLinkElement` ya apunta al ANIME.
-                    // Si no, necesitaríamos una lógica más compleja para "subir" en el DOM
-                    // o que el HTML del capítulo reciente contenga un enlace directo al anime.
-                    // VAMOS A SIMPLIFICAR: el título del capítulo reciente es el nombre del anime,
-                    // y su enlace es al capítulo. PERO, el enlace real al anime puede estar
-                    // en un elemento padre o un elemento hermano.
-                    // Para Katanime, es común que la URL en el card de "capítulo reciente" sea la URL del capítulo.
-                    // Necesitamos ir a la página del CAPÍTULO, y desde ahí, obtener la URL del ANIME.
-                    // ESTO ES UN ERROR DE DISEÑO SI LLAMAMOS A LOAD CON UNA URL DE CAPÍTULO.
-                    // La mejor solución es que parseAnimeItem SIEMPRE devuelva la URL del ANIME.
-
-                    // RECONSIDERACIÓN: Si el `animeLinkElement` (a._1A2Dc._2uHIS) ya apunta al anime, genial.
-                    // Si apunta al capítulo, entonces el `SearchResponse` para "Capítulos Recientes"
-                    // debería llevar al anime asociado.
-                    // Basado en el log:
-                    // Link='https://katanime.net/capitulo/lazarus-13/'
-                    // Esto es un link de capítulo. Necesitamos cambiar cómo `getMainPage` o `parseAnimeItem`
-                    // genera el `link` para las tarjetas de capítulos recientes.
-                    //
-                    // A CORTO PLAZO: Dejamos el link al capítulo, y en `load` validamos si es un capítulo,
-                    // y si lo es, navegamos a la página del anime desde allí.
-                    // Sin embargo, `load` debe recibir un URL de ANIME.
-
-                    // SOLUCIÓN: Buscar el link al anime desde el card de capítulo.
-                    // Katanime en las cards de capítulos recientes:
-                    // <div class="_2NNxg">
-                    //   <a href="https://katanime.net/anime/lazarus/" class="_1A2Dc _2uHIS">Lazarus</a>
-                    //   <a href="https://katanime.net/capitulo/lazarus-13/" class="_1A2Dc">...</a>
-                    // </div>
-                    // ¡Eureka! El primer <a> con _1A2Dc _2uHIS YA ES EL LINK AL ANIME.
-
-                    link = animeLinkElement.attr("href")?.let { fixUrl(it) }
-                }
-
                 title = animeLinkElement.text()?.trim()
                 posterUrl = posterImgElement.attr("data-src")?.let { fixUrl(it) }
                     ?: posterImgElement.attr("src")?.let { fixUrl(it) }
@@ -105,6 +132,7 @@ class KatanimeProvider : MainAPI() {
                     Log.w("Katanime", "parseAnimeItem - Datos incompletos (capítulo reciente), saltando: Title='$title', Link='$link', Poster='$posterUrl'")
                     return null
                 }
+                // ¡Confirmado! Este link ya debe ser al ANIME, no al capítulo.
                 Log.d("Katanime", "parseAnimeItem - Parseado (capítulo reciente, link a anime): Title='$title', Link='$link', Poster='$posterUrl'")
             } else {
                 Log.w("Katanime", "parseAnimeItem - Elemento de capítulo reciente no coincide con estructura esperada. HTML: ${element.html().take(200)}")
@@ -113,8 +141,9 @@ class KatanimeProvider : MainAPI() {
 
         } else {
             // Lógica para resultados de búsqueda y animes populares
+            // El selector `a._1A2Dc._38LRT` parece ser el enlace directo del ANIME.
             val linkElement = element.selectFirst("a._1A2Dc._38LRT")
-            val titleElement = element.selectFirst("div._2NNxg a._1A2Dc._2uHIS")
+            val titleElement = element.selectFirst("div._2NNxg a._1A2Dc._2uHIS") // Título dentro del mismo contenedor
             val posterImgElement = element.selectFirst("img")
 
             if (linkElement != null && titleElement != null && posterImgElement != null) {
@@ -226,19 +255,14 @@ class KatanimeProvider : MainAPI() {
         return animeList
     }
 
-    data class EpisodeLoadData(
-        val title: String,
-        val url: String, // Esta URL SIEMPRE debe ser la URL del ANIME, no del capítulo
-        val poster: String?
-    )
-
     override suspend fun load(url: String): LoadResponse? {
         Log.d("Katanime", "load - URL de entrada: $url")
         val cleanUrl = fixUrl(url)
 
-        // Validar si la URL es de un capítulo, y si lo es, redirigir a la URL del anime
+        // *** CAMBIO CRÍTICO: Redirigir de URL de capítulo a URL de anime si es necesario ***
         var currentAnimeUrl = cleanUrl
         if (cleanUrl.contains("/capitulo/")) {
+            Log.d("Katanime", "load - La URL de entrada es un capítulo. Intentando obtener la URL del anime...")
             // Ir a la página del capítulo para obtener el enlace a la página del anime
             val chapterDoc = try {
                 app.get(cleanUrl, interceptor = cfKiller).document
@@ -246,19 +270,22 @@ class KatanimeProvider : MainAPI() {
                 Log.e("Katanime", "load - Error al obtener la página del capítulo para redirigir a anime URL: ${e.message}")
                 return null
             }
-            val animeLinkElement = chapterDoc.selectFirst("h1.comics-title a") // Asumo que el título del capítulo tiene un link al anime
+            // Asegúrate de que este selector (h1.comics-title a) es correcto para Katanime.net
+            val animeLinkElement = chapterDoc.selectFirst("h1.comics-title a")
             if (animeLinkElement != null) {
                 currentAnimeUrl = animeLinkElement.attr("href")?.let { fixUrl(it) } ?: currentAnimeUrl
-                Log.d("Katanime", "load - Redirigiendo de URL de capítulo a URL de anime: $currentAnimeUrl")
+                Log.d("Katanime", "load - Redirigido de URL de capítulo a URL de anime: $currentAnimeUrl")
             } else {
-                Log.e("Katanime", "load - No se pudo encontrar el enlace al anime desde la URL del capítulo: $cleanUrl")
+                Log.e("Katanime", "load - No se pudo encontrar el enlace al anime desde la URL del capítulo: $cleanUrl (Selector 'h1.comics-title a' falló)")
                 return null
             }
         }
 
+        // Obtener el documento de la página del anime (ya asegurada que es la URL del anime)
         val doc = app.get(currentAnimeUrl, interceptor = cfKiller).document
 
-        val title = doc.selectFirst("h1.comics-title.ajp")?.text() ?: ""
+        // Extraer información básica del anime
+        val title = doc.selectFirst("h1.comics-title.ajp")?.text()?.trim() ?: ""
 
         val posterElement = doc.selectFirst("div#animeinfo img")
         val posterUrl = posterElement?.attr("src")?.let { fixUrl(it) }
@@ -266,7 +293,7 @@ class KatanimeProvider : MainAPI() {
             ?: ""
 
         if (posterUrl.isBlank()) {
-            Log.w("Katanime", "load - No se pudo extraer el poster principal del anime en: $currentAnimeUrl. Selector: div#animeinfo img (Verificar selector en HTML si esto falla).")
+            Log.w("Katanime", "load - No se pudo extraer el poster principal del anime en: $currentAnimeUrl. (Verificar selector 'div#animeinfo img').")
         }
 
         val description = doc.selectFirst("div#sinopsis p")?.text()?.trim() ?: ""
@@ -277,6 +304,7 @@ class KatanimeProvider : MainAPI() {
         Log.d("Katanime", "load - Description: $description")
         Log.d("Katanime", "load - Tags: $tags")
 
+        // Obtener la data-url para la API de episodios (normalmente desde div#c_list)
         val episodesDataUrl = doc.selectFirst("div#c_list")?.attr("data-url")?.let { fixUrl(it) }
         Log.d("Katanime", "load - Extracted episodesDataUrl: $episodesDataUrl")
 
@@ -285,11 +313,18 @@ class KatanimeProvider : MainAPI() {
             return null
         }
 
-        val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value") ?: ""
-        Log.d("Katanime", "load - CSRF Token extraído de input[name=_token]: $csrfToken")
+        // Extraer el token CSRF del input oculto
+        val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
+        if (csrfToken.isNullOrBlank()) {
+            Log.e("Katanime", "load - CSRF Token no encontrado o vacío en la página de anime: $currentAnimeUrl.")
+            return null
+        }
+        Log.d("Katanime", "load - CSRF Token extraído: $csrfToken")
 
-        val episodesList = getEpisodes(episodesDataUrl, csrfToken, currentAnimeUrl) // Pass currentAnimeUrl as referer
+        // Llamar a getEpisodes para obtener la lista de episodios
+        val episodesList = getEpisodes(episodesDataUrl, csrfToken, currentAnimeUrl) // currentAnimeUrl como Referer
 
+        // Construir la respuesta LoadResponse de Cloudstream
         return newTvSeriesLoadResponse(
             name = title,
             url = currentAnimeUrl,
@@ -313,9 +348,10 @@ class KatanimeProvider : MainAPI() {
         }
     }
 
+    // --- getEpisodes: Implementación con manejo de token y paginación ---
     private suspend fun getEpisodes(episodesApiUrl: String, csrfToken: String, refererUrl: String): List<Episode> {
         if (csrfToken.isBlank() || episodesApiUrl.isBlank()) {
-            Log.e("Katanime", "getEpisodes - csrfToken o episodesApiUrl es nulo/vacío. No se pueden obtener episodios.")
+            Log.e("Katanime", "getEpisodes - csrfToken o episodesApiUrl es nulo/vacío al inicio. No se pueden obtener episodios.")
             return emptyList()
         }
 
@@ -326,49 +362,52 @@ class KatanimeProvider : MainAPI() {
         while (hasMorePages) {
             Log.d("Katanime", "getEpisodes - Intentando obtener página $currentPage de episodios de: $episodesApiUrl")
 
+            // Construir el cuerpo del formulario (payload)
             val requestBody = FormBody.Builder()
                 .add("_token", csrfToken)
                 .add("pagina", currentPage.toString())
                 .build()
 
-            // ******************************************************************
-            // POSIBLE CAUSA DE CSRF TOKEN MISMATCH Y SOLUCIÓN (HEADER ADICIONAL)
-            // Asegúrate de que las cookies se manejen correctamente por CloudflareKiller/OkHttp.
-            // A veces, sitios Laravel también esperan el token en un header `X-CSRF-TOKEN`.
-            // Añádelo explícitamente.
-            // ******************************************************************
+            // Cabeceras de la solicitud POST
             val headers = mapOf(
                 "X-Requested-With" to "XMLHttpRequest",
-                "Referer" to refererUrl,
+                "Referer" to refererUrl, // ¡Referer es CRUCIAL y debe ser la URL del ANIME!
                 "Accept" to "application/json, text/javascript, */*; q=0.01",
                 "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
                 "Origin" to mainUrl,
-                "X-CSRF-TOKEN" to csrfToken // <--- ¡Añadido explícitamente!
+                "X-CSRF-TOKEN" to csrfToken // <-- ¡Añadido explícitamente a las cabeceras!
             )
 
             val response = try {
                 app.post(episodesApiUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
             } catch (e: Exception) {
-                Log.e("Katanime", "getEpisodes - Error en solicitud POST a $episodesApiUrl: ${e.message}")
-                hasMorePages = false
+                Log.e("Katanime", "getEpisodes - Error en solicitud POST a $episodesApiUrl (Página $currentPage): ${e.message}")
+                hasMorePages = false // Detener el bucle en caso de error
                 break
             }
 
             val jsonString = response.body.string()
-            Log.d("Katanime", "getEpisodes - Respuesta JSON (primeros 500 chars): ${jsonString.take(500)}")
+            Log.d("Katanime", "getEpisodes - Respuesta JSON (primeros 500 chars) para página $currentPage: ${jsonString.take(500)}")
 
-            val episodeData = tryParseJson<EpisodeResponse>(jsonString)
+            // Intentar parsear el JSON
+            val episodeData = try {
+                mapper.readValue(jsonString, EpisodeResponse::class.java)
+            } catch (e: Exception) {
+                Log.e("Katanime", "getEpisodes - Error al parsear JSON de episodios para página $currentPage: ${e.message}")
+                null
+            }
 
-            if (episodeData != null && episodeData.ep?.data?.isNotEmpty() == true) { // Añadido safe call '?' para 'ep'
+            if (episodeData != null && episodeData.ep?.data?.isNotEmpty() == true) {
                 for (epItem in episodeData.ep.data) {
                     val episodeNum = epItem.numero?.toIntOrNull()
                     episodes.add(
                         newEpisode(
+                            // Se serializa EpisodeLoadData para pasar a loadLinks
                             EpisodeLoadData(
                                 title = "Episodio ${epItem.numero ?: "N/A"}",
-                                url = fixUrl(epItem.url), // Esta URL aquí es la URL del capítulo
+                                url = fixUrl(epItem.url), // Esta URL es la URL del CAPÍTULO individual
                                 poster = epItem.thumb?.let { fixUrl(it) }
                             ).toJson()
                         ) {
@@ -378,60 +417,22 @@ class KatanimeProvider : MainAPI() {
                         }
                     )
                 }
+                // Comprobar si hay más páginas
                 hasMorePages = episodeData.ep.next_page_url != null
                 if (hasMorePages) {
                     currentPage++
+                    delay(100) // Pequeño delay para no abrumar al servidor en paginación rápida
                 }
             } else {
                 Log.d("Katanime", "getEpisodes - No se encontraron datos de episodios o JSON nulo/vacío para la página $currentPage. Finalizando.")
                 hasMorePages = false
             }
         }
-        Log.d("Katanime", "getEpisodes - Total de episodios encontrados: ${episodes.size}")
-        return episodes.reversed()
+        Log.d("Katanime", "getEpisodes - Total de episodios finales encontrados: ${episodes.size}")
+        return episodes.reversed() // Katanime suele devolverlos de más reciente a más antiguo
     }
 
-    // Mantén las data classes como estaban
-    data class EpisodeResponse(
-        val ep: EpisodesWrapper?, // Make nullable just in case
-        val valoration: String?,
-        val last: LastEpisode?
-    )
-
-    data class EpisodesWrapper(
-        val current_page: Int,
-        val data: List<EpisodeItem>,
-        val first_page_url: String?,
-        val from: Int,
-        val last_page: Int,
-        val links: List<LinkItem>?,
-        val next_page_url: String?,
-        val path: String,
-        val per_page: Int,
-        val prev_page_url: String?,
-        val to: Int,
-        val total: Int
-    )
-
-    data class EpisodeItem(
-        val id: Int?,
-        val title: String?,
-        val numero: String?,
-        val thumb: String?,
-        val created_at: String?,
-        val url: String
-    )
-
-    data class LastEpisode(
-        val numero: String?
-    )
-
-    data class LinkItem(
-        val url: String?,
-        val label: String,
-        val active: Boolean
-    )
-
+    // --- loadLinks: Correctamente espera URL de capítulo ---
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -443,17 +444,43 @@ class KatanimeProvider : MainAPI() {
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
         // La URL que llega aquí desde `newEpisode` es la URL del CAPÍTULO.
         // Esto es correcto para `loadLinks`.
-        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data) // Fallback por si 'data' no es JSON
 
         if (targetUrl.isBlank()) {
             Log.e("Katanime", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
             return false
         }
 
-        val doc = app.get(targetUrl, interceptor = cfKiller).document
+        val doc = try {
+            app.get(targetUrl, interceptor = cfKiller).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "loadLinks - Error al obtener la página del capítulo para loadLinks: ${e.message}")
+            return false
+        }
 
-        val playerDivs = doc.select("div.player-data")
+
+        val playerDivs = doc.select("div.player-data") // Busca los elementos que contienen la URL del reproductor
         var foundLinks = false
+
+        if (playerDivs.isEmpty()) {
+            Log.w("Katanime", "loadLinks - No se encontraron elementos 'div.player-data' en la página: $targetUrl")
+            // Intenta buscar si hay un iframe directamente en el cuerpo o un script que cargue el video.
+            // Esto es un fallback, la estructura principal es 'player-data'.
+            val directIframe = doc.selectFirst("iframe[src]")
+            if (directIframe != null) {
+                val iframeSrc = directIframe.attr("src")
+                if (iframeSrc.isNotBlank()) {
+                    Log.d("Katanime", "loadLinks - Encontrado iframe directo en el documento: $iframeSrc")
+                    try {
+                        if (loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)) {
+                            foundLinks = true
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Katanime", "Error al cargar extractor para iframe directo $iframeSrc: ${e.message}")
+                    }
+                }
+            }
+        }
 
         for (playerDiv in playerDivs) {
             val serverName = playerDiv.selectFirst("a")?.text()?.trim() ?: "Desconocido"
@@ -464,35 +491,37 @@ class KatanimeProvider : MainAPI() {
                 val fixedPlayerUrl = fixUrl(playerUrl)
 
                 try {
-                    Log.d("Katanime", "loadLinks - yendo a la URL del reproductor: $fixedPlayerUrl")
                     val playerDoc = app.get(fixedPlayerUrl, interceptor = cfKiller).document
+                    // Busca el iframe dentro del documento del reproductor
                     val finalIframeSrc = playerDoc.selectFirst("iframe")?.attr("src")
 
                     if (!finalIframeSrc.isNullOrBlank()) {
-                        Log.d("Katanime", "loadLinks - Encontrado iframe final en $serverName: $finalIframeSrc")
+                        Log.d("Katanime", "loadLinks - Encontrado iframe final para '$serverName' en URL de reproductor: $finalIframeSrc")
 
                         try {
+                            // Cargar el extractor con la URL del iframe final
                             if (loadExtractor(fixUrl(finalIframeSrc), fixedPlayerUrl, subtitleCallback, callback)) {
                                 foundLinks = true
                             }
                         } catch (e: Exception) {
-                            Log.e("Katanime", "Error al cargar extractor para $finalIframeSrc: ${e.message}")
+                            Log.e("Katanime", "loadLinks - Error al cargar extractor para $finalIframeSrc: ${e.message}")
                         }
 
                     } else {
-                        Log.w("Katanime", "loadLinks - No se encontró iframe dentro de $fixedPlayerUrl para $serverName.")
+                        Log.w("Katanime", "loadLinks - No se encontró iframe dentro de $fixedPlayerUrl para $serverName. HTML del reproductor: ${playerDoc.html().take(500)}")
                     }
                 } catch (e: Exception) {
                     Log.e("Katanime", "loadLinks - Error al obtener contenido del reproductor $fixedPlayerUrl ($serverName): ${e.message}")
                 }
             } else {
-                Log.w("Katanime", "loadLinks - Elemento player-data sin 'data-player' válido.")
+                Log.w("Katanime", "loadLinks - Elemento player-data sin 'data-player' válido para server '$serverName'.")
             }
         }
 
         return foundLinks
     }
 
+    // Función auxiliar para arreglar URLs relativas
     private fun fixUrl(url: String): String {
         return if (url.startsWith("//")) "https:$url" else url
     }
