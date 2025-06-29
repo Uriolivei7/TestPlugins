@@ -56,16 +56,15 @@ class KatanimeProvider : MainAPI() {
 
         // Seccion de "Capítulos Recientes"
         Log.d("Katanime", "getMainPage - Procesando 'Capítulos Recientes'")
-        // Ajuste aquí: usar containsOwn para asegurar que el texto exacto está presente y en minúsculas
-        // y también agregamos la clase 'carousel' que es común.
         val capitulosRecientesH3 = doc.selectFirst("h3.carousel:containsOwn(Capítulos recientes)")
         Log.d("Katanime", "Capítulos Recientes - h3 encontrado: ${capitulosRecientesH3?.outerHtml()?.take(100)}...")
 
         val capitulosRecientesContainer = capitulosRecientesH3?.nextElementSibling()
         Log.d("Katanime", "Capítulos Recientes - Contenedor nextElementSibling: ${capitulosRecientesContainer?.tagName()}#${capitulosRecientesContainer?.id()} ${capitulosRecientesContainer?.classNames()} - ${capitulosRecientesContainer?.outerHtml()?.take(500)}...")
 
-        val homeItemsCapitulos = capitulosRecientesContainer?.select("div[class*=\"chap_2MjKi\"]")?.mapNotNull { itemDiv ->
-            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
+        // Corregido el selector de ítems y el selector del anchor
+        val homeItemsCapitulos = capitulosRecientesContainer?.select("div#article-div div[class*=\"chap\"][class*=\"_2mJki\"]")?.mapNotNull { itemDiv ->
+            val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT") // Cambiado a a._1A2Dc._38LRT
             val link = anchor?.attr("href")
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
                 ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src")
@@ -99,9 +98,9 @@ class KatanimeProvider : MainAPI() {
         val animesRecientesContainer = animesRecientesH3?.nextElementSibling()
         Log.d("Katanime", "Animes Recientes - Contenedor nextElementSibling: ${animesRecientesContainer?.tagName()}#${animesRecientesContainer?.id()} ${animesRecientesContainer?.classNames()} - ${animesRecientesContainer?.outerHtml()?.take(500)}...")
 
-        // Ajuste aquí: Cambiar _2MjKi a _2mJki para que coincida con el log
+        // Corregido el selector del anchor
         val homeItemsAnimes = animesRecientesContainer?.select("div[class*=\"extra\"][class*=\"_2mJki\"]")?.mapNotNull { itemDiv ->
-            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
+            val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT") // Cambiado a a._1A2Dc._38LRT
             val link = anchor?.attr("href")
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
                 ?: itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("src")
@@ -146,11 +145,12 @@ class KatanimeProvider : MainAPI() {
             return emptyList()
         }
 
-        val selectedItems = doc.select("div#article-div div[class*=\"full_2MjKi\"]")
+        // Corregido el selector de ítems
+        val selectedItems = doc.select("div#article-div div[class*=\"full\"][class*=\"_2mJki\"]")
         Log.d("Katanime", "Buscador - Items encontrados: ${selectedItems.size}")
 
         return selectedItems.mapNotNull { itemDiv ->
-            val anchor = itemDiv.selectFirst("a[itemprop=\"url\"][class*=\"_1A2Dc__38LRT\"]")
+            val anchor = itemDiv.selectFirst("a._1A2Dc._38LRT") // Cambiado a a._1A2Dc._38LRT
             val title = itemDiv.selectFirst("div[class*=\"_2NNxg\"] a[class*=\"_2uHIS\"]")?.text()
             val link = anchor?.attr("href")
             val img = itemDiv.selectFirst("div[class*=\"_1-8M9\"] img")?.attr("data-src")
