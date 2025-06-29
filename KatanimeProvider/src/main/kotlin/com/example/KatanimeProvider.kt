@@ -217,12 +217,18 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
         Log.d("Katanime", "load - Tags: $tags")
 
-        // CORREGIDO: Selector del título del episodio ajustado a "h3.entry-title-h2"
-        val episodes = doc.select("div#c_list a.cap_list").mapNotNull { element ->
+        val episodeElements = doc.select("div#c_list a.cap_list")
+        Log.d("Katanime", "load - Numero de elementos 'a.cap_list' encontrados: ${episodeElements.size}")
+
+
+        val episodes = episodeElements.mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
-            // CORRECCIÓN REAL: Selecciona h3 con la clase específica "entry-title-h2"
-            val epTitle = element.selectFirst("h3.entry-title-h2")?.text()?.trim() ?: ""
-            Log.d("Katanime", "load - Extrayendo episodio: URL=$epurl, Título encontrado='$epTitle'")
+            // Revertido a "h3.entry-title-h2" basado en las últimas imágenes
+            val epTitleElement = element.selectFirst("h3.entry-title-h2")
+            val epTitle = epTitleElement?.text()?.trim() ?: ""
+
+            Log.d("Katanime", "load - Procesando elemento episodio. href: '$epurl', h3.entry-title-h2 encontrado: ${epTitleElement != null}, Título extraído: '$epTitle'")
+
 
             val episodeNumberRegex = Regex("""Capítulo\s*(\d+)""")
             val episodeNumber = episodeNumberRegex.find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
@@ -230,7 +236,7 @@ class KatanimeProvider : MainAPI() {
             val realimg = poster
 
             if (epurl.isNotBlank() && epTitle.isNotBlank()) {
-                Log.d("Katanime", "load - Episodio válido: $epTitle, URL: $epurl, Número: $episodeNumber")
+                Log.d("Katanime", "load - Episodio válido añadido: $epTitle, URL: $epurl, Número: $episodeNumber")
                 newEpisode(
                     EpisodeLoadData(epTitle, epurl).toJson()
                 ) {
@@ -240,7 +246,7 @@ class KatanimeProvider : MainAPI() {
                     this.posterUrl = realimg
                 }
             } else {
-                Log.w("Katanime", "load - Episodio incompleto encontrado o no extraído. Title: '$epTitle', URL: '$epurl'")
+                Log.w("Katanime", "load - Episodio incompleto o inválido encontrado. Title: '$epTitle', URL: '$epurl'")
                 null
             }
         }
