@@ -227,34 +227,39 @@ class KatanimeProvider : MainAPI() {
         var episodesDoc: org.jsoup.nodes.Document? = null
         if (!episodesDataUrl.isNullOrBlank()) {
             try {
+                // Se construye el cuerpo de la solicitud con el token y la página.
                 val requestBody = FormBody.Builder()
                     .add("_token", csrfToken)
                     .add("pagina", "1")
                     .build()
 
-                // AÑADIENDO HEADERS COMUNES PARA SOLICITUDES AJAX
                 val headers = mapOf(
-                    "X-Requested-With" to "XMLHttpRequest", // Indica que es una solicitud AJAX
-                    "Referer" to cleanUrl, // Referencia a la URL de donde viene la solicitud
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "Referer" to cleanUrl,
                     "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
-                    "Content-Type" to "application/x-www-form-urlencoded", // Tipo de contenido para FormBody
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0" // User-Agent común
+                    "Content-Type" to "application/x-www-form-urlencoded",
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0"
                 )
 
                 episodesDoc = app.post(
                     fixUrl(episodesDataUrl),
                     requestBody = requestBody,
-                    headers = headers // PASAMOS LOS HEADERS AQUÍ
+                    headers = headers
                 ).document
                 Log.d("Katanime", "load - Documento de episodios obtenido de $episodesDataUrl (POST).")
                 Log.d("Katanime", "load - HTML de episodios (primeros 1000 caracteres): ${episodesDoc.outerHtml().take(1000)}")
             } catch (e: Exception) {
                 Log.e("Katanime", "Error al obtener el documento de episodios de $episodesDataUrl (POST): ${e.message}", e)
+                Log.e("Katanime", "load - Error completo de la excepción POST: ${Log.getStackTraceString(e)}")
             }
         }
         val documentToParseEpisodes = episodesDoc ?: doc
 
+        // Si episodesDoc sigue siendo nulo, significaría que el POST falló. En ese caso,
+        // intentamos buscar los episodios en el documento original si no se obtuvo una lista
+        // del POST. Esto es una medida de contingencia, ya que el comportamiento esperado
+        // es que se carguen por POST.
         val episodeElements = documentToParseEpisodes.select("a.cap_list")
         Log.d("Katanime", "load - Numero de elementos 'a.cap_list' encontrados: ${episodeElements.size}")
 
