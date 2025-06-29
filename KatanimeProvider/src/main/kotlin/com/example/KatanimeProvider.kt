@@ -18,11 +18,11 @@ import kotlinx.coroutines.delay
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
-// Versión 16
+// Versión 17
 class KatanimeProvider : MainAPI() {
 
     init {
-        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 16")
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 17")
     }
 
     override var mainUrl = "https://katanime.net"
@@ -235,19 +235,19 @@ class KatanimeProvider : MainAPI() {
                     .add("pagina", "1")
                     .build()
 
-                Log.d("Katanime", "load - Request Body de POST para episodios: _token=$csrfToken&pagina=1") // LOG ADICIONAL
+                Log.d("Katanime", "load - Request Body de POST para episodios: _token=$csrfToken&pagina=1")
 
                 val headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to cleanUrl, // Asegurarse que el Referer es la URL de la página del anime.
-                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Referer" to cleanUrl,
+                    "Accept" to "application/json, text/javascript, */*; q=0.01", // <-- CAMBIO CLAVE AQUÍ
                     "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
-                    "Content-Type" to "application/x-www-form-urlencoded",
+                    "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8", // <-- Asegurarse que el charset=UTF-8 está aquí
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-                    "Origin" to mainUrl // AÑADIDO: Puede ser crucial para algunas protecciones CSRF
+                    "Origin" to mainUrl
                 )
 
-                Log.d("Katanime", "load - Headers de POST para episodios: $headers") // LOG ADICIONAL
+                Log.d("Katanime", "load - Headers de POST para episodios: $headers")
 
                 // La clave es que `app` mantiene las cookies entre las llamadas.
                 episodesDoc = app.post(
