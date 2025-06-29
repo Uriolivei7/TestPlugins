@@ -18,11 +18,11 @@ import kotlinx.coroutines.delay
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
-// Versión 17
+// Versión 18
 class KatanimeProvider : MainAPI() {
 
     init {
-        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 17")
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 18")
     }
 
     override var mainUrl = "https://katanime.net"
@@ -240,11 +240,12 @@ class KatanimeProvider : MainAPI() {
                 val headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
                     "Referer" to cleanUrl,
-                    "Accept" to "application/json, text/javascript, */*; q=0.01", // <-- CAMBIO CLAVE AQUÍ
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
                     "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
-                    "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8", // <-- Asegurarse que el charset=UTF-8 está aquí
+                    "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-                    "Origin" to mainUrl
+                    "Origin" to mainUrl,
+                    "X-XSRF-TOKEN" to csrfToken // <-- NUEVO ENCABEZADO AÑADIDO AQUÍ
                 )
 
                 Log.d("Katanime", "load - Headers de POST para episodios: $headers")
