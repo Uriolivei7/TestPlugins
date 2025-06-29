@@ -1,8 +1,8 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller // Posiblemente necesario si Mhdflix usa Cloudflare
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -18,10 +18,9 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class MhdflixProvider : MainAPI() {
-    override var mainUrl = "https://ww1.mhdflix.com" // URL principal de Mhdflix
-    override var name = "Mhdflix" // Nombre más amigable para el usuario
+    override var mainUrl = "https://ww1.mhdflix.com"
+    override var name = "Mhdflix"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -35,33 +34,44 @@ class MhdflixProvider : MainAPI() {
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
 
-    // private val cloudflareKiller = CloudflareKiller() // Descomentar si el sitio usa Cloudflare, y usarlo en app.get
+    private val cloudflareKiller = CloudflareKiller() // Mantén esto descomentado y úsalo
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        Log.d("Mhdflix", "getMainPage - Iniciando en página: $page")
         val items = ArrayList<HomePageList>()
-        // Ajustar las URLs y selectores para Mhdflix
-        val urls = listOf(
-            Pair("Películas", "$mainUrl/movies"),
-            Pair("Series", "$mainUrl/tvs"),
-            Pair("Animes", "$mainUrl/tvs/category/anime")
-            // Puedes añadir más si quieres, como "Dramas"
-        )
 
-        val homePageLists = urls.apmap { (name, url) ->
-            val tvType = when (name) {
-                "Películas" -> TvType.Movie
-                "Series" -> TvType.TvSeries
-                "Animes" -> TvType.Anime
-                else -> TvType.Others
+        // Obtener el documento de la página principal
+        val doc = app.get(mainUrl, interceptor = cloudflareKiller).document
+        Log.d("Mhdflix", "getMainPage - Documento obtenido para página principal. HTML size: ${doc.html().length}")
+
+        // Seleccionar cada sección de contenido (ej. "Películas recientes", "Series destacadas")
+        // Buscar el div que contiene el carrusel de elementos.
+        // El selector busca un h2 seguido por un div con overflow-x-auto, y dentro el div con flex-nowrap.
+        val contentRows = doc.select("div[class*=flex-col] > h2.text-2xl.font-bold + div[class*=overflow-x-auto] > div[class*=flex-nowrap]")
+
+        Log.d("Mhdflix", "getMainPage - Secciones de contenido encontradas: ${contentRows.size}")
+
+        for (row in contentRows) {
+            val sectionTitleElement = row.parent()?.selectFirst("h2.text-2xl.font-bold")
+            val sectionTitle = sectionTitleElement?.text()?.replace(" ver más", "")?.trim()
+
+            if (sectionTitle.isNullOrBlank()) {
+                Log.w("Mhdflix", "getMainPage - Título de sección vacío o no encontrado, saltando.")
+                continue
             }
-            val doc = app.get(url /*, interceptor = cloudflareKiller */).document // Posiblemente necesites el interceptor
-            val homeItems = doc.select("div.slick-slide").mapNotNull {
-                val title = it.selectFirst("p.line-clamp-1")?.text() // Ajustado a la clase de Mhdflix
-                val link = it.selectFirst("a")?.attr("href")
-                // Mhdflix usa /_next/image?url=... en srcset, extraer la URL real
-                val img = it.selectFirst("img")?.attr("data-nimg-image-url") ?: it.selectFirst("img")?.attr("src")
 
-                if (title != null && link != null) {
+            Log.d("Mhdflix", "getMainPage - Procesando sección: '$sectionTitle'")
+
+            // Los elementos individuales son 'a' tags con href que contiene /movies/ o /tvs/
+            val homeItems = row.select("a[href*=\"/movies/\"], a[href*=\"/tvs/\"]").mapNotNull { element ->
+                val link = element.attr("href")
+                val title = element.selectFirst("img")?.attr("alt")
+                val img = element.selectFirst("img")?.attr("src")
+
+                Log.d("Mhdflix", "getMainPage - Item detectado en '$sectionTitle': Title: '$title', Link: '$link', Img: '$img'")
+
+                if (title != null && link != null && img != null) {
+                    val tvType = if (link.contains("/movies/")) TvType.Movie else TvType.TvSeries
                     newAnimeSearchResponse(
                         title,
                         fixUrl(link)
@@ -69,36 +79,57 @@ class MhdflixProvider : MainAPI() {
                         this.type = tvType
                         this.posterUrl = img
                     }
-                } else null
+                } else {
+                    Log.w("Mhdflix", "getMainPage - Item incompleto en '$sectionTitle', saltando: Title: '$title', Link: '$link', Img: '$img'")
+                    null
+                }
             }
-            HomePageList(name, homeItems)
+            if (homeItems.isNotEmpty()) {
+                items.add(HomePageList(sectionTitle, homeItems))
+            } else {
+                Log.w("Mhdflix", "getMainPage - No se encontraron items para la sección: '$sectionTitle'")
+            }
         }
 
-        items.addAll(homePageLists)
+        if (items.isEmpty()) {
+            Log.e("Mhdflix", "getMainPage - No se pudo extraer ninguna lista de la página principal. Posiblemente los selectores están incorrectos o el sitio ha cambiado.")
+        }
 
         return newHomePageResponse(items, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/search?q=$query" // URL de búsqueda para Mhdflix
-        val doc = app.get(url /*, interceptor = cloudflareKiller */).document
-        // Selector para resultados de búsqueda en Mhdflix, asumiendo una estructura similar a la página principal
-        return doc.select("div.slick-slide").mapNotNull {
-            val title = it.selectFirst("p.line-clamp-1")?.text()
-            val link = it.selectFirst("a")?.attr("href")
-            val img = it.selectFirst("img")?.attr("data-nimg-image-url") ?: it.selectFirst("img")?.attr("src")
+        Log.d("Mhdflix", "search - Iniciando búsqueda para: '$query'")
+        val url = "$mainUrl/search?q=$query"
+        val doc = app.get(url, interceptor = cloudflareKiller).document
+        Log.d("Mhdflix", "search - Documento obtenido para búsqueda. HTML size: ${doc.html().length}")
 
-            if (title != null && link != null) {
+        // El selector para los resultados de búsqueda en la página de búsqueda debería ser el mismo
+        // que el de los elementos individuales en la página principal.
+        val searchResults = doc.select("a[href*=\"/movies/\"], a[href*=\"/tvs/\"]").mapNotNull { element ->
+            val link = element.attr("href")
+            val title = element.selectFirst("img")?.attr("alt")
+            val img = element.selectFirst("img")?.attr("src")
+
+            Log.d("Mhdflix", "search - Resultado detectado: Title: '$title', Link: '$link', Img: '$img'")
+
+            if (title != null && link != null && img != null) {
                 newAnimeSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
-                    // Mhdflix usa /movies/ y /tvs/, por lo que podemos inferir el tipo
                     this.type = if (link.contains("/movies/")) TvType.Movie else TvType.TvSeries
                     this.posterUrl = img
                 }
-            } else null
+            } else {
+                Log.w("Mhdflix", "search - Resultado incompleto, saltando: Title: '$title', Link: '$link', Img: '$img'")
+                null
+            }
         }
+        if (searchResults.isEmpty()) {
+            Log.e("Mhdflix", "search - No se encontraron resultados para la búsqueda de '$query'. Posiblemente los selectores están incorrectos o el sitio ha cambiado.")
+        }
+        return searchResults
     }
 
     data class EpisodeLoadData(
@@ -111,54 +142,39 @@ class MhdflixProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         Log.d("Mhdflix", "load - URL de entrada: $url")
 
-        val cleanUrl = fixUrl(url) // Asegura que la URL sea absoluta
+        val cleanUrl = fixUrl(url)
 
         if (cleanUrl.isBlank()) {
             Log.e("Mhdflix", "load - ERROR: URL limpia está en blanco.")
             return null
         }
 
-        val doc = app.get(cleanUrl /*, interceptor = cloudflareKiller */).document
+        val doc = app.get(cleanUrl, interceptor = cloudflareKiller).document
+        Log.d("Mhdflix", "load - Documento obtenido para '$cleanUrl'. HTML size: ${doc.html().length}")
 
         // Determinar el tipo de contenido (película o serie)
         val tvType = if (cleanUrl.contains("/movies/")) TvType.Movie else TvType.TvSeries
 
         // Extraer información general
         val title = doc.selectFirst("h1.font-bold")?.text() ?: doc.selectFirst("title")?.text() ?: ""
-        val poster = doc.selectFirst("div.w-[250px] img")?.attr("data-nimg-image-url") ?: doc.selectFirst("div.w-[250px] img")?.attr("src") ?: ""
+        val poster = doc.selectFirst("div.w-[250px] img")?.attr("src") ?: "" // Usar directamente src
         val description = doc.selectFirst("p.text-sm.text-gray-500")?.text() ?: ""
         val tags = doc.select("div.flex.flex-row.gap-2 a.hover\\:text-blue-500").map { it.text().removeSuffix(",") }
+
+        Log.d("Mhdflix", "load - Título: '$title', Poster: '$poster', Descripción: '$description', Tags: $tags")
 
         val episodes = ArrayList<Episode>()
 
         if (tvType == TvType.TvSeries) {
-            // Mhdflix carga dinámicamente las temporadas y episodios.
-            // La solución más robusta sería inspeccionar las llamadas de API que hacen para cargar esto.
-            // Para una aproximación, si no podemos ver la API, tendremos que asumir que todos los episodios
-            // están disponibles directamente en el HTML de la página de la serie o cargados mediante una única llamada de API.
-            // Basado en tus capturas de "episodios", el HTML de los episodios está en la misma página de la serie,
-            // pero el "Temporadas" hace pensar en una carga dinámica.
+            // Mhdflix tiene un h1 "Temporadas" y luego un div con un carrusel de tarjetas de temporadas.
+            // Dentro de cada tarjeta de temporada, parece que se listan los episodios en la misma página.
+            // Revisa image_5567f5.png, que muestra la estructura de las "Temporadas".
+            // Los episodios están dentro de <div id="episodios"> en las páginas de serie.
 
-            // Asumiendo que los episodios están disponibles directamente en la página de la serie después de la carga inicial
-            // (Si no, esto requerirá una llamada adicional a la API que lista los episodios/temporadas)
-
-            // Busca el div de temporadas y dentro los elementos que representan episodios
-            // El selector original de SoloLatino (div#seasons div.se-c ul.episodios li) no funciona aquí.
-            // Basado en tus capturas, los episodios están en <div id="episodios">.
-            // Y cada episodio es un 'a' tag.
-
-            // Iterar sobre los contenedores de episodios, si existen
             val episodeElements = doc.select("div#episodios a[href*=\"/tvs/episodios/\"]")
 
             if (episodeElements.isEmpty()) {
-                Log.w("Mhdflix", "load - No se encontraron elementos de episodios con el selector inicial. Intentando selectores alternativos para TV Series.")
-                // Esto es un placeholder. Si los episodios se cargan con JS, esto fallará.
-                // Necesitaríamos interceptar la llamada JS si es el caso.
-                // Por ahora, asumimos que están en el HTML directo.
-
-                // Si la estructura de episodios está anidada en temporadas, necesitaríamos un loop como el de SoloLatino
-                // Las capturas sugieren que los episodios están en un solo div id="episodios", no por temporadas explícitas en el HTML estático.
-                // Sin embargo, si al clickear una temporada se muestra un nuevo HTML, tendríamos que re-evaluar.
+                Log.w("Mhdflix", "load - No se encontraron elementos de episodios en div#episodios. Revisar selectores o si la carga es dinámica.")
             }
 
             for (element in episodeElements) {
@@ -166,11 +182,15 @@ class MhdflixProvider : MainAPI() {
                 val epTitle = element.selectFirst("h2")?.text() ?: ""
 
                 // Extraer temporada y episodio del span (ej: T "1" "1" EP "1")
+                // image_55639e.png muestra <p class="text-xs text-gray-400 flex justify-between w-full"> <span>"T" "1" "1" "EP" "1"</span>
                 val numerandoText = element.selectFirst("p.text-xs.text-gray-400.flex.justify-between.w-full span")?.text()
                 val seasonNumber = numerandoText?.substringAfter("T ")?.substringBefore(" ")?.toIntOrNull()
                 val episodeNumber = numerandoText?.substringAfter("EP ")?.substringBefore(" ")?.toIntOrNull()
 
-                val realImg = element.selectFirst("img")?.attr("data-nimg-image-url") ?: element.selectFirst("img")?.attr("src")
+                // La imagen del episodio está dentro de un div.
+                val realImg = element.selectFirst("img")?.attr("src")
+
+                Log.d("Mhdflix", "load - Episodio detectado: Title: '$epTitle', URL: '$epUrl', Season: $seasonNumber, Episode: $episodeNumber, Img: '$realImg'")
 
                 if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
                     episodes.add(
@@ -183,7 +203,12 @@ class MhdflixProvider : MainAPI() {
                             this.posterUrl = realImg
                         }
                     )
+                } else {
+                    Log.w("Mhdflix", "load - Episodio incompleto, saltando: Title: '$epTitle', URL: '$epUrl'")
                 }
+            }
+            if (episodes.isEmpty()) {
+                Log.e("Mhdflix", "load - No se extrajo ningún episodio para la serie. Revisa los selectores de episodios.")
             }
         }
 
@@ -220,9 +245,6 @@ class MhdflixProvider : MainAPI() {
         }
     }
 
-    // Mantén tus data classes y funciones de desencriptación si son usadas por otros hosts.
-    // Aunque para Mhdflix, parece que uqload.cx es directo.
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -246,50 +268,32 @@ class MhdflixProvider : MainAPI() {
             return false
         }
 
-        // Obtener el HTML de la página del episodio/película
-        val doc = app.get(targetUrl /*, interceptor = cloudflareKiller */).document
+        val doc = app.get(targetUrl, interceptor = cloudflareKiller).document
+        Log.d("Mhdflix", "loadLinks - Documento obtenido para '$targetUrl'. HTML size: ${doc.html().length}")
 
         // --- Extracción de enlaces de video de Mhdflix ---
-        // Basado en las capturas, el video se encuentra directamente en un tag <video> o dentro de un iframe de uqload.cx.
+        // Basado en las capturas (ej. image_55541a.png), el video se encuentra directamente en un tag <video> o dentro de un iframe de uqload.cx.
 
         // Intentar primero el tag <video> directo
+        // Asegúrate de que el selector sea preciso.
         val directVideoSrc = doc.selectFirst("video[data-html5-video]")?.attr("src")
 
         if (!directVideoSrc.isNullOrBlank()) {
             Log.d("Mhdflix", "loadLinks - Encontrado tag <video> directo: $directVideoSrc")
-            // Asumimos que es un extractor de video general que CloudStream puede manejar
             loadExtractor(fixUrl(directVideoSrc), targetUrl, subtitleCallback, callback)
             return true
         }
 
         // Si no se encuentra el tag <video> directo, buscar un iframe de uqload.cx
-        // El iframe de uqload.cx puede contener a su vez el tag <video>
         val uqloadIframeSrc = doc.selectFirst("iframe[src*=\"uqload.cx/embed-\"]")?.attr("src")
 
         if (!uqloadIframeSrc.isNullOrBlank()) {
             Log.d("Mhdflix", "loadLinks - Encontrado iframe de uqload.cx: $uqloadIframeSrc")
-            // Pasamos el iframe de uqload.cx al extractor general.
-            // CloudStream debería tener un extractor para uqload o lo manejará como un reproductor directo.
             loadExtractor(fixUrl(uqloadIframeSrc), targetUrl, subtitleCallback, callback)
             return true
         }
 
-        // --- Aquí puedes mantener la lógica para otros dominios si Mhdflix también los usa,
-        // aunque las capturas sugieren que Uqload es el principal. ---
-
-        // La lógica GHBRISK.COM, XUPALACE.ORG, RE.SOLOLATINO.NET, EMBED69.ORG, PLAYERWISH.COM
-        // etc., la mantendría por si acaso, pero la prioridad será Uqload.cx.
-        // Si no encuentras estos dominios en Mhdflix, puedes eliminarlos para simplificar el código.
-
-        // Ejemplo: Si Mhdflix usara otros embeds, podrías mantener tu lógica existente:
-        /*
-        else if (initialIframeSrc.contains("ghbrisk.com")) {
-            // ... tu lógica existente para ghbrisk
-        }
-        // ... y así sucesivamente para otros dominios que encuentres
-        */
-
         Log.w("Mhdflix", "loadLinks - No se encontraron enlaces de video directos o iframes conocidos en: $targetUrl")
-        return false // No se encontró ningún video que se pudiera extraer
+        return false
     }
 }
