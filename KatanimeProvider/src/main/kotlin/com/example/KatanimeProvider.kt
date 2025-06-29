@@ -13,16 +13,16 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.delay // Importar delay
 
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
-// Versión 18
+// Versión 19
 class KatanimeProvider : MainAPI() {
 
     init {
-        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 18")
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 19")
     }
 
     override var mainUrl = "https://katanime.net"
@@ -225,7 +225,10 @@ class KatanimeProvider : MainAPI() {
         var episodesDoc: org.jsoup.nodes.Document? = null
         if (!episodesDataUrl.isNullOrBlank()) {
             try {
-                val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content")
+                // Prioriza el token CSRF de un input oculto dentro de un formulario si existe,
+                // de lo contrario, usa el de la meta etiqueta.
+                val csrfToken = doc.selectFirst("form input[name=\"_token\"]")?.attr("value")
+                    ?: doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content")
                     ?: throw ErrorLoadingException("No se encontró el token CSRF para cargar los episodios.")
                 Log.d("Katanime", "load - Token CSRF encontrado (antes de POST): $csrfToken")
 
@@ -239,18 +242,20 @@ class KatanimeProvider : MainAPI() {
 
                 val headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to cleanUrl,
+                    "Referer" to cleanUrl, // Asegura que el referer sea la URL de la página del anime
                     "Accept" to "application/json, text/javascript, */*; q=0.01",
                     "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
                     "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-                    "Origin" to mainUrl,
-                    "X-XSRF-TOKEN" to csrfToken // <-- NUEVO ENCABEZADO AÑADIDO AQUÍ
+                    "Origin" to mainUrl, // Asegura que el Origin sea el dominio principal
+                    "X-XSRF-TOKEN" to csrfToken // Enviamos el token en el encabezado también
                 )
 
                 Log.d("Katanime", "load - Headers de POST para episodios: $headers")
 
-                // La clave es que `app` mantiene las cookies entre las llamadas.
+                // Pequeño retraso para simular un navegador
+                delay(500) // 500 ms de retraso
+
                 episodesDoc = app.post(
                     fixUrl(episodesDataUrl),
                     requestBody = requestBody,
