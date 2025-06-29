@@ -13,16 +13,16 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
-import kotlinx.coroutines.delay // Importar delay
+import kotlinx.coroutines.delay
 
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
-// Versión 19
+// Versión 20
 class KatanimeProvider : MainAPI() {
 
     init {
-        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 19")
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 20")
     }
 
     override var mainUrl = "https://katanime.net"
@@ -192,12 +192,14 @@ class KatanimeProvider : MainAPI() {
         }
 
         // Realizar la primera solicitud GET para obtener la página y las cookies.
-        val doc = try {
-            app.get(cleanUrl).document
+        // Capturar la respuesta completa para tener acceso a los encabezados, especialmente Set-Cookie.
+        val response = try {
+            app.get(cleanUrl)
         } catch (e: Exception) {
-            Log.e("Katanime", "Error al obtener el documento para la carga de $cleanUrl: ${e.message}", e)
+            Log.e("Katanime", "Error al obtener la respuesta para la carga de $cleanUrl: ${e.message}", e)
             return null
         }
+        val doc = response.document
         val htmlContent = doc.outerHtml()
         Log.d("Katanime", "load - HTML de la página (primeros 5000 caracteres): ${htmlContent.take(5000)}")
 
@@ -253,8 +255,7 @@ class KatanimeProvider : MainAPI() {
 
                 Log.d("Katanime", "load - Headers de POST para episodios: $headers")
 
-                // Pequeño retraso para simular un navegador
-                delay(500) // 500 ms de retraso
+                // No hay delay en esta versión, queremos que sea lo más rápido posible.
 
                 episodesDoc = app.post(
                     fixUrl(episodesDataUrl),
