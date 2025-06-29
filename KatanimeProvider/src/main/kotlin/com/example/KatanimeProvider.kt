@@ -1,126 +1,104 @@
-package com.lagradost.cloudstream3.plugins
+package com.example // Cambia esto si tu paquete real es diferente
 
-import android.content.Context
-import com.lagradost.cloudstream3.LoadResponse
-import com.lagradost.cloudstream3.MainAPI
-import com.lagradost.cloudstream3.SearchResponse
-import com.lagradost.cloudstream3.Episode
-import com.lagradost.cloudstream3.TvType
-import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixUrl
+import android.util.Log
+import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
-import com.lagradost.cloudstream3.TvSeriesSearchResponse
-import okhttp3.FormBody
+import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.TrailerData
-import com.lagradost.cloudstream3.ActorData
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Necesario para tryParseJson
+import org.jsoup.nodes.Element
+import okhttp3.FormBody
+import kotlinx.coroutines.delay
 
 class KatanimeProvider : MainAPI() {
     override var name = "Katanime"
     override var mainUrl = "https://katanime.net"
-    override var supportedTypes = setOf(TvType.Anime) // Katanime es de Anime
+    override val supportedTypes = setOf(TvType.Anime)
+    override var lang = "es"
 
-    // Instancia de CloudflareKiller para manejar posibles protecciones
+    override val hasMainPage = false
+    override val hasChromecastSupport = true
+    override val hasDownloadSupport = true
+
     private val cfKiller = CloudflareKiller()
-
-    data class KatanimeTvSeriesLoadResponse(
-        override var name: String,
-        override var url: String,
-        override var apiName: String,
-        override var type: TvType,
-        override var posterUrl: String?,
-        override var year: Int?,
-        override var plot: String?,
-        override var rating: Int?,
-        override var tags: List<String>?,
-        override var duration: Int?,
-        override var trailers: MutableList<TrailerData>,
-        override var recommendations: List<SearchResponse>?,
-        override var actors: List<ActorData>?,
-        override var comingSoon: Boolean,
-        override var syncData: MutableMap<String, String>,
-        override var posterHeaders: Map<String, String>?,
-        override var backgroundPosterUrl: String?,
-        override var contentRating: String?,
-        val episodes: List<Episode>? // Lista de episodios de la serie
-        // `uniqueUrl` se ELIMINA completamente de aquí.
-        // Si el compilador dice "overrides nothing", significa que no existe en la interfaz.
-    ) : LoadResponse
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
-        // Usa CloudflareKiller para obtener la página si está protegida
         val response = app.get(url, interceptor = cfKiller).document
         val searchResults = response.select("a.anime-card")
         val animeList = ArrayList<SearchResponse>()
 
-        for (result : org.jsoup.nodes.Element in searchResults) {
-            val title = result.select("div.title").text().trim()
+        for (result : Element in searchResults) {
+            val title = result.selectFirst("div.title")?.text()?.trim()
             val posterUrl = result.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
             val link = result.attr("href")?.let { fixUrl(it) }
 
-            if (link != null) {
+            if (title != null && link != null) {
                 animeList.add(
-                    TvSeriesSearchResponse(
+                    newTvSeriesSearchResponse( // Usamos newTvSeriesSearchResponse
                         name = title,
-                        url = link,
-                        apiName = this.name,
-                        type = TvType.Anime, // Aseguramos que sea TvType.Anime
-                        posterUrl = posterUrl
-                    )
+                        url = link
+                    ) {
+                        // REMOVIDO: this.apiName = this@KatanimeProvider.name // Esto causaba el error "Val cannot be reassigned"
+                        this.posterUrl = posterUrl // Esto sí es correcto aquí
+                        this.type = TvType.Anime // Esto sí es correcto aquí
+                    }
                 )
             }
         }
         return animeList
     }
-    override suspend fun load(url: String): LoadResponse {
+
+    data class EpisodeLoadData(
+        val title: String,
+        val url: String,
+        val poster: String?
+    )
+
+    override suspend fun load(url: String): LoadResponse? {
+        Log.d("Katanime", "load - URL de entrada: $url")
         val cleanUrl = fixUrl(url)
+
         val doc = app.get(cleanUrl, interceptor = cfKiller).document
 
-        // Extracción de datos básicos
-        val title = doc.selectFirst("h1.title")?.text() ?: "N/A"
+        val title = doc.selectFirst("h1.title")?.text() ?: ""
         val posterUrl = doc.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
         val description = doc.selectFirst("div.description-p p")?.text()?.trim() ?: ""
         val tags = doc.select("ul.genres li a").map { it.text().trim() }
 
-        // Extracción de datos específicos para la carga de episodios (AJAX POST)
         val dataUrl = doc.selectFirst("div[data-url]")?.attr("data-url")?.let { fixUrl(it) }
         val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content") ?: ""
 
-        // Obtener la lista de episodios
         val episodesList = getEpisodes(dataUrl, csrfToken, cleanUrl)
 
-        // Construir y devolver la respuesta de carga
-        return KatanimeTvSeriesLoadResponse(
+        return newTvSeriesLoadResponse(
             name = title,
             url = cleanUrl,
-            apiName = this.name,
-            type = TvType.Anime, // Mantener como Anime
-            posterUrl = posterUrl,
-            episodes = episodesList,
-            tags = tags,
-            year = null, // No se puede extraer fácilmente el año de esta estructura
-            plot = description,
-            rating = null, // No se puede extraer fácilmente el rating
-            duration = null, // No se puede extraer fácilmente la duración
-            recommendations = null, // Katanime no muestra recomendaciones fácilmente
-            actors = null, // Katanime no muestra actores fácilmente
-            trailers = mutableListOf(), // No se han encontrado trailers en la página
-            comingSoon = false,
-            syncData = mutableMapOf(),
-            posterHeaders = null,
-            backgroundPosterUrl = posterUrl,
-            contentRating = null
-            // `uniqueUrl` se ELIMINA del constructor de la clase.
-        )
+            type = TvType.Anime,
+            episodes = episodesList
+        ) {
+            this.posterUrl = posterUrl
+            this.backgroundPosterUrl = posterUrl
+            this.plot = description
+            this.tags = tags
+            this.year = null
+            this.rating = null
+            this.duration = null
+            this.recommendations = null
+            this.actors = null
+            this.trailers = mutableListOf()
+            this.comingSoon = false
+            this.syncData = mutableMapOf()
+            this.posterHeaders = null
+            this.contentRating = null
+        }
     }
 
     private suspend fun getEpisodes(dataUrl: String?, csrfToken: String?, refererUrl: String): List<Episode> {
         if (dataUrl == null || csrfToken == null) {
-            println("Katanime: dataUrl o csrfToken es nulo. No se pueden obtener episodios.")
+            Log.e("Katanime", "getEpisodes - dataUrl o csrfToken es nulo. No se pueden obtener episodios.")
             return emptyList()
         }
 
@@ -129,8 +107,7 @@ class KatanimeProvider : MainAPI() {
         var hasMorePages = true
 
         while (hasMorePages) {
-            println("Katanime: load - URL de datos de episodios (data-url): $dataUrl")
-            println("Katanime: load - Token CSRF encontrado (antes de POST): $csrfToken")
+            Log.d("Katanime", "getEpisodes - Intentando obtener página $currentPage de episodios de: $dataUrl")
 
             val requestBody = FormBody.Builder()
                 .add("_token", csrfToken)
@@ -145,36 +122,44 @@ class KatanimeProvider : MainAPI() {
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
                 "Origin" to mainUrl,
-                "X-XSRF-TOKEN" to csrfToken // A veces el X-XSRF-TOKEN es necesario
+                "X-XSRF-TOKEN" to csrfToken
             )
 
-            // Intento de refrescar cookies antes de la solicitud POST
-            // Esto es crucial para sitios con Cloudflare o seguridad dinámica
             try {
-                println("Katanime: Intentando refrescar cookies antes de POST para episodios.")
                 app.get(refererUrl, interceptor = cfKiller)
-                println("Katanime: Cookies refrescadas (GET a refererUrl) exitosamente.")
+                Log.d("Katanime", "getEpisodes - Cookies refrescadas (GET a refererUrl) exitosamente.")
             } catch (e: Exception) {
-                println("Katanime: Error al intentar refrescar cookies: ${e.message}")
+                Log.w("Katanime", "getEpisodes - Error al intentar refrescar cookies: ${e.message}")
             }
 
-            // Realizar la solicitud POST para obtener los datos de episodios
-            val response = app.post(dataUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
-            val jsonString = response.body.string()
-            println("Katanime: load - HTML de episodios (primeros 1000 caracteres): ${jsonString.take(1000)}")
+            val response = try {
+                app.post(dataUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
+            } catch (e: Exception) {
+                Log.e("Katanime", "getEpisodes - Error en solicitud POST a $dataUrl: ${e.message}")
+                hasMorePages = false
+                break
+            }
 
-            // Parsear la respuesta JSON
+            val jsonString = response.body.string()
+            Log.d("Katanime", "getEpisodes - Respuesta JSON (primeros 500 chars): ${jsonString.take(500)}")
+
             val episodeData = tryParseJson<EpisodeResponse>(jsonString)
 
             if (episodeData != null && episodeData.ep.data.isNotEmpty()) {
                 for (epItem in episodeData.ep.data) {
+                    val episodeNum = epItem.numero?.toIntOrNull()
                     episodes.add(
-                        Episode(
-                            data = fixUrl(epItem.url), // URL completa del episodio para `loadLinks`
-                            name = "Episodio ${epItem.numero ?: "N/A"}",
-                            episode = epItem.numero?.toIntOrNull(),
-                            posterUrl = epItem.thumb?.let { fixUrl(it) }
-                        )
+                        newEpisode(
+                            EpisodeLoadData(
+                                title = "Episodio ${epItem.numero ?: "N/A"}",
+                                url = fixUrl(epItem.url),
+                                poster = epItem.thumb?.let { fixUrl(it) }
+                            ).toJson()
+                        ) {
+                            this.name = "Episodio ${epItem.numero ?: "N/A"}"
+                            this.episode = episodeNum
+                            this.posterUrl = epItem.thumb?.let { fixUrl(it) }
+                        }
                     )
                 }
                 hasMorePages = episodeData.ep.next_page_url != null
@@ -182,15 +167,14 @@ class KatanimeProvider : MainAPI() {
                     currentPage++
                 }
             } else {
-                println("Katanime: No se encontraron datos de episodios o JSON nulo/vacío.")
+                Log.d("Katanime", "getEpisodes - No se encontraron datos de episodios o JSON nulo/vacío para la página $currentPage.")
                 hasMorePages = false
             }
         }
-        println("Katanime: load - Total de episodios encontrados: ${episodes.size}")
-        return episodes.reversed() // Katanime suele listar de más nuevo a más viejo
+        Log.d("Katanime", "getEpisodes - Total de episodios encontrados: ${episodes.size}")
+        return episodes.reversed()
     }
 
-    // --- Clases de datos para la respuesta JSON de episodios ---
     data class EpisodeResponse(
         val ep: EpisodesWrapper,
         val last: LastEpisode?
@@ -229,18 +213,62 @@ class KatanimeProvider : MainAPI() {
         val active: Boolean
     )
 
-    // El método loadLinks está comentado, lo cual está bien si no lo necesitas.
-    // Deberías implementarlo cuando necesites extraer los enlaces de vídeo de cada episodio.
-    /*
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // Tu lógica de extracción de enlaces para cada episodio iría aquí.
-        // `data` contendrá la URL del episodio que obtuviste en `getEpisodes`.
-        return false
+        Log.d("Katanime", "loadLinks - Data de entrada: $data")
+
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
+
+        if (targetUrl.isBlank()) {
+            Log.e("Katanime", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
+            return false
+        }
+
+        val doc = app.get(targetUrl, interceptor = cfKiller).document
+
+        val playerDivs = doc.select("div.player-data")
+        var foundLinks = false
+
+        for (playerDiv in playerDivs) {
+            val serverName = playerDiv.selectFirst("a")?.text()?.trim() ?: "Desconocido"
+            val playerUrl = playerDiv.attr("data-player")
+
+            if (playerUrl.isNotBlank()) {
+                Log.d("Katanime", "loadLinks - Encontrado player '$serverName' con URL: $playerUrl")
+                val fixedPlayerUrl = fixUrl(playerUrl)
+
+                try {
+                    Log.d("Katanime", "loadLinks - yendo a la URL del reproductor: $fixedPlayerUrl")
+                    val playerDoc = app.get(fixedPlayerUrl, interceptor = cfKiller).document
+                    val finalIframeSrc = playerDoc.selectFirst("iframe")?.attr("src")
+
+                    if (!finalIframeSrc.isNullOrBlank()) {
+                        Log.d("Katanime", "loadLinks - Encontrado iframe final en $serverName: $finalIframeSrc")
+
+                        try {
+                            if (loadExtractor(fixUrl(finalIframeSrc), fixedPlayerUrl, subtitleCallback, callback)) {
+                                foundLinks = true
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Katanime", "Error al cargar extractor para $finalIframeSrc: ${e.message}")
+                        }
+
+                    } else {
+                        Log.w("Katanime", "loadLinks - No se encontró iframe dentro de $fixedPlayerUrl para $serverName.")
+                    }
+                } catch (e: Exception) {
+                    Log.e("Katanime", "loadLinks - Error al obtener contenido del reproductor $fixedPlayerUrl ($serverName): ${e.message}")
+                }
+            } else {
+                Log.w("Katanime", "loadLinks - Elemento player-data sin 'data-player' válido.")
+            }
+        }
+
+        return foundLinks
     }
-    */
 }
