@@ -18,10 +18,11 @@ import kotlinx.coroutines.delay
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
+// Versión 15
 class KatanimeProvider : MainAPI() {
 
     init {
-        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado.")
+        Log.d("KatanimeProviderInit", "KatanimeProvider ha sido inicializado. Versión 15")
     }
 
     override var mainUrl = "https://katanime.net"
