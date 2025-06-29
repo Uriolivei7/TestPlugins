@@ -255,22 +255,20 @@
     "fileSize": 14000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/MhdflixProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/TioanimeProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 14,
-    "name": "MhdFlix",
-    "internalName": "MhdflixProvider",
+    "apiVersion": 13,
+    "name": "TioAnime",
+    "internalName": "TioanimeProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para ww1.mhdflix.com",
+    "description": "Plugin para tioanime.com",
     "tvTypes": [
-      "TvSeries",
-      "Movie",
       "Anime"
     ],
-    "iconUrl": "https://ww1.mhdflix.com/favicon.ico",
+    "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
     "language": "es",
     "fileSize": 16000
   }
