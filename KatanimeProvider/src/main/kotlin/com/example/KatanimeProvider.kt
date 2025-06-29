@@ -220,13 +220,15 @@ class KatanimeProvider : MainAPI() {
         val episodesDataUrl = episodesContainerDiv?.attr("data-url")
         Log.d("Katanime", "load - URL de datos de episodios (data-url): $episodesDataUrl")
 
-        val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content")
-            ?: throw ErrorLoadingException("No se encontró el token CSRF para cargar los episodios.")
-        Log.d("Katanime", "load - Token CSRF encontrado: $csrfToken")
-
         var episodesDoc: org.jsoup.nodes.Document? = null
         if (!episodesDataUrl.isNullOrBlank()) {
             try {
+                // Obtener el CSRF token justo antes de la solicitud POST
+                val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content")
+                    ?: throw ErrorLoadingException("No se encontró el token CSRF para cargar los episodios.")
+                Log.d("Katanime", "load - Token CSRF encontrado (antes de POST): $csrfToken")
+
+
                 // Se construye el cuerpo de la solicitud con el token y la página.
                 val requestBody = FormBody.Builder()
                     .add("_token", csrfToken)
@@ -235,7 +237,7 @@ class KatanimeProvider : MainAPI() {
 
                 val headers = mapOf(
                     "X-Requested-With" to "XMLHttpRequest",
-                    "Referer" to cleanUrl,
+                    "Referer" to cleanUrl, // Asegurarse que el Referer es la URL de la página del anime.
                     "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
                     "Content-Type" to "application/x-www-form-urlencoded",
@@ -254,12 +256,8 @@ class KatanimeProvider : MainAPI() {
                 Log.e("Katanime", "load - Error completo de la excepción POST: ${Log.getStackTraceString(e)}")
             }
         }
-        val documentToParseEpisodes = episodesDoc ?: doc
+        val documentToParseEpisodes = episodesDoc ?: doc // Fallback to original doc if POST failed.
 
-        // Si episodesDoc sigue siendo nulo, significaría que el POST falló. En ese caso,
-        // intentamos buscar los episodios en el documento original si no se obtuvo una lista
-        // del POST. Esto es una medida de contingencia, ya que el comportamiento esperado
-        // es que se carguen por POST.
         val episodeElements = documentToParseEpisodes.select("a.cap_list")
         Log.d("Katanime", "load - Numero de elementos 'a.cap_list' encontrados: ${episodeElements.size}")
 
