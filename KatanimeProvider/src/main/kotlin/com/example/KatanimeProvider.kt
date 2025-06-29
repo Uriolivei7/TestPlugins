@@ -217,11 +217,11 @@ class KatanimeProvider : MainAPI() {
         val tags = doc.select("span[class*=\"_2y8kd\"][class*=\"etag\"][class*=\"tag\"]").map { it.text() }
         Log.d("Katanime", "load - Tags: $tags")
 
-        // CORREGIDO: Removido 'li' del selector de episodios y ajustado el selector de 'epTitle'
+        // CORREGIDO: Selector del título del episodio ajustado a "h3.entry-title-h2"
         val episodes = doc.select("div#c_list a.cap_list").mapNotNull { element ->
             val epurl = fixUrl(element.attr("href") ?: "")
-            // CORRECCIÓN REAL: Selecciona directamente el h3 dentro del elemento 'a.cap_list'
-            val epTitle = element.selectFirst("h3")?.text()?.trim() ?: ""
+            // CORRECCIÓN REAL: Selecciona h3 con la clase específica "entry-title-h2"
+            val epTitle = element.selectFirst("h3.entry-title-h2")?.text()?.trim() ?: ""
             Log.d("Katanime", "load - Extrayendo episodio: URL=$epurl, Título encontrado='$epTitle'")
 
             val episodeNumberRegex = Regex("""Capítulo\s*(\d+)""")
