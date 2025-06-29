@@ -44,8 +44,8 @@ class KatanimeProvider : MainAPI() {
         override var posterHeaders: Map<String, String>?,
         override var backgroundPosterUrl: String?,
         override var contentRating: String?,
-        val episodes: List<Episode>?,
-        var uniqueUrl: String // CAMBIO AQUÍ: Eliminado 'override'
+        val episodes: List<Episode>?
+        // **ELIMINADO**: 'uniqueUrl' no es parte de la interfaz LoadResponse según tu definición.
     ) : LoadResponse
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -106,8 +106,8 @@ class KatanimeProvider : MainAPI() {
             syncData = mutableMapOf(),
             posterHeaders = null,
             backgroundPosterUrl = posterUrl,
-            contentRating = null,
-            uniqueUrl = cleanUrl
+            contentRating = null
+            // **ELIMINADO**: 'uniqueUrl' no es un parámetro para LoadResponse.
         )
     }
 
@@ -217,7 +217,7 @@ class KatanimeProvider : MainAPI() {
         val active: Boolean
     )
 
-    // El método loadLinks está comentado.
+    // El método loadLinks está comentado, lo cual está bien si no lo necesitas.
     /*
     override suspend fun loadLinks(
         data: String,
