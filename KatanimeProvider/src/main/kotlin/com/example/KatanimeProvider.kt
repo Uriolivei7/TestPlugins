@@ -15,7 +15,6 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// ¡NUEVAS IMPORTACIONES NECESARIAS PARA RequestBody y FormBody!
 import okhttp3.RequestBody
 import okhttp3.FormBody
 
@@ -228,15 +227,25 @@ class KatanimeProvider : MainAPI() {
         var episodesDoc: org.jsoup.nodes.Document? = null
         if (!episodesDataUrl.isNullOrBlank()) {
             try {
-                // AQUÍ LA CORRECCIÓN: Construcción explícita de FormBody
                 val requestBody = FormBody.Builder()
                     .add("_token", csrfToken)
                     .add("pagina", "1")
                     .build()
 
+                // AÑADIENDO HEADERS COMUNES PARA SOLICITUDES AJAX
+                val headers = mapOf(
+                    "X-Requested-With" to "XMLHttpRequest", // Indica que es una solicitud AJAX
+                    "Referer" to cleanUrl, // Referencia a la URL de donde viene la solicitud
+                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language" to "es-ES,es;q=0.8,en-US;q=0.5,en;q=0.3",
+                    "Content-Type" to "application/x-www-form-urlencoded", // Tipo de contenido para FormBody
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0" // User-Agent común
+                )
+
                 episodesDoc = app.post(
                     fixUrl(episodesDataUrl),
-                    requestBody = requestBody // Ahora pasamos el RequestBody construido
+                    requestBody = requestBody,
+                    headers = headers // PASAMOS LOS HEADERS AQUÍ
                 ).document
                 Log.d("Katanime", "load - Documento de episodios obtenido de $episodesDataUrl (POST).")
                 Log.d("Katanime", "load - HTML de episodios (primeros 1000 caracteres): ${episodesDoc.outerHtml().take(1000)}")
