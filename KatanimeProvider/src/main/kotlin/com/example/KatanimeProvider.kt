@@ -1,4 +1,4 @@
-package com.example
+package com.example // <-- Si tu package es 'com.example', cámbialo aquí.
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -30,45 +30,49 @@ class KatanimeProvider : MainAPI() {
         val title: String?
         val posterUrl: String?
 
-        // Intenta parsear como un elemento de búsqueda/recientes
-        // Este selector captura los elementos de la búsqueda y los "Capítulos Recientes"
-        val searchLinkElement = element.selectFirst("a._1A2Dc._38LRT")
-        val searchTitleElement = element.selectFirst("div._2NNxg a._1A2Dc._2uHIS") // Título del anime en recientes/búsqueda
-        val searchPosterElement = element.selectFirst("img")
+        // Intenta parsear como un elemento de búsqueda/recientes (div._135yj._2FQAt.full._2mJki o div._135yj._2FQAt.chap._2mJki)
+        val linkElement = element.selectFirst("a._1A2Dc._38LRT") // Este es el <a> principal que contiene el link y la imagen
+        val titleElement = element.selectFirst("div._2NNxg a._1A2Dc._2uHIS") // Título del anime en este tipo de cards
+        val posterImgElement = element.selectFirst("img") // La imagen del póster
 
-        if (searchLinkElement != null && searchTitleElement != null && searchPosterElement != null) {
-            link = searchLinkElement.attr("href")?.let { fixUrl(it) }
-            title = searchTitleElement.text()?.trim()
-            posterUrl = searchPosterElement.attr("data-src")?.let { fixUrl(it) }
-                ?: searchPosterElement.attr("src")?.let { fixUrl(it) } // Fallback para src
+        if (linkElement != null && titleElement != null && posterImgElement != null) {
+            link = linkElement.attr("href")?.let { fixUrl(it) }
+            title = titleElement.text()?.trim()
+            // CORRECCIÓN CLAVE para el poster: Probar data-src primero, luego src.
+            posterUrl = posterImgElement.attr("data-src")?.let { fixUrl(it) }
+                ?: posterImgElement.attr("src")?.let { fixUrl(it) }
 
-            // Los resultados de búsqueda/recientes pueden ser películas o series.
-            // Para distinguirlos, podríamos buscar un span.etag.
-            // Por ahora, asumimos que todos son series de anime.
+            // Si alguno de los datos críticos (título, enlace, poster) es nulo, no añadimos este elemento
+            if (title.isNullOrBlank() || link.isNullOrBlank() || posterUrl.isNullOrBlank()) {
+                Log.w("Katanime", "parseAnimeItem - Datos incompletos (resultados/recientes), saltando: Title='$title', Link='$link', Poster='$posterUrl'")
+                return null
+            }
+            Log.d("Katanime", "parseAnimeItem - Parseado (resultados/recientes): Title='$title', Link='$link', Poster='$posterUrl'")
+
         } else {
             // Intenta parsear como un elemento del slider (li.slider-item)
             val sliderLinkElement = element.selectFirst("a.viewBtn")
             val sliderTitleElement = element.selectFirst(".slider_info h1")
-            val sliderPosterElement = element.selectFirst(".sliderimg img")
+            val sliderPosterImgElement = element.selectFirst(".sliderimg img")
 
-            if (sliderLinkElement != null && sliderTitleElement != null && sliderPosterElement != null) {
+            if (sliderLinkElement != null && sliderTitleElement != null && sliderPosterImgElement != null) {
                 link = sliderLinkElement.attr("href")?.let { fixUrl(it) }
                 title = sliderTitleElement.text()?.trim()
-                posterUrl = sliderPosterElement.attr("data-src")?.let { fixUrl(it) }
-                    ?: sliderPosterElement.attr("src")?.let { fixUrl(it) } // Fallback para src
+                // CORRECCIÓN CLAVE para el poster: Probar data-src primero, luego src.
+                posterUrl = sliderPosterImgElement.attr("data-src")?.let { fixUrl(it) }
+                    ?: sliderPosterImgElement.attr("src")?.let { fixUrl(it) }
+
+                if (title.isNullOrBlank() || link.isNullOrBlank() || posterUrl.isNullOrBlank()) {
+                    Log.w("Katanime", "parseAnimeItem - Datos incompletos (slider), saltando: Title='$title', Link='$link', Poster='$posterUrl'")
+                    return null
+                }
+                Log.d("Katanime", "parseAnimeItem - Parseado (slider): Title='$title', Link='$link', Poster='$posterUrl'")
+
             } else {
-                Log.w("Katanime", "parseAnimeItem - Elemento no coincide con estructura conocida. HTML: ${element.html()}")
+                Log.w("Katanime", "parseAnimeItem - Elemento no coincide con estructura conocida. HTML: ${element.html().take(200)}")
                 return null // No se pudo parsear
             }
         }
-
-        // Si alguno de los datos críticos (título, enlace, poster) es nulo, no añadimos este elemento
-        if (title.isNullOrBlank() || link.isNullOrBlank() || posterUrl.isNullOrBlank()) {
-            Log.w("Katanime", "parseAnimeItem - Datos incompletos, saltando: Title='$title', Link='$link', Poster='$posterUrl'")
-            return null
-        }
-
-        Log.d("Katanime", "parseAnimeItem - Parseado: Title='$title', Link='$link', Poster='$posterUrl'")
 
         // CORRECCIÓN: Asignar posterUrl dentro del bloque lambda
         return newTvSeriesSearchResponse(
@@ -77,6 +81,7 @@ class KatanimeProvider : MainAPI() {
         ) {
             this.posterUrl = posterUrl
             this.type = TvType.Anime
+            // this.apiName = name // 'apiName' no existe en SearchResponse, no debería estar aquí
         }
     }
 
@@ -109,6 +114,7 @@ class KatanimeProvider : MainAPI() {
         if (recentChaptersTitle != null) {
             // Seleccionamos el div padre que contiene todos los capítulos recientes
             val contentLeftDiv = recentChaptersTitle.nextElementSibling()
+            // El selector para los items individuales en "Capítulos Recientes" es el mismo que en la búsqueda
             val recentAnimeElements = contentLeftDiv?.select("div._135yj._2FQAt.chap._2mJki")
 
             val recentItems = recentAnimeElements?.mapNotNull { chapterElement ->
@@ -147,14 +153,11 @@ class KatanimeProvider : MainAPI() {
             Log.w("Katanime", "getMainPage - No se encontró la sección 'Capítulos Recientes'.")
         }
 
-        // --- (Opcional) Animes Populares ---
-        // Si la sección "Animes populares" (div id="widget" class="dark") está en la página principal
-        // y quieres añadirla, puedes usar un selector similar.
-        // Basado en image_710b7c.png, parece estar dentro de un div con id="content-right"
-        // y tiene la estructura "_135yj _2FQAt full _2mJki" para cada item, similar a la búsqueda.
+        // --- Animes Populares (widget de la derecha) ---
         val popularWidget = doc.selectFirst("div#widget.dark h3:contains(Animes populares)")
         if (popularWidget != null) {
-            val popularAnimeElements = popularWidget.parent()?.nextElementSibling()?.select("div._135yj._2FQAt.full._2mJki")
+            // El selector para los items individuales en "Animes populares" es el mismo que en la búsqueda
+            val popularAnimeElements = popularWidget.parent()?.select("div._135yj._2FQAt.full._2mJki")
             val popularItems = popularAnimeElements?.mapNotNull { parseAnimeItem(it) } ?: emptyList()
             if (popularItems.isNotEmpty()) {
                 items.add(HomePageList("Animes Populares", popularItems))
@@ -165,7 +168,6 @@ class KatanimeProvider : MainAPI() {
         } else {
             Log.d("Katanime", "getMainPage - No se encontró la sección 'Animes Populares' en la página principal.")
         }
-
 
         return newHomePageResponse(items, false)
     }
@@ -207,7 +209,10 @@ class KatanimeProvider : MainAPI() {
         // Selectores de la página de carga de anime
         // CORRECCIÓN: Selectores actualizados según el HTML proporcionado
         val title = doc.selectFirst("h1.comics-title.ajp")?.text() ?: ""
+        // CORRECCIÓN CLAVE para el poster principal: priorizar src, luego data-src
         val posterUrl = doc.selectFirst("div#animeinfo img")?.attr("src")?.let { fixUrl(it) }
+            ?: doc.selectFirst("div#animeinfo img")?.attr("data-src")?.let { fixUrl(it) }
+
         val description = doc.selectFirst("div#sinopsis p")?.text()?.trim() ?: ""
         val tags = doc.select("div.anime-genres a").map { it.text().trim() }
 
@@ -222,15 +227,22 @@ class KatanimeProvider : MainAPI() {
 
         if (episodesDataUrl.isNullOrBlank()) {
             Log.e("Katanime", "load - ERROR: No se pudo encontrar la data-url para los episodios.")
+            // Para URLs de capítulos individuales (como en "Capítulos Recientes"), no cargaremos LoadResponse
+            if ("/capitulo/" in cleanUrl) {
+                Log.e("Katanime", "load - La URL es de un capítulo, no de un anime. Esto es un error. ${cleanUrl}")
+                return null // No se puede cargar una LoadResponse de un capítulo
+            }
             return null
         }
 
+        // Obtener el token CSRF del meta tag
         val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content") ?: ""
         Log.d("Katanime", "load - CSRF Token: $csrfToken")
 
-        // No necesitamos el animeId de la URL del anime en este caso, la data-url ya lo contiene
-        // La API de episodios de Katanime espera la data-url completa y no solo un animeId
-        // La data-url ya es la URL base para el POST de episodios.
+        // Para el token X-XSRF-TOKEN en las cabeceras, Katanime.net usa una cookie llamada 'XSRF-TOKEN'
+        // El CloudflareKiller y app.get/post suelen manejar las cookies automáticamente,
+        // pero asegurar una petición GET previa al 'refererUrl' es crucial para que OkHttp capture las cookies.
+
         val episodesList = getEpisodes(episodesDataUrl, csrfToken, cleanUrl)
 
         // CORRECCIÓN: Asignar posterUrl, backgroundPosterUrl, etc. dentro del bloque lambda
@@ -285,19 +297,16 @@ class KatanimeProvider : MainAPI() {
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
                 "Origin" to mainUrl,
-                "X-XSRF-TOKEN" to csrfToken
+                "X-CSRF-TOKEN" to csrfToken // A veces se espera el token en esta cabecera también
             )
 
             // Es crucial hacer una petición GET a la página del anime (refererUrl) antes del POST
-            // para asegurar que las cookies de sesión (incluido el XSRF-TOKEN) estén actualizadas y sean válidas.
-            try {
-                Log.d("Katanime", "getEpisodes - Refrescando cookies con GET a refererUrl: $refererUrl")
-                app.get(refererUrl, interceptor = cfKiller)
-                Log.d("Katanime", "getEpisodes - Cookies refrescadas (GET a refererUrl) exitosamente.")
-            } catch (e: Exception) {
-                Log.w("Katanime", "getEpisodes - Error al intentar refrescar cookies con GET a $refererUrl: ${e.message}")
-                // Podríamos continuar e intentar el POST de todos modos, pero el token podría fallar
-            }
+            // para asegurar que las cookies de sesión (incluido el XSRF-TOKEN de la cookie) estén actualizadas y sean válidas.
+            // Cloudstream y OkHttp gestionan las cookies. El 'interceptor = cfKiller' es fundamental.
+            // No es necesario llamar app.get() explícitamente si Cloudstream ya lo gestiona con la sesión.
+            // Si el error "CSRF token mismatch" persiste, podríamos intentar un segundo GET aquí,
+            // o verificar si hay una cookie XSRF-TOKEN en el response del primer GET y añadirla manualmente a los headers del POST.
+            // Por ahora, confiemos en que OkHttp y CloudflareKiller manejan las cookies de sesión.
 
             val response = try {
                 app.post(episodesApiUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
