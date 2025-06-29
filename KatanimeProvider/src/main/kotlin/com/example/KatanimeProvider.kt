@@ -1,4 +1,4 @@
-package com.example // Cambia esto si tu paquete real es diferente
+package com.lagradost.cloudstream3.plugins
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -18,36 +18,121 @@ class KatanimeProvider : MainAPI() {
     override val supportedTypes = setOf(TvType.Anime)
     override var lang = "es"
 
-    override val hasMainPage = false
+    override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
 
     private val cfKiller = CloudflareKiller()
 
+    // Función auxiliar para parsear un elemento de anime (usado en search y getMainPage)
+    private fun parseAnimeItem(element: Element): SearchResponse? {
+        // Selector para el enlace principal del anime
+        val linkElement = element.selectFirst("a.1A2Dc._38LRT") ?: return null
+        val link = linkElement.attr("href")?.let { fixUrl(it) } ?: return null
+
+        // El título
+        val title = element.selectFirst("a.1A2Dc._2uHIS")?.text()?.trim()
+            ?: element.selectFirst("h3")?.text()?.trim() // Fallback por si usan h3 en otros contextos
+            ?: return null
+
+        // La imagen puede estar en data-src o src
+        val posterElement = element.selectFirst("img")
+        val posterUrl = posterElement?.attr("data-src")?.let { fixUrl(it) }
+            ?: posterElement?.attr("src")?.let { fixUrl(it) }
+
+        return newTvSeriesSearchResponse(
+            name = title,
+            url = link
+        ) {
+            this.posterUrl = posterUrl
+            this.type = TvType.Anime
+        }
+    }
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        val items = ArrayList<HomePageList>()
+
+        val doc = try {
+            app.get(mainUrl, interceptor = cfKiller).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "getMainPage - Error al obtener la página principal: ${e.message}")
+            return null
+        }
+
+        // --- 1. Animes Populares ---
+        // Basado en image_710b7c.png: div#widget.dark
+        val popularWidget = doc.selectFirst("div#widget.dark")
+        if (popularWidget != null) {
+            val popularAnimeElements = popularWidget.select("div._type3.flex") // Contenedor de cada anime popular
+            val popularItems = popularAnimeElements.mapNotNull { parseAnimeItem(it) }
+            if (popularItems.isNotEmpty()) {
+                items.add(HomePageList("Animes Populares", popularItems))
+                Log.d("Katanime", "getMainPage - Se añadió la sección 'Animes Populares' con ${popularItems.size} elementos.")
+            } else {
+                Log.w("Katanime", "getMainPage - 'Animes Populares' no encontró elementos con los selectores internos.")
+            }
+        } else {
+            Log.w("Katanime", "getMainPage - No se encontró el widget de 'Animes Populares' (div#widget.dark).")
+        }
+
+
+        // --- 2. Animes Recientes ---
+        // Asumiendo que "Animes Recientes" son los carruseles principales fuera del widget de populares.
+        // Las capturas de búsqueda (`image_710f77.png`, `image_710f19.png`) muestran `div id="content-full"`
+        // y dentro de este, contenedores de anime como `div._135yj._2FQAt.full._2MJki` o `div._2NNxg.flex`.
+        // Buscaremos estos contenedores directamente dentro de `#content-full` y los agruparemos como "Animes Recientes".
+
+        val contentFullDiv = doc.selectFirst("div#content-full")
+        if (contentFullDiv != null) {
+            // Selectores para los contenedores de anime dentro de content-full
+            val recentAnimeContainers = contentFullDiv.select("div._135yj._2FQAt.full._2MJki, div._2NNxg.flex")
+
+            // Asegurémonos de que no estamos volviendo a seleccionar los de "Animes Populares" si también aparecen aquí (aunque no deberían por el ID del widget)
+            val recentItems = recentAnimeContainers.mapNotNull { element ->
+                // Opcional: si "Animes Recientes" tiene un título distintivo, podemos buscarlo:
+                // val h2Title = element.selectFirst("h2.carousel__title")?.text()?.trim()
+                // if (h2Title == "Animes Recientes" || h2Title == "Novedades") {
+                //    parseAnimeItem(element)
+                // } else { null }
+
+                // Por ahora, simplemente parsearemos todos los elementos encontrados en #content-full
+                parseAnimeItem(element)
+            }
+
+            if (recentItems.isNotEmpty()) {
+                items.add(HomePageList("Animes Recientes", recentItems))
+                Log.d("Katanime", "getMainPage - Se añadió la sección 'Animes Recientes' con ${recentItems.size} elementos.")
+            } else {
+                Log.w("Katanime", "getMainPage - 'Animes Recientes' no encontró elementos con los selectores internos o está vacía.")
+            }
+        } else {
+            Log.w("Katanime", "getMainPage - No se encontró el contenedor principal 'div#content-full'.")
+        }
+
+
+        return newHomePageResponse(items, false)
+    }
+
+
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
-        val response = app.get(url, interceptor = cfKiller).document
-        val searchResults = response.select("a.anime-card")
-        val animeList = ArrayList<SearchResponse>()
+        Log.d("Katanime", "search - Buscando en URL: $url")
 
-        for (result : Element in searchResults) {
-            val title = result.selectFirst("div.title")?.text()?.trim()
-            val posterUrl = result.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
-            val link = result.attr("href")?.let { fixUrl(it) }
-
-            if (title != null && link != null) {
-                animeList.add(
-                    newTvSeriesSearchResponse( // Usamos newTvSeriesSearchResponse
-                        name = title,
-                        url = link
-                    ) {
-                        // REMOVIDO: this.apiName = this@KatanimeProvider.name // Esto causaba el error "Val cannot be reassigned"
-                        this.posterUrl = posterUrl // Esto sí es correcto aquí
-                        this.type = TvType.Anime // Esto sí es correcto aquí
-                    }
-                )
-            }
+        val response = try {
+            app.get(url, interceptor = cfKiller).document
+        } catch (e: Exception) {
+            Log.e("Katanime", "search - Error al obtener la página de búsqueda: ${e.message}")
+            return emptyList()
         }
+
+        // Selector específico para los resultados de búsqueda: `div._135yj._2FQAt.full._2MJki`
+        val searchResults = response.select("div._135yj._2FQAt.full._2MJki")
+
+        Log.d("Katanime", "search - Número de resultados encontrados con selector 'div._135yj._2FQAt.full._2MJki': ${searchResults.size}")
+
+        val animeList = searchResults.mapNotNull { parseAnimeItem(it) }
+
+        Log.d("Katanime", "search - Total de animes en la lista después de parsear: ${animeList.size}")
         return animeList
     }
 
@@ -63,7 +148,9 @@ class KatanimeProvider : MainAPI() {
 
         val doc = app.get(cleanUrl, interceptor = cfKiller).document
 
+        // Selectores de la página de carga de anime
         val title = doc.selectFirst("h1.title")?.text() ?: ""
+        // Asumiendo que la portada grande sigue en div.cover img, si no, inspeccionar
         val posterUrl = doc.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
         val description = doc.selectFirst("div.description-p p")?.text()?.trim() ?: ""
         val tags = doc.select("ul.genres li a").map { it.text().trim() }

@@ -2,6 +2,7 @@ package com.example // ¡MUY IMPORTANTE! Asegúrate de que este paquete coincida
 
 import android.content.Context
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
+import com.lagradost.cloudstream3.plugins.KatanimeProvider
 import com.lagradost.cloudstream3.plugins.Plugin // Importa la clase base Plugin
 
 /**
