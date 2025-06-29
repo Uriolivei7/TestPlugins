@@ -16,13 +16,14 @@ import org.jsoup.nodes.Document
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.TrailerData
 import com.lagradost.cloudstream3.ActorData
-import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson // Necesario para tryParseJson
 
 class KatanimeProvider : MainAPI() {
     override var name = "Katanime"
     override var mainUrl = "https://katanime.net"
-    override var supportedTypes = setOf(TvType.Anime)
+    override var supportedTypes = setOf(TvType.Anime) // Katanime es de Anime
 
+    // Instancia de CloudflareKiller para manejar posibles protecciones
     private val cfKiller = CloudflareKiller()
 
     data class KatanimeTvSeriesLoadResponse(
@@ -44,12 +45,14 @@ class KatanimeProvider : MainAPI() {
         override var posterHeaders: Map<String, String>?,
         override var backgroundPosterUrl: String?,
         override var contentRating: String?,
-        val episodes: List<Episode>?
-        // **uniqueUrl ELIMINADO COMPLETAMENTE DE AQUÍ**
+        val episodes: List<Episode>? // Lista de episodios de la serie
+        // `uniqueUrl` se ELIMINA completamente de aquí.
+        // Si el compilador dice "overrides nothing", significa que no existe en la interfaz.
     ) : LoadResponse
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscar?q=$query"
+        // Usa CloudflareKiller para obtener la página si está protegida
         val response = app.get(url, interceptor = cfKiller).document
         val searchResults = response.select("a.anime-card")
         val animeList = ArrayList<SearchResponse>()
@@ -65,7 +68,7 @@ class KatanimeProvider : MainAPI() {
                         name = title,
                         url = link,
                         apiName = this.name,
-                        type = TvType.Anime,
+                        type = TvType.Anime, // Aseguramos que sea TvType.Anime
                         posterUrl = posterUrl
                     )
                 )
@@ -73,41 +76,45 @@ class KatanimeProvider : MainAPI() {
         }
         return animeList
     }
-
     override suspend fun load(url: String): LoadResponse {
         val cleanUrl = fixUrl(url)
         val doc = app.get(cleanUrl, interceptor = cfKiller).document
+
+        // Extracción de datos básicos
         val title = doc.selectFirst("h1.title")?.text() ?: "N/A"
         val posterUrl = doc.selectFirst("div.cover img")?.attr("src")?.let { fixUrl(it) }
         val description = doc.selectFirst("div.description-p p")?.text()?.trim() ?: ""
         val tags = doc.select("ul.genres li a").map { it.text().trim() }
 
+        // Extracción de datos específicos para la carga de episodios (AJAX POST)
         val dataUrl = doc.selectFirst("div[data-url]")?.attr("data-url")?.let { fixUrl(it) }
         val csrfToken = doc.selectFirst("meta[name=\"csrf-token\"]")?.attr("content") ?: ""
 
+        // Obtener la lista de episodios
         val episodesList = getEpisodes(dataUrl, csrfToken, cleanUrl)
 
+        // Construir y devolver la respuesta de carga
         return KatanimeTvSeriesLoadResponse(
             name = title,
             url = cleanUrl,
             apiName = this.name,
-            type = TvType.Anime,
+            type = TvType.Anime, // Mantener como Anime
             posterUrl = posterUrl,
             episodes = episodesList,
             tags = tags,
-            year = null,
+            year = null, // No se puede extraer fácilmente el año de esta estructura
             plot = description,
-            rating = null,
-            duration = null,
-            recommendations = null,
-            actors = null,
-            trailers = mutableListOf(),
+            rating = null, // No se puede extraer fácilmente el rating
+            duration = null, // No se puede extraer fácilmente la duración
+            recommendations = null, // Katanime no muestra recomendaciones fácilmente
+            actors = null, // Katanime no muestra actores fácilmente
+            trailers = mutableListOf(), // No se han encontrado trailers en la página
             comingSoon = false,
             syncData = mutableMapOf(),
             posterHeaders = null,
             backgroundPosterUrl = posterUrl,
             contentRating = null
-            // **uniqueUrl ELIMINADO COMPLETAMENTE DE AQUÍ**
+            // `uniqueUrl` se ELIMINA del constructor de la clase.
         )
     }
 
@@ -138,9 +145,11 @@ class KatanimeProvider : MainAPI() {
                 "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
                 "Origin" to mainUrl,
-                "X-XSRF-TOKEN" to csrfToken
+                "X-XSRF-TOKEN" to csrfToken // A veces el X-XSRF-TOKEN es necesario
             )
 
+            // Intento de refrescar cookies antes de la solicitud POST
+            // Esto es crucial para sitios con Cloudflare o seguridad dinámica
             try {
                 println("Katanime: Intentando refrescar cookies antes de POST para episodios.")
                 app.get(refererUrl, interceptor = cfKiller)
@@ -149,17 +158,19 @@ class KatanimeProvider : MainAPI() {
                 println("Katanime: Error al intentar refrescar cookies: ${e.message}")
             }
 
+            // Realizar la solicitud POST para obtener los datos de episodios
             val response = app.post(dataUrl, requestBody = requestBody, headers = headers, interceptor = cfKiller)
             val jsonString = response.body.string()
             println("Katanime: load - HTML de episodios (primeros 1000 caracteres): ${jsonString.take(1000)}")
 
+            // Parsear la respuesta JSON
             val episodeData = tryParseJson<EpisodeResponse>(jsonString)
 
             if (episodeData != null && episodeData.ep.data.isNotEmpty()) {
                 for (epItem in episodeData.ep.data) {
                     episodes.add(
                         Episode(
-                            data = fixUrl(epItem.url),
+                            data = fixUrl(epItem.url), // URL completa del episodio para `loadLinks`
                             name = "Episodio ${epItem.numero ?: "N/A"}",
                             episode = epItem.numero?.toIntOrNull(),
                             posterUrl = epItem.thumb?.let { fixUrl(it) }
@@ -176,9 +187,10 @@ class KatanimeProvider : MainAPI() {
             }
         }
         println("Katanime: load - Total de episodios encontrados: ${episodes.size}")
-        return episodes.reversed()
+        return episodes.reversed() // Katanime suele listar de más nuevo a más viejo
     }
 
+    // --- Clases de datos para la respuesta JSON de episodios ---
     data class EpisodeResponse(
         val ep: EpisodesWrapper,
         val last: LastEpisode?
@@ -218,6 +230,7 @@ class KatanimeProvider : MainAPI() {
     )
 
     // El método loadLinks está comentado, lo cual está bien si no lo necesitas.
+    // Deberías implementarlo cuando necesites extraer los enlaces de vídeo de cada episodio.
     /*
     override suspend fun loadLinks(
         data: String,
@@ -225,7 +238,8 @@ class KatanimeProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // ... (Tu código de extracción de enlaces aquí) ...
+        // Tu lógica de extracción de enlaces para cada episodio iría aquí.
+        // `data` contendrá la URL del episodio que obtuviste en `getEpisodes`.
         return false
     }
     */
