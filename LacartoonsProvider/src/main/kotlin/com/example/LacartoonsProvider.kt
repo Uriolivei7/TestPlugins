@@ -142,7 +142,8 @@ class LacartoonsProvider : MainAPI() {
     // 5. Función h(...m) (String.fromCodePoint en Kotlin)
     private fun h_fromCodePoint(vararg m: Int): String {
         if (m.isEmpty()) return ""
-        return String(m.map { it.toChar() }.toCharArray())
+        // MODIFICACIÓN CRÍTICA AQUÍ: Usar String(IntArray, offset, count) para manejar code points correctamente
+        return String(m, 0, m.size)
     }
 
     // 7. Función x(m: String) (String a Bytes - TextEncoder equivalent)
