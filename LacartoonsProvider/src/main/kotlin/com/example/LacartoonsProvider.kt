@@ -12,6 +12,7 @@ import java.net.URLEncoder
 import java.net.URI
 import org.jsoup.nodes.Document
 import android.util.Base64
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -94,80 +95,98 @@ class LacartoonsProvider:MainAPI() {
         if (iframeSrc.contains("cubeembed.rpmvid.com")) {
             println("${name}: Detectado iframe de cubeembed.rpmvid.com, procesando internamente.")
             val cubembedUrl = iframeSrc // Esta es la URL del iframe (ej: https://cubeembed.rpmvid.com/#ourng)
-            // No necesitamos un referer para el app.get del iframe en sí si ya lo tenemos en el User-Agent
+            val embedId = cubembedUrl.substringAfterLast("#") // Extrae el ID, ej., "ur3pb"
 
-            // Encabezados para la solicitud del HTML del iframe (aunque ya vimos que no trae el m3u8 directamente)
-            // Se mantiene el User-Agent móvil de la prueba anterior
-            val embedRequestHeaders = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Mobile Safari/537.36",
-                "Referer" to cubembedUrl.substringBefore("#"), // Referer al dominio base del iframe
-                "Origin" to cubembedUrl.substringBefore("#"), // Origin al dominio base del iframe
-                "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                "Accept-Language" to "es,en-US;q=0.7,en;q=0.3"
+            if (embedId.isEmpty()) {
+                println("${name}: No se pudo extraer el ID del embed de Cubembed de la URL: $cubembedUrl")
+                return false
+            }
+
+            // Construimos la URL del endpoint que parece devolver el M3U8 directamente
+            // Basado en tu captura de red: video?id=ur3pb&w=1680&h=1050&r=lacartoon...
+            // Los parámetros 'w', 'h' y 'r' podrían ser importantes. 'r' es el referer principal.
+            val refererMainPage = mainUrl // Usa el mainUrl de tu proveedor como referer original
+            val videoApiUrl = "https://cubeembed.rpmvid.com/video?id=$embedId&w=1920&h=1080&r=${encode(refererMainPage)}"
+            // Se usa encode para el parámetro 'r' por si contiene caracteres especiales
+
+            // Encabezados para la solicitud al endpoint /video
+            // Deben coincidir con los que el navegador envía para esa solicitud (xhr/fetch)
+            val videoApiHeaders = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+                "Referer" to cubembedUrl.substringBefore("#"), // El referer del iframe (sin el #id)
+                "Origin" to cubembedUrl.substringBefore("#"), // El origin del iframe
+                "Accept" to "*/*",
+                "Accept-Language" to "es-ES,es;q=0.5",
+                "Sec-Fetch-Dest" to "empty",
+                "Sec-Fetch-Mode" to "cors",
+                "Sec-Fetch-Site" to "same-origin"
             )
 
             try {
-                // Obtener el HTML del iframe
-                val embedDoc = app.get(cubembedUrl, headers = embedRequestHeaders).document
+                println("${name}: Realizando solicitud GET a ${videoApiUrl}")
+                // Realizamos la solicitud GET al endpoint /video.
+                // Esperamos que la respuesta sea un REDIRECCIONAMIENTO (302) a la URL del M3U8
+                // o que el CUERPO de la respuesta contenga la URL del M3U8.
+                // Cloudstream automáticamente sigue redireccionamientos.
+                val response = app.get(videoApiUrl, headers = videoApiHeaders, allowRedirects = true)
 
-                val htmlContent = embedDoc.html()
+                val finalUrl = response.url // Esta será la URL final después de redireccionamientos
 
-                println("${name}: URL del iframe de Cubembed: $cubembedUrl")
-                println("${name}: Tamaño del HTML de Cubembed recibido: ${htmlContent.length} caracteres")
-                println("${name}: --- INICIO HTML CUBEMBED ---")
-                val chunkSize = 1000 // Tamaño de cada "pedazo" de HTML a imprimir
-                for (i in 0 until htmlContent.length step chunkSize) {
-                    val end = (i + chunkSize).coerceAtMost(htmlContent.length)
-                    println("${name}: CHUNK ${i/chunkSize}: ${htmlContent.substring(i, end)}")
-                }
-                println("${name}: --- FIN HTML CUBEMBED ---")
+                // Verificar si la URL final es un M3U8
+                if (finalUrl.contains(".m3u8")) {
+                    println("${name}: ¡Éxito! URL de video M3U8 obtenida después de la solicitud GET: $finalUrl")
 
-                // NUEVA LÓGICA: INTENTAR ENCONTRAR LA RUTA HLS DINÁMICA EN EL JAVASCRIPT/HTML RECIBIDO
-                // Esta regex intenta encontrar "/hls/ALGO_DINAMICO.m3u8" o "/hls/ALGO_DINAMICO/algo/master.m3u8"
-                // Busca cualquier cosa que empiece con /hls/ y termine con .m3u8, dentro de comillas
-                val hlsPathRegex = Regex("""["'](/hls/[^"']+\.m3u8)["']""")
-                val match = hlsPathRegex.find(htmlContent)
-
-                if (match != null) {
-                    val relativeM3u8Src = match.groupValues[1] // Captura la URL relativa completa (ej: /hls/.../master.m3u8)
-                    val baseUri = URI(cubembedUrl.substringBefore("#")) // La base es el dominio del iframe
-                    val m3u8Url = baseUri.resolve(relativeM3u8Src).toString()
-
-                    println("${name}: ¡Éxito! URL de video M3U8 encontrada en el HTML (posiblemente en script): $m3u8Url")
-
-                    // Encabezados específicos para la SOLICITUD DEL ARCHIVO M3U8, basados en el cURL
+                    // Los encabezados para el M3U8 real
                     val finalM3u8Headers = mapOf(
-                        "Referer" to "https://cubeembed.rpmvid.com/", // El Referer que usó el navegador para el M3U8
-                        "Origin" to "https://cubeembed.rpmvid.com", // El Origin para el M3U8
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", // User-Agent de escritorio del cURL
-                        "Accept" to "*/*",
-                        "Accept-Language" to "es-ES,es;q=0.5",
-                        "Cache-Control" to "no-cache",
-                        "Pragma" to "no-cache",
-                        "Sec-Fetch-Dest" to "empty",
-                        "Sec-Fetch-Mode" to "cors",
-                        "Sec-Fetch-Site" to "same-origin",
-                        "Sec-Gpc" to "1"
+                        "Referer" to "https://cubeembed.rpmvid.com/", // El referer para el M3U8 final es el dominio base del embed
+                        "Origin" to "https://cubeembed.rpmvid.com",
+                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
                     )
 
                     callback(
                         ExtractorLink(
                             source = "Cubembed",
                             name = "Cubembed",
-                            url = m3u8Url,
-                            referer = "https://cubeembed.rpmvid.com/", // El referer para el M3U8
-                            quality = 0, // Puedes ajustar la calidad si la obtienes de alguna parte
+                            url = finalUrl,
+                            referer = "https://cubeembed.rpmvid.com/",
+                            quality = 0,
                             type = ExtractorLinkType.M3U8,
-                            headers = finalM3u8Headers // ¡Pasar los encabezados completos aquí!
+                            headers = finalM3u8Headers
                         )
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la ruta HLS dinámica (.m3u8) en el HTML inicial del iframe. El contenido es incompleto o se carga por JS complejo.")
+                    println("${name}: La URL final no es un M3U8. Contenido de la respuesta: ${response.text.take(500)}...")
+                    // Si no es un M3U8, puede ser que la URL del M3U8 esté en el cuerpo de la respuesta
+                    // Intentaremos buscarlo en el cuerpo como JSON o texto plano.
+                    val m3u8InBodyRegex = Regex("""["'](https?://[^"']*\.m3u8(?:\?[^"']*)?)["']""")
+                    val matchInBody = m3u8InBodyRegex.find(response.text)
+                    if (matchInBody != null) {
+                        val m3u8UrlFromBody = matchInBody.groupValues[1]
+                        println("${name}: ¡Éxito! URL de video M3U8 encontrada en el cuerpo de la respuesta: $m3u8UrlFromBody")
+
+                        val finalM3u8Headers = mapOf(
+                            "Referer" to "https://cubeembed.rpmvid.com/",
+                            "Origin" to "https://cubeembed.rpmvid.com",
+                            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+                        )
+                        callback(
+                            ExtractorLink(
+                                source = "Cubembed",
+                                name = "Cubembed",
+                                url = m3u8UrlFromBody,
+                                referer = "https://cubeembed.rpmvid.com/",
+                                quality = 0,
+                                type = ExtractorLinkType.M3U8,
+                                headers = finalM3u8Headers
+                            )
+                        )
+                        return true
+                    }
                 }
 
             } catch (e: Exception) {
-                println("${name}: Error al obtener o parsear el HTML del embed de Cubembed: ${e.message}")
+                println("${name}: Error al realizar la solicitud GET al endpoint /video de Cubembed: ${e.message}")
                 e.printStackTrace()
             }
             return false
@@ -181,6 +200,7 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
+    // Esta clase de datos ya no se usa con esta nueva lógica, pero la mantenemos.
     data class CubembedApiResponse(
         @JsonProperty("file")
         val file: String?,
