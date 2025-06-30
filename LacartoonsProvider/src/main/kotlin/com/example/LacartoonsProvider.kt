@@ -14,7 +14,9 @@ import org.jsoup.nodes.Document
 import android.util.Base64 // Importar Base64 de Android
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import kotlinx.coroutines.delay
-import okio.ByteString.Companion.decodeBase64 // Importar decodeBase64 para Okio ByteString
+// Importar esto si quieres usar Okio para Base64, pero android.util.Base64 es más común en Android
+// import okio.ByteString.Companion.decodeBase64
+import kotlin.math.min // Para la función minOf en logLongString
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -28,6 +30,17 @@ class LacartoonsProvider:MainAPI() {
     )
 
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
+
+    // Helper para loggear cadenas largas
+    private fun logLongString(tag: String, message: String) {
+        val chunkSize = 4000 // Tamaño máximo de línea para logcat
+        var i = 0
+        while (i < message.length) {
+            val endIndex = min(i + chunkSize, message.length) // Usar kotlin.math.min
+            println("$tag: ${message.substring(i, endIndex)}")
+            i += chunkSize
+        }
+    }
 
     private fun Document.toSearchResult():List<SearchResponse>{
         return this.select(".categorias .conjuntos-series a").map {
@@ -80,20 +93,15 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
-    // Función que simula el procesamiento de la respuesta 'L' del JS
-    // Esta es la función CLAVE que necesita la lógica real de descifrado
+    // Función de decodificación Base64
     private suspend fun decryptL(responseBody: String): String {
-        // En este punto, 'responseBody' es la cadena Base64 que recibimos.
-        // Necesitamos la lógica de la función 'L' del JS.
-        // Asumiendo que 'L' hace un atob y luego alguna manipulación:
+        // Usa Base64 de Android para decodificar la cadena
+        // Flag Base64.DEFAULT es común para decodificación estándar
+        val decodedBytes = Base64.decode(responseBody, Base64.DEFAULT)
 
-        // Paso 1: Decodificar Base64 a bytes (equivalente a atob() en JS y luego charCodeAt)
-        val decodedBytes = responseBody.decodeBase64()?.toByteArray() ?: return ""
-
-        // Paso 2: Aplicar la lógica de descifrado/desofuscación de 'L'
-        // Por ahora, simplemente intentamos interpretarlo como UTF-8
-        // ¡ESTO ES LO QUE NECESITA SER REEMPLAZADO CON LA LÓGICA DE 'L' DEL JS!
-        return String(decodedBytes, Charsets.UTF_8) // Placeholder: Asume que es texto directo
+        // Convertir los bytes decodificados a una String usando UTF-8
+        // Si el resultado esperado es texto (M3U8), UTF-8 es lo más común.
+        return String(decodedBytes, Charsets.UTF_8)
     }
 
     override suspend fun loadLinks(
@@ -141,30 +149,32 @@ class LacartoonsProvider:MainAPI() {
 
             try {
                 // --- PASO 1: Simular la llamada 'k' del JS (para /api/v1/info) ---
-                // Asumiendo que m(715) es la URL de info y _ es el ID
-                val infoApiUrl = "https://cubeembed.rpmvid.com/api/v1/info?id=$embedId" // Usamos la URL concreta
+                val infoApiUrl = "https://cubeembed.rpmvid.com/api/v1/info?id=$embedId"
                 println("${name}: Realizando solicitud GET a la API de info: ${infoApiUrl}")
                 val infoResponse = app.get(infoApiUrl, headers = commonApiHeaders)
                 val infoEncodedString = infoResponse.text // Se espera Base64
 
-                println("${name}: Cadena Base64 recibida de /info: ${infoEncodedString.take(100)}...")
-                val infoDecryptedContent = decryptL(infoEncodedString) // Pasamos a nuestra función L simulada
-                println("${name}: Cadena decodificada/descifrada de /info: ${infoDecryptedContent.take(500)}...")
+                // ** Usar la función logLongString para ver la cadena Base64 completa **
+                logLongString(name, "Cadena Base64 recibida de /info (completa): $infoEncodedString")
+
+                val infoDecryptedContent = decryptL(infoEncodedString)
+                // ** Usar la función logLongString para ver el contenido decodificado completo **
+                logLongString(name, "Cadena decodificada/descifrada de /info (completa): $infoDecryptedContent")
 
                 delay(1000) // Pequeño retraso para simular el comportamiento del navegador
 
                 // --- PASO 2: Simular la llamada 'I' del JS (para /api/v1/video) ---
-                // Reconstruimos la URL exacta con los parámetros de ancho y alto que ya sabemos
-                // m(585) + _ + m(562) + P + "&h=" + D + m(578) + K
-                // https://cubeembed.rpmvid.com/api/v1/video?id={embedId}&w=1280&h=800&r=
                 val videoApiUrl = "https://cubeembed.rpmvid.com/api/v1/video?id=$embedId&w=1280&h=800&r="
                 println("${name}: Realizando solicitud GET a la API de video: ${videoApiUrl}")
                 val videoResponse = app.get(videoApiUrl, headers = commonApiHeaders, allowRedirects = true)
                 val videoEncodedString = videoResponse.text // Se espera Base64
 
-                println("${name}: Cadena Base64 recibida de /video: ${videoEncodedString.take(100)}...")
-                val videoDecryptedContent = decryptL(videoEncodedString) // Pasamos a nuestra función L simulada
-                println("${name}: Cadena decodificada/descifrada de /video: ${videoDecryptedContent.take(500)}...")
+                // ** Usar la función logLongString para ver la cadena Base64 completa **
+                logLongString(name, "Cadena Base64 recibida de /video (completa): $videoEncodedString")
+
+                val videoDecryptedContent = decryptL(videoEncodedString)
+                // ** Usar la función logLongString para ver el contenido decodificado completo **
+                logLongString(name, "Cadena decodificada/descifrada de /video (completa): $videoDecryptedContent")
 
                 // Buscar M3U8 en el contenido descifrado de /video (lo más probable)
                 val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:\?[^"']*)?)""")
@@ -194,7 +204,7 @@ class LacartoonsProvider:MainAPI() {
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena descifrada de /video.")
+                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena descifrada de /video. Buscando en /info...")
                     val matchInfo = m3u8Regex.find(infoDecryptedContent)
                     if (matchInfo != null) {
                         val m3u8Url = matchInfo.groupValues[1]
