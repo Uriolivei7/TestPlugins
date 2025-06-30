@@ -175,6 +175,7 @@ class LacartoonsProvider : MainAPI() {
         val fResult_phi = f("ᵟ".codePointAt(0)!!, P_const / 10)
         val dollarArray = fResult_phi.split("").filter { it.isNotEmpty() }
 
+
         for (element in dollarArray) {
             if (element.isNotEmpty()) {
                 F_str += h_fromCodePoint(P_const + element.codePointAt(0)!!)
@@ -209,7 +210,10 @@ class LacartoonsProvider : MainAPI() {
             reversedJoinedSlice.toInt()
         )
 
+        println("LACartoons: F_str antes de x_encode: '$F_str'")
+
         return x_encode(F_str)
+
     }
 
     // 11. Función T() (Generar IV)
@@ -259,6 +263,8 @@ class LacartoonsProvider : MainAPI() {
 
         dollarStr.append(h_fromCodePoint(*argsForH.toIntArray()))
 
+        println("LACartoons: dollarStr antes de x_encode: '$dollarStr'")
+
         return x_encode(dollarStr.toString())
     }
 
@@ -277,6 +283,9 @@ class LacartoonsProvider : MainAPI() {
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, ivSpec)
         val decryptedBytes = cipher.doFinal(encryptedData)
+
+        println("LACartoons: Key Hash (hex): ${keyHash.joinToString("") { "%02x".format(it) }}")
+        println("LACartoons: IV Hash (hex): ${ivHash.joinToString("") { "%02x".format(it) }}")
 
         return p_decode(decryptedBytes)
     }
