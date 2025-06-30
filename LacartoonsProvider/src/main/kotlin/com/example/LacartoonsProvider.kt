@@ -14,6 +14,7 @@ import org.jsoup.nodes.Document
 import android.util.Base64 // Importar Base64 de Android
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import kotlinx.coroutines.delay
+import okio.ByteString.Companion.decodeBase64 // Importar decodeBase64 para Okio ByteString
 
 class LacartoonsProvider:MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -26,7 +27,6 @@ class LacartoonsProvider:MainAPI() {
         TvType.Cartoon
     )
 
-    // Ya no se usa para las URLs de Cubembed, pero se mantiene para Lacartoons.com si es necesario
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
     private fun Document.toSearchResult():List<SearchResponse>{
@@ -80,6 +80,22 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
+    // Función que simula el procesamiento de la respuesta 'L' del JS
+    // Esta es la función CLAVE que necesita la lógica real de descifrado
+    private suspend fun decryptL(responseBody: String): String {
+        // En este punto, 'responseBody' es la cadena Base64 que recibimos.
+        // Necesitamos la lógica de la función 'L' del JS.
+        // Asumiendo que 'L' hace un atob y luego alguna manipulación:
+
+        // Paso 1: Decodificar Base64 a bytes (equivalente a atob() en JS y luego charCodeAt)
+        val decodedBytes = responseBody.decodeBase64()?.toByteArray() ?: return ""
+
+        // Paso 2: Aplicar la lógica de descifrado/desofuscación de 'L'
+        // Por ahora, simplemente intentamos interpretarlo como UTF-8
+        // ¡ESTO ES LO QUE NECESITA SER REEMPLAZADO CON LA LÓGICA DE 'L' DEL JS!
+        return String(decodedBytes, Charsets.UTF_8) // Placeholder: Asume que es texto directo
+    }
+
     override suspend fun loadLinks(
         data: String, // La URL del episodio de Lacartoons
         isCasting: Boolean,
@@ -104,7 +120,7 @@ class LacartoonsProvider:MainAPI() {
                 return false
             }
 
-            // Encabezados comunes para ambas llamadas API
+            // Encabezados comunes para ambas llamadas API (simulando los del navegador)
             val commonApiHeaders = mapOf(
                 "Accept" to "*/*",
                 "Accept-Encoding" to "gzip, deflate, br, zstd",
@@ -124,42 +140,40 @@ class LacartoonsProvider:MainAPI() {
             )
 
             try {
-                // --- PASO 1: Llamada a /api/v1/info?id=... ---
-                val infoApiUrl = "https://cubeembed.rpmvid.com/api/v1/info?id=$embedId"
+                // --- PASO 1: Simular la llamada 'k' del JS (para /api/v1/info) ---
+                // Asumiendo que m(715) es la URL de info y _ es el ID
+                val infoApiUrl = "https://cubeembed.rpmvid.com/api/v1/info?id=$embedId" // Usamos la URL concreta
                 println("${name}: Realizando solicitud GET a la API de info: ${infoApiUrl}")
                 val infoResponse = app.get(infoApiUrl, headers = commonApiHeaders)
                 val infoEncodedString = infoResponse.text // Se espera Base64
 
                 println("${name}: Cadena Base64 recibida de /info: ${infoEncodedString.take(100)}...")
-                val infoDecodedBytes = Base64.decode(infoEncodedString, Base64.DEFAULT)
-                val infoDecodedString = String(infoDecodedBytes, Charsets.UTF_8)
-                println("${name}: Cadena decodificada de /info: ${infoDecodedString.take(500)}...")
+                val infoDecryptedContent = decryptL(infoEncodedString) // Pasamos a nuestra función L simulada
+                println("${name}: Cadena decodificada/descifrada de /info: ${infoDecryptedContent.take(500)}...")
 
+                delay(1000) // Pequeño retraso para simular el comportamiento del navegador
 
-                // Pequeño retraso para simular el comportamiento del navegador
-                delay(1000)
-
-                // --- PASO 2: Llamada a /api/v1/video?id=... ---
-                // El parámetro 'r=' está vacío según tu última información.
-                val videoApiUrl = "https://cubeembed.rpmvid.com/api/v1/video?id=$embedId&w=1280&h=800&r=" // Usar w=1280&h=800 y r= vacío
-
+                // --- PASO 2: Simular la llamada 'I' del JS (para /api/v1/video) ---
+                // Reconstruimos la URL exacta con los parámetros de ancho y alto que ya sabemos
+                // m(585) + _ + m(562) + P + "&h=" + D + m(578) + K
+                // https://cubeembed.rpmvid.com/api/v1/video?id={embedId}&w=1280&h=800&r=
+                val videoApiUrl = "https://cubeembed.rpmvid.com/api/v1/video?id=$embedId&w=1280&h=800&r="
                 println("${name}: Realizando solicitud GET a la API de video: ${videoApiUrl}")
                 val videoResponse = app.get(videoApiUrl, headers = commonApiHeaders, allowRedirects = true)
                 val videoEncodedString = videoResponse.text // Se espera Base64
 
                 println("${name}: Cadena Base64 recibida de /video: ${videoEncodedString.take(100)}...")
-                val videoDecodedBytes = Base64.decode(videoEncodedString, Base64.DEFAULT)
-                val videoDecodedString = String(videoDecodedBytes, Charsets.UTF_8)
-                println("${name}: Cadena decodificada de /video: ${videoDecodedString.take(500)}...")
+                val videoDecryptedContent = decryptL(videoEncodedString) // Pasamos a nuestra función L simulada
+                println("${name}: Cadena decodificada/descifrada de /video: ${videoDecryptedContent.take(500)}...")
 
-                // Buscar M3U8 en la respuesta decodificada de /video (lo más probable)
+                // Buscar M3U8 en el contenido descifrado de /video (lo más probable)
                 val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:\?[^"']*)?)""")
-                val match = m3u8Regex.find(videoDecodedString)
+                val match = m3u8Regex.find(videoDecryptedContent)
 
                 if (match != null) {
                     val m3u8Url = match.groupValues[1]
 
-                    println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena decodificada de /video: $m3u8Url")
+                    println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena descifrada de /video: $m3u8Url")
 
                     val finalM3u8Headers = mapOf(
                         "Referer" to "https://cubeembed.rpmvid.com/",
@@ -180,12 +194,11 @@ class LacartoonsProvider:MainAPI() {
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena decodificada de /video.")
-                    // Si no está en /video, podríamos buscar en /info si es necesario, pero es menos probable para el M3U8 final.
-                    val matchInfo = m3u8Regex.find(infoDecodedString)
+                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena descifrada de /video.")
+                    val matchInfo = m3u8Regex.find(infoDecryptedContent)
                     if (matchInfo != null) {
                         val m3u8Url = matchInfo.groupValues[1]
-                        println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena decodificada de /info: $m3u8Url")
+                        println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena descifrada de /info: $m3u8Url")
                         val finalM3u8Headers = mapOf(
                             "Referer" to "https://cubeembed.rpmvid.com/",
                             "Origin" to "https://cubeembed.rpmvid.com",
@@ -205,7 +218,7 @@ class LacartoonsProvider:MainAPI() {
                         )
                         return true
                     } else {
-                        println("${name}: No se encontró la URL HLS (.m3u8) en la cadena decodificada de /info tampoco.")
+                        println("${name}: No se encontró la URL HLS (.m3u8) en la cadena descifrada de /info tampoco.")
                     }
                 }
 
@@ -224,7 +237,6 @@ class LacartoonsProvider:MainAPI() {
         }
     }
 
-    // Esta clase ya no se usaría con esta lógica de Base64
     data class CubembedApiResponse(
         @JsonProperty("file")
         val file: String?,
