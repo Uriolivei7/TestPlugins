@@ -26,6 +26,7 @@ class LacartoonsProvider:MainAPI() {
         TvType.Cartoon
     )
 
+    // Ya no se usa para las URLs de Cubembed, pero se mantiene para Lacartoons.com si es necesario
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
     private fun Document.toSearchResult():List<SearchResponse>{
@@ -103,76 +104,67 @@ class LacartoonsProvider:MainAPI() {
                 return false
             }
 
-            // --- PASO 1: Llamada a /info?id=... (Basado en la captura de red) ---
-            // Esta llamada parece ser la primera y podría ser parte de la "verificación humana"
-            // Su respuesta puede no ser directamente el M3U8, pero es un paso que el navegador hace.
-            val infoApiUrl = "https://cubeembed.rpmvid.com/info?id=$embedId"
-            val infoApiHeaders = mapOf(
-                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36",
-                "Referer" to cubembedUrl.substringBefore("#"),
-                "Origin" to cubembedUrl.substringBefore("#"),
+            // Encabezados comunes para ambas llamadas API
+            val commonApiHeaders = mapOf(
                 "Accept" to "*/*",
-                "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8,en-US;q=0.7",
+                "Accept-Encoding" to "gzip, deflate, br, zstd",
+                "Accept-Language" to "es-ES,es;q=0.5",
+                "Priority" to "u=1, i",
+                "Referer" to cubembedUrl.substringBefore("#"),
+                "Sec-Ch-Ua" to "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\"",
+                "Sec-Ch-Ua-Mobile" to "?0",
+                "Sec-Ch-Ua-Platform" to "\"Windows\"",
                 "Sec-Fetch-Dest" to "empty",
                 "Sec-Fetch-Mode" to "cors",
-                "Sec-Fetch-Site" to "same-origin"
+                "Sec-Fetch-Site" to "same-origin",
+                "Sec-Gpc" to "1",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+                // Si hay cookies importantes después del "verify human", se pondrían aquí
+                // "Cookie" to "nombre=valor; otro=valor"
             )
 
             try {
+                // --- PASO 1: Llamada a /api/v1/info?id=... ---
+                val infoApiUrl = "https://cubeembed.rpmvid.com/api/v1/info?id=$embedId"
                 println("${name}: Realizando solicitud GET a la API de info: ${infoApiUrl}")
-                val infoResponse = app.get(infoApiUrl, headers = infoApiHeaders)
-                println("${name}: Respuesta de /info (primeros 500 chars): ${infoResponse.text.take(500)}...")
+                val infoResponse = app.get(infoApiUrl, headers = commonApiHeaders)
+                val infoEncodedString = infoResponse.text // Se espera Base64
 
-                // Pequeño retraso para simular el comportamiento del navegador después de la primera llamada
-                // Podría ser parte de la "resolución automática" del captcha
-                delay(1000) // Esperar 1 segundo
+                println("${name}: Cadena Base64 recibida de /info: ${infoEncodedString.take(100)}...")
+                val infoDecodedBytes = Base64.decode(infoEncodedString, Base64.DEFAULT)
+                val infoDecodedString = String(infoDecodedBytes, Charsets.UTF_8)
+                println("${name}: Cadena decodificada de /info: ${infoDecodedString.take(500)}...")
 
-                // --- PASO 2: Llamada a /video?id=... (Ahora que sabemos que devuelve Base64) ---
-                val refererMainPage = mainUrl
-                val videoApiUrl = "https://cubeembed.rpmvid.com/video?id=$embedId&w=1680&h=1050&r=${encode(refererMainPage)}" // Usar 1680x1050 de la captura original
 
-                // Encabezados para la solicitud a /video?id=... (¡Mantener los precisos de tu captura!)
-                val videoApiHeaders = mapOf(
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36",
-                    "Referer" to cubembedUrl.substringBefore("#"), // El referer del iframe (sin el #id)
-                    "Origin" to cubembedUrl.substringBefore("#"), // El origin del iframe
-                    "Accept" to "*/*",
-                    "Accept-Language" to "es-ES,es;q=0.9,en;q=0.8,en-US;q=0.7",
-                    "Sec-Fetch-Dest" to "empty",
-                    "Sec-Fetch-Mode" to "cors",
-                    "Sec-Fetch-Site" to "same-origin",
-                    // Asegúrate de que no haya cookies que el navegador envía y tú no
-                )
+                // Pequeño retraso para simular el comportamiento del navegador
+                delay(1000)
+
+                // --- PASO 2: Llamada a /api/v1/video?id=... ---
+                // El parámetro 'r=' está vacío según tu última información.
+                val videoApiUrl = "https://cubeembed.rpmvid.com/api/v1/video?id=$embedId&w=1280&h=800&r=" // Usar w=1280&h=800 y r= vacío
 
                 println("${name}: Realizando solicitud GET a la API de video: ${videoApiUrl}")
-                val videoResponse = app.get(videoApiUrl, headers = videoApiHeaders, allowRedirects = true)
-                val encodedString = videoResponse.text // La respuesta es la cadena Base64
+                val videoResponse = app.get(videoApiUrl, headers = commonApiHeaders, allowRedirects = true)
+                val videoEncodedString = videoResponse.text // Se espera Base64
 
-                println("${name}: Cadena Base64 recibida de /video: ${encodedString.take(100)}...")
+                println("${name}: Cadena Base64 recibida de /video: ${videoEncodedString.take(100)}...")
+                val videoDecodedBytes = Base64.decode(videoEncodedString, Base64.DEFAULT)
+                val videoDecodedString = String(videoDecodedBytes, Charsets.UTF_8)
+                println("${name}: Cadena decodificada de /video: ${videoDecodedString.take(500)}...")
 
-                // Decodificar la cadena Base64
-                val decodedBytes = Base64.decode(encodedString, Base64.DEFAULT)
-                val decodedString = String(decodedBytes, Charsets.UTF_8) // Convertir bytes a String
-
-                println("${name}: Cadena decodificada de Base64: ${decodedString.take(500)}...")
-
-                // Ahora, la cadena decodificada DEBERÍA contener la URL del M3U8
-                // La URL del M3U8 en tu captura era: master.m3u8?v=1751082628
-                // Esto sugiere que la cadena decodificada contendrá una URL como https://cdn.rpmvid.com/hls/.../master.m3u8?v=...
-                // Usaremos una regex para extraerla de la cadena decodificada.
+                // Buscar M3U8 en la respuesta decodificada de /video (lo más probable)
                 val m3u8Regex = Regex("""(https?://[^"']*\.m3u8(?:\?[^"']*)?)""")
-                val match = m3u8Regex.find(decodedString)
+                val match = m3u8Regex.find(videoDecodedString)
 
                 if (match != null) {
                     val m3u8Url = match.groupValues[1]
 
-                    println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena decodificada: $m3u8Url")
+                    println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena decodificada de /video: $m3u8Url")
 
-                    // Los encabezados para la solicitud del M3U8 real
                     val finalM3u8Headers = mapOf(
-                        "Referer" to "https://cubeembed.rpmvid.com/", // El referer para el M3U8 final es el dominio base del embed
+                        "Referer" to "https://cubeembed.rpmvid.com/",
                         "Origin" to "https://cubeembed.rpmvid.com",
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.112 Safari/537.36"
+                        "User-Agent" to commonApiHeaders["User-Agent"]!! // UA consistente
                     )
 
                     callback(
@@ -181,14 +173,40 @@ class LacartoonsProvider:MainAPI() {
                             name = "Cubembed",
                             url = m3u8Url,
                             referer = "https://cubeembed.rpmvid.com/",
-                            quality = 0, // Puedes ajustar la calidad si la obtienes de alguna parte
+                            quality = 0,
                             type = ExtractorLinkType.M3U8,
-                            headers = finalM3u8Headers // ¡Pasar los encabezados completos aquí!
+                            headers = finalM3u8Headers
                         )
                     )
                     return true
                 } else {
-                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena decodificada.")
+                    println("${name}: No se encontró la URL HLS (.m3u8) en la cadena decodificada de /video.")
+                    // Si no está en /video, podríamos buscar en /info si es necesario, pero es menos probable para el M3U8 final.
+                    val matchInfo = m3u8Regex.find(infoDecodedString)
+                    if (matchInfo != null) {
+                        val m3u8Url = matchInfo.groupValues[1]
+                        println("${name}: ¡Éxito! URL de video M3U8 extraída de la cadena decodificada de /info: $m3u8Url")
+                        val finalM3u8Headers = mapOf(
+                            "Referer" to "https://cubeembed.rpmvid.com/",
+                            "Origin" to "https://cubeembed.rpmvid.com",
+                            "User-Agent" to commonApiHeaders["User-Agent"]!! // UA consistente
+                        )
+
+                        callback(
+                            ExtractorLink(
+                                source = "Cubembed",
+                                name = "Cubembed",
+                                url = m3u8Url,
+                                referer = "https://cubeembed.rpmvid.com/",
+                                quality = 0,
+                                type = ExtractorLinkType.M3U8,
+                                headers = finalM3u8Headers
+                            )
+                        )
+                        return true
+                    } else {
+                        println("${name}: No se encontró la URL HLS (.m3u8) en la cadena decodificada de /info tampoco.")
+                    }
                 }
 
             } catch (e: Exception) {
@@ -205,6 +223,7 @@ class LacartoonsProvider:MainAPI() {
             return loadExtractor(iframeSrc, data, subtitleCallback, callback)
         }
     }
+
     // Esta clase ya no se usaría con esta lógica de Base64
     data class CubembedApiResponse(
         @JsonProperty("file")
