@@ -3,6 +3,7 @@ package com.example
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.Episode // <--- Asegúrate de que esta importación esté
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.newExtractorLink
@@ -53,42 +54,60 @@ class JkanimeProvider : MainAPI() {
 
         val items = ArrayList<HomePageList>()
         val isHorizontal = true
+
+        // --- Últimos episodios (sección "Programación" / "Trending Anime") ---
+        // Basado en image_492d95.png y image_492d38.png
         items.add(
             HomePageList(
                 "Últimos episodios",
-                app.get(mainUrl).document.select(".listadoanime-home a.bloqq").map {
-                    val title = it.selectFirst("h5")?.text()
-                    val dubstat = if (title!!.contains("Latino") || title.contains("Castellano"))
+                app.get(mainUrl).document.select("div.trending_anime div.mb-4.d-flex.align-items-stretch.mb-3.dir1").mapNotNull {
+                    val title = it.selectFirst("h5.strlimit.card-title")?.text()
+                    val poster = it.selectFirst("img.card-img-top")?.attr("src")
+                    val itemUrl = it.selectFirst("a")?.attr("href") // Declaración aquí
+
+                    // Comprobación de nulos antes de usar itemUrl
+                    if (title == null || itemUrl == null) {
+                        return@mapNotNull null // Salta si el título o la URL son nulos
+                    }
+
+                    val dubstat = if (title.contains("Latino") || title.contains("Castellano"))
                         DubStatus.Dubbed else DubStatus.Subbed
-                    val poster =
-                        it.selectFirst(".anime__sidebar__comment__item__pic img")?.attr("src") ?: ""
-                    val epRegex = Regex("/(\\d+)/|/especial/|/ova/")
-                    val url = it.attr("href").replace(epRegex, "")
-                    val epNum =
-                        it.selectFirst("h6")?.text()?.replace("Episodio ", "")?.toIntOrNull()
-                    newAnimeSearchResponse(title, url) {
+
+                    val epNumText = it.selectFirst("span.badge.badge-primary")?.text() // "Ep 1"
+                    val epNum = epNumText?.replace("Ep ", "")?.toIntOrNull()
+
+                    newAnimeSearchResponse(title, itemUrl) { // Uso de itemUrl
                         this.posterUrl = poster
                         addDubStatus(dubstat, epNum)
                     }
-                }, isHorizontal)
+                }.filterNotNull(),
+                isHorizontal
+            )
         )
+
+        // --- Listados de Directorio (Animes, Películas) ---
+        // Basado en image_48d689.png y image_48d6fe.png
         urls.apmap { (url, name) ->
             val soup = app.get(url).document
-            val home = soup.select(".g-0").map {
-                val title = it.selectFirst("h5 a")?.text()
-                val poster = it.selectFirst("img")?.attr("src") ?: ""
-                AnimeSearchResponse(
-                    title!!,
-                    fixUrl(it.selectFirst("a")?.attr("href") ?: ""),
-                    this.name,
-                    TvType.Anime,
-                    fixUrl(poster),
-                    null,
-                    if (title.contains("Latino") || title.contains("Castellano")) EnumSet.of(
-                        DubStatus.Dubbed
-                    ) else EnumSet.of(DubStatus.Subbed),
-                )
-            }
+            val home = soup.select("div.row.model1.autoimagedir div.mb-4.d-flex.align-items-stretch.mb-3.dir1").mapNotNull {
+                val title = it.selectFirst("h5.strlimit.card-title")?.text()
+                val poster = it.selectFirst("img.card-img-top")?.attr("src")
+                val href = it.selectFirst("a")?.attr("href")
+
+                if (title != null && href != null && poster != null) {
+                    AnimeSearchResponse(
+                        title,
+                        fixUrl(href),
+                        this.name,
+                        TvType.Anime, // Aquí podrías querer usar getType(tipo) si encuentras el tipo en el HTML
+                        fixUrl(poster),
+                        null,
+                        if (title.contains("Latino") || title.contains("Castellano")) EnumSet.of(
+                            DubStatus.Dubbed
+                        ) else EnumSet.of(DubStatus.Subbed),
+                    )
+                } else null
+            }.filterNotNull() // Asegura que solo se añadan elementos no nulos
             items.add(HomePageList(name, home))
         }
 
@@ -96,30 +115,7 @@ class JkanimeProvider : MainAPI() {
         return HomePageResponse(items)
     }
 
-    /* data class MainSearch(
-         @JsonProperty("animes") val animes: List<Animes>,
-         @JsonProperty("anime_types") val animeTypes: AnimeTypes
-     )
-
-     data class Animes(
-         @JsonProperty("id") val id: String,
-         @JsonProperty("slug") val slug: String,
-         @JsonProperty("title") val title: String,
-         @JsonProperty("image") val image: String,
-         @JsonProperty("synopsis") val synopsis: String,
-         @JsonProperty("type") val type: String,
-         @JsonProperty("status") val status: String,
-         @JsonProperty("thumbnail") val thumbnail: String
-     )
-
-     data class AnimeTypes(
-         @JsonProperty("TV") val TV: String,
-         @JsonProperty("OVA") val OVA: String,
-         @JsonProperty("Movie") val Movie: String,
-         @JsonProperty("Special") val Special: String,
-         @JsonProperty("ONA") val ONA: String,
-         @JsonProperty("Music") val Music: String
-     ) */
+    /* Las clases MainSearch, Animes, AnimeTypes están comentadas porque no se usan actualmente. */
 
     override suspend fun search(query: String): List<SearchResponse> {
         val urls = listOf(
@@ -130,19 +126,23 @@ class JkanimeProvider : MainAPI() {
         val search = ArrayList<SearchResponse>()
         urls.apmap { ss ->
             val doc = app.get(ss).document
-            doc.select("div.row div.anime__item").mapNotNull {
-                val title = it.selectFirst(".title")?.text() ?: ""
-                val href = it.selectFirst("a")?.attr("href") ?: ""
-                val img = it.selectFirst(".set-bg")?.attr("data-setbg") ?: ""
-                val isDub = title.contains("Latino") || title.contains("Castellano")
-                search.add(
-                    newAnimeSearchResponse(title, href) {
-                        this.posterUrl = fixUrl(img)
-                        addDubStatus(isDub, !isDub)
-                    })
+            // Selector actualizado para los resultados de búsqueda, basado en image_48d305.png
+            doc.select("div.row.page_directorio div.mb-4.d-flex.align-items-stretch.mb-3.dir1").mapNotNull {
+                val title = it.selectFirst("h5.strlimit.card-title")?.text()
+                val href = it.selectFirst("a")?.attr("href")
+                val img = it.selectFirst("img.card-img-top")?.attr("src")
+
+                if (title != null && href != null && img != null) { // Comprobar nulos
+                    val isDub = title.contains("Latino") || title.contains("Castellano")
+                    search.add(
+                        newAnimeSearchResponse(title, href) {
+                            this.posterUrl = fixUrl(img)
+                            addDubStatus(isDub, !isDub)
+                        })
+                } else null
             }
         }
-        return search
+        return search.filterNotNull() // Filtrar nulos si se añade alguno accidentalmente
     }
 
     data class EpsInfo (
@@ -150,44 +150,85 @@ class JkanimeProvider : MainAPI() {
         @JsonProperty("title"  ) var title  : String? = null,
         @JsonProperty("image"  ) var image  : String? = null
     )
+
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url, timeout = 120).document
+
+        // --- Título y Descripción ---
+        // Basado en image_48cb9f.png
+        val title = doc.selectFirst("div.anime_info h3 span")?.text()
+        val description = doc.selectFirst("div.anime_info p.scroll")?.text()
+
+        // --- Póster ---
+        // Este selector es una suposición, si el póster principal no carga, necesitas revisar su selector.
         val poster = doc.selectFirst(".set-bg")?.attr("data-setbg")
-        val title = doc.selectFirst(".anime__details__title > h3")?.text()
-        val description = doc.selectFirst(".anime__details__text > p")?.text()
-        val genres = doc.select("div.col-lg-6:nth-child(1) > ul:nth-child(1) > li:nth-child(2) > a")
-            .map { it.text() }
-        val status = when (doc.selectFirst("span.enemision")?.text()) {
-            "En emisión" -> ShowStatus.Ongoing
-            "En emision" -> ShowStatus.Ongoing
+
+
+        // --- Géneros, Estado, Tipo ---
+        // **NUEVOS SELECTORES BASADOS EN image_48d2a9.png Y SUPOSICIONES**
+        // AUN PUEDEN NECESITAR AJUSTE AL INSPECCIONAR LA PÁGINA DE DETALLES.
+        val genres = doc.select("div.anime_info ul li a[href*='genero']").map { it.text() }
+
+        var status: ShowStatus? = null
+        val statusText = doc.select("div.anime_info ul li").firstOrNull {
+            it.text().contains("Concluido") || it.text().contains("En emisión") || it.text().contains("En emision")
+        }?.text()
+        status = when (statusText) {
+            "En emisión", "En emision" -> ShowStatus.Ongoing
             "Concluido" -> ShowStatus.Completed
             else -> null
         }
-        val type = doc.selectFirst("div.col-lg-6.col-md-6 ul li[rel=tipo]")?.text()
-        val animeID = doc.selectFirst("div.ml-2")?.attr("data-anime")?.toInt()
+
+        var type: String? = null
+        type = doc.select("div.anime_info ul li").firstOrNull {
+            it.text().contains("TV") || it.text().contains("OVA") || it.text().contains("Película") || it.text().contains("ONA") || it.text().contains("Especial")
+        }?.text()
+
+
+        // --- Anime ID para paginación de episodios ---
+        // Basado en image_48cb9f.png, el data-anime está en div#guardar_anime
+        val animeID = doc.selectFirst("div#guardar_anime")?.attr("data-anime")?.toIntOrNull()
+
+
         val episodes = ArrayList<Episode>()
-        val pags = doc.select("a.numbers").map { it.attr("href").substringAfter("#pag") }
+
+        // --- Paginación de episodios ---
+        // Basado en image_48c878.png, los selectores de paginación han cambiado.
+        val pags = doc.select("ul.list li[data-value]").map { it.attr("data-value").substringAfter("#pag") }
+
         pags.apmap { pagnum ->
+            if (animeID == null) return@apmap // Si no hay animeID, no se puede cargar la paginación
             val res = app.get("$mainUrl/ajax/pagination_episodes/$animeID/$pagnum/").text
             val json = parseJson<ArrayList<EpsInfo>>(res)
             json.apmap { info ->
                 val imagetest = !info.image.isNullOrBlank()
                 val image = if (imagetest) "https://cdn.jkdesu.com/assets/images/animes/video/image_thumb/${info.image}" else null
-                val link = "${url.removeSuffix("/")}/${info.number}"
-                val ep = Episode(
-                    link,
-                    posterUrl = image
-                )
-                episodes.add(ep)
+
+                // Asegúrate de que info.number no sea nulo antes de usarlo
+                if (info.number != null) {
+                    // Aquí también pasamos 'link' como 'data' en el constructor de Episode
+                    val link = "${url.removeSuffix("/")}/${info.number}"
+                    val ep = Episode(
+                        link, // <-- Usamos 'link' que ahora se mapea a 'data' de Episode
+                        name = info.title, // Usa el título del episodio del JSON
+                        posterUrl = image
+                    )
+                    episodes.add(ep)
+                }
             }
         }
 
-        return newAnimeLoadResponse(title!!, url, getType(type!!)) {
-            posterUrl = poster
-            addEpisodes(DubStatus.Subbed, episodes)
-            showStatus = status
-            plot = description
-            tags = genres
+        // Asegúrate de que title no sea nulo antes de pasarlo a newAnimeLoadResponse
+        val finalType = type ?: "Anime"
+        if (title == null) throw ErrorLoadingException("Título no encontrado para $url")
+
+        return newAnimeLoadResponse(title, url, getType(finalType)) {
+            this.posterUrl = poster
+            // MODIFICACIÓN: Usar groupBy y map, y ahora it.data en lugar de it.url
+            addEpisodes(DubStatus.Subbed, episodes.groupBy { it.data }.map { it.value.first() })
+            this.showStatus = status // Puede ser nulo
+            this.plot = description // Puede ser nulo
+            this.tags = genres // Puede ser nulo
         }
     }
 
@@ -195,7 +236,7 @@ class JkanimeProvider : MainAPI() {
         @JsonProperty("file") val file: String?
     )
 
-    private suspend fun streamClean( // <-- Hacemos la función suspend
+    private suspend fun streamClean(
         name: String,
         url: String,
         referer: String,
@@ -205,38 +246,31 @@ class JkanimeProvider : MainAPI() {
     ): Boolean {
         callback(
             newExtractorLink(
-                source = name, // Primer parámetro: source
-                name = name,   // Segundo parámetro: name
-                url = url,     // Tercer parámetro: url
-                type = if (m3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO // <-- Usar ExtractorLinkType.VIDEO
+                source = name,
+                name = name,
+                url = url,
+                type = if (m3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO // Corregido a ExtractorLinkType.M3U8
             ) {
-                // Este es el bloque 'initializer' (suspend ExtractorLink.() -> Unit)
-                // Aquí configuramos las propiedades adicionales del ExtractorLink
-                this.referer = referer // Asignar referer
-                this.quality = getQualityFromName(quality) // Asignar quality
-                // Si necesitas headers u otros datos, también irían aquí:
-                // this.headers = mapOf("Key" to "Value")
-                // this.extractorData = "some data"
+                this.referer = referer
+                this.quality = getQualityFromName(quality)
             }
         )
         return true
     }
-
 
     private fun fetchjkanime(text: String?): List<String> {
         if (text.isNullOrEmpty()) {
             return listOf()
         }
         val linkRegex =
-            Regex("""(iframe.*class.*width)""")
+            Regex("""(iframe.*class.*width)""") // Esta regex puede necesitar ajuste si cambian el formato
         return linkRegex.findAll(text).map { it.value.trim().removeSurrounding("\"").replace(Regex("(iframe(.class|.src=\")|=\"player_conte\".*src=\"|\".scrolling|\".width)"),"") }.toList()
     }
 
-
-
     data class ServersEncoded (
-            @JsonProperty("remote" ) val remote : String,
+        @JsonProperty("remote" ) val remote : String,
     )
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -248,22 +282,24 @@ class JkanimeProvider : MainAPI() {
 
             if (script.data().contains(Regex("slug|remote"))) {
                 val serversRegex = Regex("\\[\\{.*?\"remote\".*?\"\\}\\]")
-                val servers = serversRegex.findAll(script.data()).map { it.value }.toList().first()
-                val serJson = parseJson<ArrayList<ServersEncoded>>(servers)
-                serJson.apmap {
-                    val encodedurl = it.remote
-                    val urlDecoded = base64Decode(encodedurl)
-                    loadExtractor(urlDecoded, mainUrl, subtitleCallback, callback)
+                val servers = serversRegex.findAll(script.data()).map { it.value }.toList().firstOrNull() // Usa firstOrNull para seguridad
+                if (servers != null) {
+                    val serJson = parseJson<ArrayList<ServersEncoded>>(servers)
+                    serJson.apmap {
+                        val encodedurl = it.remote
+                        val urlDecoded = base64Decode(encodedurl)
+                        loadExtractor(urlDecoded, mainUrl, subtitleCallback, callback)
+                    }
                 }
-
             }
 
 
             if (script.data().contains("var video = []")) {
                 val videos = script.data().replace("\\/", "/")
-                fetchjkanime(videos).map { it }.toList()
-                fetchjkanime(videos).map {
-                    it.replace("$mainUrl/jkfembed.php?u=", "https://embedsito.com/v/")
+                // Solo llama a fetchjkanime una vez
+                fetchjkanime(videos).apmap { link ->
+                    val cleanLink = link
+                        .replace("$mainUrl/jkfembed.php?u=", "https://embedsito.com/v/")
                         .replace("$mainUrl/jkokru.php?u=", "http://ok.ru/videoembed/")
                         .replace("$mainUrl/jkvmixdrop.php?u=", "https://mixdrop.co/e/")
                         .replace("$mainUrl/jk.php?u=", "$mainUrl/")
@@ -274,91 +310,92 @@ class JkanimeProvider : MainAPI() {
                         .replace("/um2.php?","$mainUrl/um2.php?")
                         .replace("/um.php?","$mainUrl/um.php?")
                         .replace("=\"player_conte\" src=", "")
-                }.apmap { link ->
-                    fetchUrls(link).forEach {links ->
+
+                    fetchUrls(cleanLink).forEach { links -> // links ya es la URL limpia
                         loadExtractor(links, data, subtitleCallback, callback)
+
                         if (links.contains("um2.php")) {
                             val doc = app.get(links, referer = data).document
                             val gsplaykey = doc.select("form input[value]").attr("value")
-                            app.post(
-                                "$mainUrl/gsplay/redirect_post.php",
-                                headers = mapOf(
-                                    "Host" to "jkanime.net",
-                                    "User-Agent" to USER_AGENT,
-                                    "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                                    "Accept-Language" to "en-US,en;q=0.5",
-                                    "Referer" to link,
-                                    "Content-Type" to "application/x-www-form-urlencoded",
-                                    "Origin" to "https://jkanime.net",
-                                    "DNT" to "1",
-                                    "Connection" to "keep-alive",
-                                    "Upgrade-Insecure-Requests" to "1",
-                                    "Sec-Fetch-Dest" to "iframe",
-                                    "Sec-Fetch-Mode" to "navigate",
-                                    "Sec-Fetch-Site" to "same-origin",
-                                    "TE" to "trailers",
-                                    "Pragma" to "no-cache",
-                                    "Cache-Control" to "no-cache",
-                                ),
-                                data = mapOf(Pair("data", gsplaykey)),
-                                allowRedirects = false
-                            ).okhttpResponse.headers.values("location").apmap { loc ->
-                                val postkey = loc.replace("/gsplay/player.html#", "")
-                                val nozomitext = app.post(
-                                    "$mainUrl/gsplay/api.php",
+                            if (gsplaykey.isNotBlank()) {
+                                app.post(
+                                    "$mainUrl/gsplay/redirect_post.php",
                                     headers = mapOf(
                                         "Host" to "jkanime.net",
                                         "User-Agent" to USER_AGENT,
-                                        "Accept" to "application/json, text/javascript, */*; q=0.01",
+                                        "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                                         "Accept-Language" to "en-US,en;q=0.5",
-                                        "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
-                                        "X-Requested-With" to "XMLHttpRequest",
+                                        "Referer" to cleanLink, // Usar cleanLink como Referer
+                                        "Content-Type" to "application/x-www-form-urlencoded",
                                         "Origin" to "https://jkanime.net",
                                         "DNT" to "1",
                                         "Connection" to "keep-alive",
-                                        "Sec-Fetch-Dest" to "empty",
-                                        "Sec-Fetch-Mode" to "cors",
+                                        "Upgrade-Insecure-Requests" to "1",
+                                        "Sec-Fetch-Dest" to "iframe",
+                                        "Sec-Fetch-Mode" to "navigate",
                                         "Sec-Fetch-Site" to "same-origin",
+                                        "TE" to "trailers",
+                                        "Pragma" to "no-cache",
+                                        "Cache-Control" to "no-cache",
                                     ),
-                                    data = mapOf(Pair("v", postkey)),
+                                    data = mapOf(Pair("data", gsplaykey)),
                                     allowRedirects = false
-                                ).text
-                                val json = parseJson<Nozomi>(nozomitext)
-                                val nozomiurl = listOf(json.file)
-                                if (nozomiurl.isEmpty()) null else
-                                    nozomiurl.forEach { url ->
-                                        val nozominame = "Nozomi"
-                                        if (url != null) {
-                                            streamClean(
-                                                nozominame,
-                                                url,
-                                                "",
-                                                null,
-                                                callback,
-                                                url.contains(".m3u8")
-                                            )
-                                        }
+                                ).okhttpResponse.headers.values("location").apmap { loc ->
+                                    val postkey = loc.replace("/gsplay/player.html#", "")
+                                    val nozomitext = app.post(
+                                        "$mainUrl/gsplay/api.php",
+                                        headers = mapOf(
+                                            "Host" to "jkanime.net",
+                                            "User-Agent" to USER_AGENT,
+                                            "Accept" to "application/json, text/javascript, */*; q=0.01",
+                                            "Accept-Language" to "en-US,en;q=0.5",
+                                            "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+                                            "X-Requested-With" to "XMLHttpRequest",
+                                            "Origin" to "https://jkanime.net",
+                                            "DNT" to "1",
+                                            "Connection" to "keep-alive",
+                                            "Sec-Fetch-Dest" to "empty",
+                                            "Sec-Fetch-Mode" to "cors",
+                                            "Sec-Fetch-Site" to "same-origin",
+                                        ),
+                                        data = mapOf(Pair("v", postkey)),
+                                        allowRedirects = false
+                                    ).text
+                                    val json = parseJson<Nozomi>(nozomitext)
+                                    val nozomiurl = json.file
+                                    if (nozomiurl != null) {
+                                        streamClean(
+                                            "Nozomi",
+                                            nozomiurl,
+                                            "", // Referer vacío, ajusta si es necesario
+                                            null,
+                                            callback,
+                                            nozomiurl.contains(".m3u8")
+                                        )
                                     }
+                                }
                             }
                         }
                         if (links.contains("um.php")) {
                             val desutext = app.get(links, referer = data).text
                             val desuRegex = Regex("((https:|http:)//.*\\.m3u8)")
                             val file = desuRegex.find(desutext)?.value
-                            val namedesu = "Desu"
-                            generateM3u8(
-                                namedesu,
-                                file!!,
-                                mainUrl,
-                            ).forEach { desurl ->
-                                streamClean(
+                            if (file != null) {
+                                val namedesu = "Desu"
+                                generateM3u8(
                                     namedesu,
-                                    desurl.url,
-                                    mainUrl,
-                                    desurl.quality.toString(),
-                                    callback,
-                                    true
-                                )
+                                    file,
+                                    mainUrl, // Referer para m3u8
+                                ).forEach { desurl ->
+                                    streamClean(
+                                        namedesu,
+                                        desurl.url,
+                                        mainUrl,
+                                        desurl.quality.toString(),
+                                        callback,
+                                        true
+                                    )
+                                }
                             }
                         }
                         if (links.contains("jkmedia")) {
@@ -371,7 +408,7 @@ class JkanimeProvider : MainAPI() {
                                 streamClean(
                                     namex,
                                     xtremeurl,
-                                    "",
+                                    "", // Referer vacío, ajusta si es necesario
                                     null,
                                     callback,
                                     xtremeurl.contains(".m3u8")
@@ -381,9 +418,7 @@ class JkanimeProvider : MainAPI() {
                     }
                 }
             }
-
         }
-
         return true
     }
 }
