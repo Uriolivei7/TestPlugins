@@ -427,21 +427,38 @@ class AnizoneProvider : MainAPI() {
                         this.season = 1
                         this.posterUrl = elt.selectFirst("img")?.attr("src")
 
-                        // *** AÑADE ESTAS LÍNEAS PARA DEPURACIÓN ***
                         val dateElement = elt.selectFirst("span.span-tiempo")
-                        Log.d(name, "load: Date element HTML: ${dateElement?.outerHtml()}") // Muestra el HTML del span completo
-                        val dateText = dateElement?.text()
-                        Log.d(name, "load: Raw date text found: '$dateText'") // Muestra el texto exacto que se extrae
+                        val dateText = dateElement?.text()?.trim() // Elimina espacios en blanco
 
-                        this.date = dateText?.let { date ->
+                        Log.d(name, "load: Raw date text found for episode: '$dateText'") // Registro detallado
+
+                        this.date = dateText?.let { rawDate ->
+                            var parsedTime: Long? = null
+                            // Intenta el primer formato: "yyyy-MM-dd"
                             try {
-                                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)?.time
+                                parsedTime = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(rawDate)?.time
+                                if (parsedTime != null) {
+                                    Log.d(name, "load: Fecha '$rawDate' parseada como 'yyyy-MM-dd'")
+                                }
                             } catch (e: Exception) {
-                                Log.e(name, "load: Error parsing date '$date': ${e.message}", e)
-                                null
+                                Log.e(name, "load: Error al analizar la fecha '$rawDate' con 'yyyy-MM-dd': ${e.message}", e)
                             }
-                        } ?: 0L
-                        // *******************************************
+
+                            // Si el primer formato falló, intenta el segundo: "dd de MMMM de yyyy"
+                            if (parsedTime == null) {
+                                try {
+                                    // Ejemplo: "26 de Octubre de 2023"
+                                    parsedTime = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale("es", "ES")).parse(rawDate)?.time
+                                    if (parsedTime != null) {
+                                        Log.d(name, "load: Fecha '$rawDate' parseada como 'dd de MMMM de yyyy'")
+                                    }
+                                } catch (e2: Exception) {
+                                    Log.e(name, "load: Error al analizar la fecha '$rawDate' con 'dd de MMMM de yyyy': ${e2.message}", e2)
+                                }
+                            }
+                            // Si ambos fallaron, devuelve 0L
+                            parsedTime ?: 0L
+                        } ?: 0L // Si dateText es null, por defecto 0L
                     }
                 } catch (e: Exception) {
                     Log.e(name, "load: Error al procesar elemento de episodio: ${e.message}. Elemento: ${elt.html().take(200)}", e)
