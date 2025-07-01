@@ -60,30 +60,20 @@ class AnizoneProvider : MainAPI() {
         "6" to "Últimas Web"
     )
 
-    // Estas variables de instancia serán inicializadas una vez,
-    // pero las funciones que usan Livewire ahora pasarán copias mutables para trabajar localmente.
-    // Aunque se mantendrán como variables de instancia para el mutext y la referencia inicial.
     private var initialCookies = mutableMapOf<String, String>()
     private var initialWireData = mutableMapOf(
         "wireSnapshot" to "",
         "token" to ""
     )
-    private var isLivewireInitializedOnce = false // Indica si la inicialización inicial ha ocurrido.
+    private var isLivewireInitializedOnce = false
 
-    // Mutex para sincronizar el acceso a la inicialización de Livewire (solo la primera vez que se accede)
     private val livewireInitMutex = Mutex()
 
-    /**
-     * Inicializa las credenciales de Livewire (cookies, token, snapshot) desde la página principal.
-     * Esta función solo se ejecutará realmente una vez. Las llamadas posteriores usarán los datos cacheados.
-     * Si necesitas una inicialización "fresca" para cada operación (getMainPage, search, load),
-     * entonces los datos de `cookies` y `wireData` deben ser gestionados localmente por esas funciones.
-     */
     private suspend fun initializeLivewireGlobal() {
         livewireInitMutex.withLock {
             if (isLivewireInitializedOnce && !initialWireData["token"].isNullOrBlank() && !initialWireData["wireSnapshot"].isNullOrBlank()) {
                 Log.d(name, "initializeLivewireGlobal: Livewire ya inicializado globalmente. Saltando.")
-                return // Ya inicializado globalmente, salimos
+                return
             }
 
             Log.d(name, "initializeLivewireGlobal: Intentando inicializar Livewire globalmente...")
@@ -104,46 +94,22 @@ class AnizoneProvider : MainAPI() {
         }
     }
 
-    /**
-     * Función auxiliar para obtener el snapshot de Livewire de un documento Jsoup.
-     */
     private fun getSnapshot(doc : Document) : String {
         return doc.select("main div[wire:snapshot]")
             .attr("wire:snapshot").replace("&quot;", "\"")
     }
 
-    /**
-     * Función auxiliar para obtener el snapshot de Livewire de un objeto JSON de respuesta.
-     */
     private fun getSnapshot(json : JSONObject) : String {
         return json.getJSONArray("components")
             .getJSONObject(0).getString("snapshot")
     }
 
-    /**
-     * Función auxiliar para obtener el HTML de la respuesta JSON de Livewire.
-     */
     private fun getHtmlFromWire(json: JSONObject): Document {
         return Jsoup.parse(json.getJSONArray("components")
             .getJSONObject(0).getJSONObject("effects")
             .getString("html"))
     }
 
-    /**
-     * Constructor principal para las peticiones Livewire.
-     * Ahora recibe `currentCookies` y `currentWireCreds` para trabajar con un estado local,
-     * en lugar de modificar variables de instancia globales directamente.
-     *
-     * @param updates Un mapa de actualizaciones de estado para el componente Livewire.
-     * @param calls Una lista de llamadas a métodos de Livewire.
-     * @param currentCookies El mapa de cookies actual que se enviará con la petición. Será modificado por referencia si `remember` es true.
-     * @param currentWireCreds El mapa que contiene wireSnapshot y _token. Será modificado por referencia si `remember` es true.
-     * @param remember Si es true, actualizará `currentWireCreds` y `currentCookies` con la nueva respuesta.
-     * @param retryCount Contador de reintentos para evitar bucles infinitos.
-     * @return El objeto JSONObject de la respuesta de Livewire.
-     * @throws IllegalStateException Si el token o snapshot faltan después de la inicialización, o si se exceden los reintentos.
-     * @throws Exception Si ocurre un error de red o de parsing.
-     */
     private suspend fun liveWireBuilder (
         updates : Map<String,String>,
         calls: List<Map<String, Any>>,
@@ -155,7 +121,6 @@ class AnizoneProvider : MainAPI() {
         val maxRetries = 2
 
         try {
-            // Asegurarse de que las credenciales no sean nulas antes de usarlas
             val currentToken = currentWireCreds["token"] ?: throw IllegalStateException("Livewire token is missing.")
             val currentSnapshot = currentWireCreds["wireSnapshot"] ?: throw IllegalStateException("Livewire snapshot is missing.")
 
@@ -190,9 +155,8 @@ class AnizoneProvider : MainAPI() {
                 !responseText.contains("\"snapshot\"")
             ) {
                 Log.w(name, "liveWireBuilder: Posible token Livewire o snapshot expirado/inválido. Estado HTTP: ${req.code}. Reintentando (intento: ${retryCount + 1})...")
-                // Forzar la re-inicialización para el siguiente intento
                 if (retryCount < maxRetries) {
-                    val freshState = initializeLivewireForOperation(mainUrl) // Obtener un nuevo estado fresco
+                    val freshState = initializeLivewireForOperation(mainUrl)
                     currentCookies.clear()
                     currentCookies.putAll(freshState.first)
                     currentWireCreds.clear()
@@ -215,7 +179,7 @@ class AnizoneProvider : MainAPI() {
                     throw e
                 }
                 currentWireCreds["wireSnapshot"] = newSnapshot
-                currentCookies.putAll(req.cookies.toMutableMap()) // Actualizar las cookies con las últimas
+                currentCookies.putAll(req.cookies.toMutableMap())
                 Log.d(name, "liveWireBuilder: Cookies y wireSnapshot actualizados (remember=true).")
             } else {
                 Log.d(name, "liveWireBuilder: Cookies y wireSnapshot NO actualizados (remember=false).")
@@ -228,10 +192,6 @@ class AnizoneProvider : MainAPI() {
         }
     }
 
-    /**
-     * Función para obtener un estado de Livewire fresco para una operación.
-     * Devuelve un par: (cookies, wireData)
-     */
     private suspend fun initializeLivewireForOperation(url: String): Pair<MutableMap<String, String>, MutableMap<String, String>> {
         Log.d(name, "initializeLivewireForOperation: Obteniendo un nuevo estado Livewire para $url")
         val cookies = mutableMapOf<String, String>()
@@ -252,31 +212,27 @@ class AnizoneProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         try {
-            // Obtener un estado Livewire fresco para esta operación de página principal
             val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
             Log.d(name, "getMainPage: Iniciando con estado Livewire fresco para ${request.name}.")
 
-            // Realizar la primera llamada para obtener la página principal o aplicar el tipo
             var initialLivewireResponse = liveWireBuilder(
                 mutableMapOf("type" to request.data),
                 mutableListOf(),
-                localCookies, // Usar las cookies locales
-                localWireData, // Usar los datos de Livewire locales
-                true // Recordar para futuras llamadas dentro de esta operación
+                localCookies,
+                localWireData,
+                true
             )
             var doc = getHtmlFromWire(initialLivewireResponse)
             var home: List<Element> = doc.select("div[wire:key]")
 
-            // Manejo de paginación si se solicita una página mayor a 1
             if (page > 1) {
                 Log.w(name, "getMainPage: Paginación para página principal, intentando cargar más páginas. Página solicitada: $page")
-                // Iterar para cargar las páginas adicionales
                 for (i in 1 until page) {
                     val loadMoreResponse = liveWireBuilder(
                         mutableMapOf(),
                         mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
-                        localCookies, // Seguir usando las cookies locales
-                        localWireData, // Seguir usando los datos de Livewire locales
+                        localCookies,
+                        localWireData,
                         true
                     )
                     val newDoc = getHtmlFromWire(loadMoreResponse)
@@ -285,10 +241,9 @@ class AnizoneProvider : MainAPI() {
                         Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
                         break
                     }
-                    home = newElements // Reemplazar con los elementos de la nueva página.
+                    home = newElements
                 }
             }
-
 
             Log.d(name, "getMainPage: Se encontraron ${home.size} resultados para ${request.name}.")
             return newHomePageResponse(
@@ -319,13 +274,10 @@ class AnizoneProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         Log.d(name, "search: Intentando búsqueda directa por URL para: $query")
         try {
-            // Obtener un estado Livewire fresco para esta operación de búsqueda
             val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
             Log.d(name, "search: Iniciando con estado Livewire fresco para búsqueda de '$query'.")
 
-
             val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
-            // Intentar una búsqueda directa por URL primero, ya que es más simple y a menudo funciona.
             val searchUrlDirect = "$mainUrl/anime?search=$encodedQuery"
             val rDirect = app.get(searchUrlDirect)
             val docDirect = rDirect.document
@@ -338,13 +290,12 @@ class AnizoneProvider : MainAPI() {
                 Log.w(name, "search: Búsqueda directa por URL no encontró resultados o no es el método principal. Cayendo a búsqueda Livewire...")
             }
 
-            // Si la búsqueda directa no funcionó o no es el método principal, usar Livewire.
             val docLivewire = getHtmlFromWire(
                 liveWireBuilder(
                     mutableMapOf("search" to query),
                     mutableListOf(),
-                    localCookies, // Usar las cookies locales
-                    localWireData, // Usar los datos de Livewire locales
+                    localCookies,
+                    localWireData,
                     true
                 )
             )
@@ -366,7 +317,6 @@ class AnizoneProvider : MainAPI() {
             val r = app.get(url)
             var doc = r.document
 
-            // Aquí ya estás creando localCookies y localWireData, lo cual es correcto para 'load'.
             val localCookies = r.cookies.toMutableMap()
             val localWireData = mutableMapOf(
                 "wireSnapshot" to getSnapshot(doc=doc),
@@ -427,14 +377,30 @@ class AnizoneProvider : MainAPI() {
                         this.season = 1
                         this.posterUrl = elt.selectFirst("img")?.attr("src")
 
-                        val dateElement = elt.selectFirst("span.span-tiempo")
+                        // *** CAMBIO CLAVE AQUÍ: Nuevo selector para la fecha ***
+                        // Anterior: val dateElement = elt.selectFirst("span.span-tiempo")
+                        // Según el HTML, la fecha está dentro del segundo 'span.flex.items-center.gap-1'
+                        // y dentro de su hijo 'span.line-clamp-1'.
+                        // Se selecciona el segundo 'span.flex.items-center.gap-1' y luego el 'span.line-clamp-1' dentro de él.
+                        val dateElementWrapper = elt.select("span.flex.items-center.gap-1").getOrNull(1) // Obtiene el segundo 'span.flex.items-center.gap-1'
+                        val dateElement = dateElementWrapper?.selectFirst("span.line-clamp-1") // Obtiene el span con la fecha dentro de este
+                        // ******************************************************
+
+                        // *** LÍNEA DE DEPURACIÓN AÑADIDA PARA VER SI SE ENCUENTRA EL WRAPPER ***
+                        if (dateElementWrapper == null) {
+                            Log.w(name, "load: NO se encontró el 'span.flex.items-center.gap-1' wrapper para la fecha. HTML del elemento padre: ${elt.html().take(500)}")
+                        } else if (dateElement == null) {
+                            Log.w(name, "load: Se encontró el wrapper, pero NO el 'span.line-clamp-1' con la fecha. HTML del wrapper: ${dateElementWrapper.html().take(500)}")
+                        }
+                        // **********************************************************************
+
                         val dateText = dateElement?.text()?.trim() // Elimina espacios en blanco
 
                         Log.d(name, "load: Raw date text found for episode: '$dateText'") // Registro detallado
 
                         this.date = dateText?.let { rawDate ->
                             var parsedTime: Long? = null
-                            // Intenta el primer formato: "yyyy-MM-dd"
+                            // Intenta el primer formato: "yyyy-MM-dd" (el que se ve en el HTML)
                             try {
                                 parsedTime = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(rawDate)?.time
                                 if (parsedTime != null) {
@@ -444,10 +410,10 @@ class AnizoneProvider : MainAPI() {
                                 Log.e(name, "load: Error al analizar la fecha '$rawDate' con 'yyyy-MM-dd': ${e.message}", e)
                             }
 
-                            // Si el primer formato falló, intenta el segundo: "dd de MMMM de yyyy"
+                            // Si el primer formato falló (lo cual es inesperado si el HTML es consistente),
+                            // intenta el segundo formato (para fechas como "dd de MMMM de YYYY")
                             if (parsedTime == null) {
                                 try {
-                                    // Ejemplo: "26 de Octubre de 2023"
                                     parsedTime = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale("es", "ES")).parse(rawDate)?.time
                                     if (parsedTime != null) {
                                         Log.d(name, "load: Fecha '$rawDate' parseada como 'dd de MMMM de yyyy'")
@@ -466,7 +432,6 @@ class AnizoneProvider : MainAPI() {
                 }
             }
             Log.d(name, "load: Se procesaron ${episodes.size} episodios válidos.")
-
 
             return newAnimeLoadResponse(title, url, TvType.Anime) {
                 this.posterUrl = bgImage
