@@ -210,8 +210,13 @@ class JkanimeProvider : MainAPI() {
                 url = url,     // Tercer parámetro: url
                 type = if (m3u8) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO // <-- Usar ExtractorLinkType.VIDEO
             ) {
+                // Este es el bloque 'initializer' (suspend ExtractorLink.() -> Unit)
+                // Aquí configuramos las propiedades adicionales del ExtractorLink
                 this.referer = referer // Asignar referer
                 this.quality = getQualityFromName(quality) // Asignar quality
+                // Si necesitas headers u otros datos, también irían aquí:
+                // this.headers = mapOf("Key" to "Value")
+                // this.extractorData = "some data"
             }
         )
         return true
