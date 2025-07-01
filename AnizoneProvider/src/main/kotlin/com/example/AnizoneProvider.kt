@@ -339,7 +339,7 @@ class AnizoneProvider : MainAPI() {
 
             var loadMoreCount = 0
             val maxLoadMoreRetries = 5
-            while (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null && loadMoreCount < maxLoadMoreRetries) {
+            while (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore() растением\"]")!=null && loadMoreCount < maxLoadMoreRetries) {
                 Log.d(name, "load: Detectado 'Load More', intentando cargar más episodios. Intento: ${loadMoreCount + 1}")
                 try {
                     val liveWireResponse = liveWireBuilder(
@@ -377,54 +377,44 @@ class AnizoneProvider : MainAPI() {
                         this.season = 1
                         this.posterUrl = elt.selectFirst("img")?.attr("src")
 
-                        // *** CAMBIO CLAVE AQUÍ: Nuevo selector para la fecha ***
-                        // Anterior: val dateElement = elt.selectFirst("span.span-tiempo")
-                        // Según el HTML, la fecha está dentro del segundo 'span.flex.items-center.gap-1'
-                        // y dentro de su hijo 'span.line-clamp-1'.
-                        // Se selecciona el segundo 'span.flex.items-center.gap-1' y luego el 'span.line-clamp-1' dentro de él.
-                        val dateElementWrapper = elt.select("span.flex.items-center.gap-1").getOrNull(1) // Obtiene el segundo 'span.flex.items-center.gap-1'
-                        val dateElement = dateElementWrapper?.selectFirst("span.line-clamp-1") // Obtiene el span con la fecha dentro de este
-                        // ******************************************************
+                        val potentialDateElements = elt.select("span.flex.items-center.gap-1")
+                        var dateText: String? = null
 
-                        // *** LÍNEA DE DEPURACIÓN AÑADIDA PARA VER SI SE ENCUENTRA EL WRAPPER ***
-                        if (dateElementWrapper == null) {
-                            Log.w(name, "load: NO se encontró el 'span.flex.items-center.gap-1' wrapper para la fecha. HTML del elemento padre: ${elt.html().take(500)}")
-                        } else if (dateElement == null) {
-                            Log.w(name, "load: Se encontró el wrapper, pero NO el 'span.line-clamp-1' con la fecha. HTML del wrapper: ${dateElementWrapper.html().take(500)}")
-                        }
-                        // **********************************************************************
+                        val secondDateWrapper = potentialDateElements.getOrNull(1)
+                        dateText = secondDateWrapper?.selectFirst("span.line-clamp-1")?.text()?.trim()
 
-                        val dateText = dateElement?.text()?.trim() // Elimina espacios en blanco
-
-                        Log.d(name, "load: Raw date text found for episode: '$dateText'") // Registro detallado
-
-                        this.date = dateText?.let { rawDate ->
+                        if (dateText.isNullOrBlank()) {
+                            Log.w(name, "load: NO se encontró texto de fecha válido para el episodio. HTML del elemento padre: ${elt.html().take(500)}")
+                            this.date = null
+                        } else {
+                            // Ahora 'rawDate' se define aquí para que esté en el ámbito correcto
+                            val rawDate = dateText // Asignar dateText a rawDate
+                            Log.d(name, "load: Raw date text found for episode: '$rawDate'")
                             var parsedTime: Long? = null
-                            // Intenta el primer formato: "yyyy-MM-dd" (el que se ve en el HTML)
-                            try {
-                                parsedTime = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(rawDate)?.time
-                                if (parsedTime != null) {
-                                    Log.d(name, "load: Fecha '$rawDate' parseada como 'yyyy-MM-dd'")
+                            val dateFormats = listOf(
+                                SimpleDateFormat("yyyy-MM-dd", Locale.US),
+                                SimpleDateFormat("dd 'de' MMMM 'de'yyyy", Locale("es", "ES"))
+                            )
+
+                            for (format in dateFormats) {
+                                try {
+                                    parsedTime = format.parse(rawDate)?.time
+                                    if (parsedTime != null) {
+                                        Log.d(name, "load: Fecha '$rawDate' parseada exitosamente con formato: '${format.toPattern()}'")
+                                        break
+                                    }
+                                } catch (e: Exception) {
+                                    // Continúa intentando otros formatos
                                 }
-                            } catch (e: Exception) {
-                                Log.e(name, "load: Error al analizar la fecha '$rawDate' con 'yyyy-MM-dd': ${e.message}", e)
                             }
 
-                            // Si el primer formato falló (lo cual es inesperado si el HTML es consistente),
-                            // intenta el segundo formato (para fechas como "dd de MMMM de YYYY")
                             if (parsedTime == null) {
-                                try {
-                                    parsedTime = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale("es", "ES")).parse(rawDate)?.time
-                                    if (parsedTime != null) {
-                                        Log.d(name, "load: Fecha '$rawDate' parseada como 'dd de MMMM de yyyy'")
-                                    }
-                                } catch (e2: Exception) {
-                                    Log.e(name, "load: Error al analizar la fecha '$rawDate' con 'dd de MMMM de yyyy': ${e2.message}", e2)
-                                }
+                                Log.e(name, "load: No se pudo analizar la fecha '$rawDate' con ninguno de los formatos conocidos. Estableciendo fecha a null.")
+                                this.date = null
+                            } else {
+                                this.date = parsedTime
                             }
-                            // Si ambos fallaron, devuelve 0L
-                            parsedTime ?: 0L
-                        } ?: 0L // Si dateText es null, por defecto 0L
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(name, "load: Error al procesar elemento de episodio: ${e.message}. Elemento: ${elt.html().take(200)}", e)
