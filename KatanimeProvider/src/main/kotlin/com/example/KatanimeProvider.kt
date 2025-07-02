@@ -138,10 +138,15 @@ class KatanimeProvider : MainAPI() {
     private fun String.toDate(): Long = runCatching { DATE_FORMATTER_GENERAL.parse(trim())?.time }.getOrNull() ?: 0L
 
     private suspend fun getDocument(url: String, customHeaders: Headers = Headers.Builder().build()): org.jsoup.nodes.Document {
+        // Crea un nuevo Headers.Builder basado en los customHeaders existentes
+        val headersBuilder = customHeaders.newBuilder()
+            // Añade o sobrescribe el User-Agent para todas las peticiones getDocument
+            .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
         return app.baseClient.newCall(
             Request.Builder()
                 .url(url)
-                .headers(customHeaders)
+                .headers(headersBuilder.build()) // Usa los headers actualizados
                 .build()
         ).execute().use { response ->
             if (!response.isSuccessful) throw Exception("Fallo al obtener $url: ${response.code}")
