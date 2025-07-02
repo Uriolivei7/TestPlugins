@@ -181,7 +181,13 @@ class KatanimeProvider : MainAPI() {
         val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
         if (csrfToken.isNullOrBlank()) {
             Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página principal. Posiblemente cambió el selector o la web.")
-            return null // No podemos continuar sin el token
+            // En este caso, la página principal de la serie se cargará, pero sin episodios.
+            return newTvSeriesLoadResponse(title, url, TvType.Anime, emptyList()) {
+                this.plot = description
+                this.tags = genre
+                this.posterUrl = poster
+                this.backgroundPosterUrl = poster
+            }
         }
         Log.d("KatanimeProvider", "Token CSRF encontrado: ${csrfToken.take(10)}...") // Log parcial del token
 
@@ -196,7 +202,11 @@ class KatanimeProvider : MainAPI() {
             val response = app.post(
                 episodesPostUrl,
                 requestBody = formBody, // Añadimos el FormBody aquí
-                headers = mapOf("Referer" to url) // El Referer es crucial
+                headers = mapOf(
+                    "Referer" to url,
+                    "X-Requested-With" to "XMLHttpRequest", // **AGREGADO: Encabezado común para peticiones AJAX**
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" // **AGREGADO: User-Agent para simular navegador**
+                )
             )
             if (response.isSuccessful) {
                 Log.d("KatanimeProvider", "Petición POST de episodios exitosa. Código: ${response.code}")
@@ -208,7 +218,8 @@ class KatanimeProvider : MainAPI() {
                     null
                 }
             } else {
-                Log.e("KatanimeProvider", "Error al obtener episodios vía POST: ${response.code} - ${response.body?.string()}")
+                val errorBody = response.body?.string()
+                Log.e("KatanimeProvider", "Error al obtener episodios vía POST: ${response.code} - Cuerpo de respuesta: ${errorBody?.take(500)}...") // Log parcial del cuerpo de error
                 null
             }
         } catch (e: Exception) {
@@ -218,8 +229,6 @@ class KatanimeProvider : MainAPI() {
 
         if (episodesDoc == null) {
             Log.e("KatanimeProvider", "No se pudo obtener el documento de episodios de la petición POST. Se devolverán 0 episodios.")
-            // En este punto, podríamos devolver un LoadResponse con episodios vacíos
-            // en lugar de null, si quieres que la página de la serie al menos se cargue.
             return newTvSeriesLoadResponse(title, url, TvType.Anime, emptyList()) {
                 this.plot = description
                 this.tags = genre
