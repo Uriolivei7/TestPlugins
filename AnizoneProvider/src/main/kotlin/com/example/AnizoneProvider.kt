@@ -48,7 +48,7 @@ class AnizoneProvider : MainAPI() {
         TvType.AnimeMovie,
     )
 
-    override var lang = "es"
+    override var lang = "en"
 
     override val hasMainPage = true
     override val hasQuickSearch = true

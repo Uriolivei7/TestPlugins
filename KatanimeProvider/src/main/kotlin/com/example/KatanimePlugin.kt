@@ -11,13 +11,13 @@ import com.lagradost.cloudstream3.MainAPI // Necesario para registrar MainAPI
  * Aquí es donde registrarás todos tus proveedores (MainAPI).
  */
 @CloudstreamPlugin
-class SoloLatinoPlugin : Plugin() {
+class KatanimePlugin : Plugin() {
     /**
      * Aquí debes registrar todos tus proveedores (MainAPI).
      *
      * @param context El contexto de la aplicación.
      */
     override fun load(context: Context) {
-        registerMainAPI(SoloLatinoProvider())
+        registerMainAPI(KatanimeProvider())
     }
 }
