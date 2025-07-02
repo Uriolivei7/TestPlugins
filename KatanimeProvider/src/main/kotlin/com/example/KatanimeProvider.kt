@@ -208,7 +208,7 @@ class KatanimeProvider : MainAPI() {
         }
 
         // --- CORRECCIÓN AQUÍ: Usar fixUrl para limpiar la URL antes de añadir /eps ---
-        val episodesPostUrl = fixUrl(url + "/eps")
+        val episodesPostUrl = fixUrl(url + "eps")
         // --- FIN CORRECCIÓN ---
 
         val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
