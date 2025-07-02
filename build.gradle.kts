@@ -7,19 +7,16 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        // Shitpack repo which contains our tools and dependencies
         maven("https://jitpack.io")
     }
 
     dependencies {
         classpath("com.android.tools.build:gradle:8.7.3")
-        // Cloudstream gradle plugin which makes everything work and builds plugins
         classpath("com.github.recloudstream:gradle:-SNAPSHOT")
+        // *** CAMBIO CLAVE AQUÍ: VOLVER A LA VERSIÓN DE KOTLIN 2.1.0 ***
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
     }
 }
-
-
 
 fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
 
@@ -31,9 +28,7 @@ subprojects {
     apply(plugin = "com.lagradost.cloudstream3.gradle")
 
     cloudstream {
-        // when running through github workflow, GITHUB_REPOSITORY should contain current repository name
         setRepo(System.getenv("GITHUB_REPOSITORY") ?: "https://github.com/Uriolivei/TestPlugins")
-
         authors = listOf("Ranita")
     }
 
@@ -68,22 +63,30 @@ subprojects {
         val implementation by configurations
 
         // Stubs for all Cloudstream classes
+        // MUY IMPORTANTE: Asegúrate de que esta dependencia del SDK de CloudStream
+        // sea exactamente la que coincide con la versión de CloudStream que tienes instalada
+        // y que está compilada con Kotlin 2.1.0.
+        // La que tienes ahora (`com.lagradost:cloudstream3:pre-release`) parece ser K2.
         cloudstream("com.lagradost:cloudstream3:pre-release")
 
 
-        // these dependencies can include any of those which are added by the app,
-        // but you dont need to include any of them if you dont need them
-        // https://github.com/recloudstream/cloudstream/blob/master/app/build.gradle.kts
+        // Dependencias de Kotlin: Vuelve a la configuración de Kotlin 2.0 (K2)
+        implementation(kotlin("stdlib")) // Esto usará la versión 2.1.0 del kotlin-stdlib
+        // O si quieres ser explícito:
+        // implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0") // O la versión exacta de tu kotlin-gradle-plugin
 
-        implementation(kotlin("stdlib")) // adds standard kotlin features, like listOf, mapOf etc
-        implementation("com.github.Blatzar:NiceHttp:0.4.13") // http library
-        implementation("org.jsoup:jsoup:1.18.3") // html parser
+        implementation("com.github.Blatzar:NiceHttp:0.4.13")
+        implementation("org.jsoup:jsoup:1.18.3")
+        // Jackson: Mantén 2.16.0, es la versión esperada con K2 y CS4.x
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.16.0")
         implementation("com.squareup.okhttp3:okhttp:4.12.0")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
-        implementation("org.mozilla:rhino:1.8.0") //run JS
-        implementation("com.google.code.gson:gson:2.11.0")
 
+        // Coroutines: Vuelve a una versión compatible con Kotlin 2.0 (K2)
+        // La 1.10.1 es la correcta para Kotlin 2.0
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
+
+        implementation("org.mozilla:rhino:1.8.0")
+        implementation("com.google.code.gson:gson:2.11.0")
     }
 }
 
