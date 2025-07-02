@@ -21,7 +21,7 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import com.lagradost.cloudstream3.utils.fixUrl
+import com.lagradost.cloudstream3.utils.fixUrl // Ya importada, ¡genial!
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -207,7 +207,10 @@ class KatanimeProvider : MainAPI() {
             }
         }
 
-        val episodesPostUrl = url + "/eps"
+        // --- CORRECCIÓN AQUÍ: Usar fixUrl para limpiar la URL antes de añadir /eps ---
+        val episodesPostUrl = fixUrl(url + "/eps")
+        // --- FIN CORRECCIÓN ---
+
         val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
         if (csrfToken.isNullOrBlank()) {
             Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página principal.")
@@ -335,7 +338,6 @@ class KatanimeProvider : MainAPI() {
                     val unpacker = UnpackerExtractor(app.baseClient, headers)
                     unpacker.videosFromUrl(decryptedLink, subtitleCallback, callback)
                 } else {
-                    // Esta línea ya intenta usar cualquier extractor disponible
                     loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
                 }
             }.onFailure { e -> Log.e("Katanime", "Error al procesar data-player: ${e.message}", e) }
