@@ -12,7 +12,6 @@
     "tvTypes": [
       "Movie",
       "TvSeries",
-      "Anime",
       "Cartoon"
     ],
     "version": 2,
@@ -34,7 +33,6 @@
     "tvTypes": [
       "Movie",
       "TvSeries",
-      "Anime",
       "Cartoon"
     ],
     "iconUrl": "https://pelisplushd.bz/images/logo/favicon.png",
@@ -55,7 +53,6 @@
     "tvTypes": [
       "TvSeries",
       "Movie",
-      "Anime",
       "Cartoon"
     ],
     "iconUrl": "https://ww3.pelisplus.to/images/faviconhd.png",
@@ -74,8 +71,7 @@
     ],
     "description": "Plugin para latanime.org",
     "tvTypes": [
-      "Anime",
-      "OVA"
+      "Anime"
     ],
     "iconUrl": "https://latanime.org/public/favicon.ico",
     "language": "es",
@@ -93,8 +89,7 @@
     ],
     "description": "Plugin para anizone.to",
     "tvTypes": [
-      "Anime",
-      "AnimeMovie"
+      "Anime"
     ],
     "iconUrl": "https://img.icons8.com/?size=200&id=fztMk7eF9g8D&format=png",
     "language": "en",
@@ -112,9 +107,7 @@
     ],
     "description": "Plugin para www3.animeflv.net",
     "tvTypes": [
-      "Anime",
-      "AnimeMovie",
-      "OVA"
+      "Anime"
     ],
     "iconUrl": "https://www3.animeflv.net/favicon.ico",
     "language": "es",
@@ -122,7 +115,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/TvporinternetProvider.cs3",
-    "status": 1,
+    "status": 0,
     "version": 1,
     "apiVersion": 7,
     "name": "TVporInternet",
@@ -151,7 +144,7 @@
     "description": "Plugin para www.veronline.cfd",
     "tvTypes": [
       "TvSeries",
-      "Anime"
+      "Cartoon"
     ],
     "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
     "language": "es",
@@ -189,8 +182,7 @@
     "tvTypes": [
       "Movie",
       "TvSeries",
-      "Cartoons",
-      "Anime"
+      "Cartoon"
     ],
     "iconUrl": "https://ww8.cuevana3.to/static/wp-content/uploads/2019/03/cropped-favicon-1-32x32.png",
     "language": "es",
@@ -210,8 +202,7 @@
     "tvTypes": [
       "Movie",
       "TvSeries",
-      "Cartoons",
-      "Anime"
+      "Cartoon"
     ],
     "iconUrl": "https://seriesretro.com/wp-content/uploads/2020/10/cropped-index-32x32.png",
     "language": "es",
@@ -271,23 +262,5 @@
     "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
     "language": "es",
     "fileSize": 16000
-  },
-  {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/KickassanimeProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 15,
-    "name": "Kickassanime",
-    "internalName": "KickassanimeProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para kaa.mx",
-    "tvTypes": [
-      "Anime"
-    ],
-    "iconUrl": "https://kaa.mx/favicon.ico",
-    "language": "en",
-    "fileSize": 44000
   }
 ]
