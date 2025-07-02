@@ -7,11 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
-import okhttp3.FormBody // Importar FormBody
+import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -40,10 +41,10 @@ inline fun <reified T> String.tryParseJsonJackson(): T? = runCatching { katanime
 
 fun Element.getKatanimeImageUrl(): String? {
     return when {
-        hasAttr("data-src") && !attr("data-src").contains("data:image/") -> attr("abs:data-src")
-        hasAttr("data-lazy-src") && !attr("data-lazy-src").contains("data:image/") -> attr("abs:data-lazy-src")
-        hasAttr("srcset") && !attr("srcset").contains("data:image/") -> attr("abs:srcset").substringBefore(" ")
-        hasAttr("src") && !attr("src").contains("data:image/") -> attr("abs:src")
+        hasAttr("data-src") && attr("data-src").isNotBlank() && !attr("data-src").contains("data:image/") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") && attr("data-lazy-src").isNotBlank() && !attr("data-lazy-src").contains("data:image/") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") && attr("srcset").isNotBlank() && !attr("srcset").contains("data:image/") -> attr("abs:srcset").substringBefore(" ")
+        hasAttr("src") && attr("src").isNotBlank() && !attr("src").contains("data:image/") -> attr("abs:src")
         else -> null
     }
 }
@@ -78,6 +79,44 @@ object KatanimeFiltersData {
     val YEARS = arrayOf(Pair("Todos", "")) + (1982..Calendar.getInstance().get(Calendar.YEAR)).map { Pair("$it", "$it") }.reversed().toTypedArray()
 }
 
+data class KatanimeEpisodesResponse(
+    val ep: EpData,
+    val last: LastData?
+)
+
+data class EpData(
+    @JsonProperty("current_page") val currentPage: Int,
+    val data: List<EpisodeJsonData>,
+    @JsonProperty("first_page_url") val firstPageUrl: String?,
+    val from: Int?,
+    @JsonProperty("last_page") val lastPage: Int,
+    @JsonProperty("last_page_url") val lastPageUrl: String?,
+    val links: List<LinkData>?,
+    @JsonProperty("next_page_url") val nextPageUrl: String?,
+    val path: String,
+    @JsonProperty("per_page") val perPage: Int,
+    @JsonProperty("prev_page_url") val prevPageUrl: String?,
+    val to: Int?,
+    val total: Int
+)
+
+data class EpisodeJsonData(
+    val numero: String,
+    val thumb: String?,
+    @JsonProperty("created_at") val createdAt: String,
+    val url: String
+)
+
+data class LinkData(
+    val url: String?,
+    val label: String,
+    val active: Boolean
+)
+
+data class LastData(
+    val numero: String
+)
+
 class KatanimeProvider : MainAPI() {
     override var mainUrl = "https://katanime.net"
     override var name = "Katanime"
@@ -89,14 +128,14 @@ class KatanimeProvider : MainAPI() {
 
     companion object {
         const val DECRYPTION_PASSWORD = "hanabi"
-        private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH) }
+        private val DATE_FORMATTER_GENERAL by lazy { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH) }
+        private val DATE_FORMATTER_TOKEN_PLUS by lazy { SimpleDateFormat("yyyy-MM-dd+HH%3Amm%3Ass", Locale.ENGLISH) }
 
-        const val STATUS_ONGOING = 0
-        const val STATUS_COMPLETED = 1
-        const val STATUS_OTHER = 2
+        val STATUS_ONGOING = ShowStatus.Ongoing
+        val STATUS_COMPLETED = ShowStatus.Completed
     }
 
-    private fun String.toDate(): Long = runCatching { DATE_FORMATTER.parse(trim())?.time }.getOrNull() ?: 0L
+    private fun String.toDate(): Long = runCatching { DATE_FORMATTER_GENERAL.parse(trim())?.time }.getOrNull() ?: 0L
 
     private suspend fun getDocument(url: String, customHeaders: Headers = Headers.Builder().build()): org.jsoup.nodes.Document {
         return app.baseClient.newCall(
@@ -153,113 +192,75 @@ class KatanimeProvider : MainAPI() {
     data class KatanimeEpisodeData(val name: String, val url: String)
 
     override suspend fun load(url: String): LoadResponse? {
-        Log.d("KatanimeProvider", "Cargando URL principal de la serie: $url")
-        val doc = app.get(url).document // Obtenemos el HTML inicial para la info de la serie y el token.
-
-        Log.d("KatanimeProvider", "Documento HTML principal obtenido para $url.")
+        val doc = app.get(url).document
 
         val title = doc.selectFirst(".comics-title")?.ownText() ?: ""
         val description = doc.selectFirst("#sinopsis p")?.ownText()
         val genre = doc.select(".anime-genres a").map { it.text() }
-        val poster = doc.selectFirst(".anime-poster img")?.attr("src") ?: doc.selectFirst(".anime-poster img")?.getKatanimeImageUrl()
+        val poster = doc.selectFirst(".anime-poster img")?.getKatanimeImageUrl()
 
-        Log.d("KatanimeProvider", "Título extraído: $title")
-
-        val statusInt = with(doc.select(".details-by #estado").text()) {
+        val statusVal: ShowStatus? = with(doc.select(".details-by #estado").text()) {
             when {
                 contains("Finalizado", true) -> STATUS_COMPLETED
                 contains("Emision", true) -> STATUS_ONGOING
-                else -> STATUS_OTHER
+                else -> null
             }
         }
 
-        // --- INICIO DE LA LÓGICA PARA OBTENER EPISODIOS VÍA POST CON FORM-DATA ---
-        val episodesPostUrl = url + "eps"
-        Log.d("KatanimeProvider", "Intentando cargar episodios vía POST a: $episodesPostUrl")
-
-        // 1. Extraer el _token de la página principal
+        val episodesPostUrl = url + "/eps"
         val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
         if (csrfToken.isNullOrBlank()) {
-            Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página principal. Posiblemente cambió el selector o la web.")
-            // En este caso, la página principal de la serie se cargará, pero sin episodios.
+            Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página principal.")
             return newTvSeriesLoadResponse(title, url, TvType.Anime, emptyList()) {
                 this.plot = description
                 this.tags = genre
                 this.posterUrl = poster
-                this.backgroundPosterUrl = poster
+                this.showStatus = statusVal
             }
         }
-        Log.d("KatanimeProvider", "Token CSRF encontrado: ${csrfToken.take(10)}...") // Log parcial del token
 
-        // 2. Construir el FormBody con el token y el parámetro de página
         val formBody = FormBody.Builder()
             .add("_token", csrfToken)
-            .add("pagina", "1") // Asumimos la primera página de episodios
+            .add("pagina", "1")
             .build()
-        Log.d("KatanimeProvider", "FormBody construido con _token y pagina=1.")
 
-        val episodesDoc: org.jsoup.nodes.Document? = try {
+        val episodesResponseData: KatanimeEpisodesResponse? = try {
             val response = app.post(
                 episodesPostUrl,
-                requestBody = formBody, // Añadimos el FormBody aquí
+                requestBody = formBody,
                 headers = mapOf(
                     "Referer" to url,
-                    "X-Requested-With" to "XMLHttpRequest", // **AGREGADO: Encabezado común para peticiones AJAX**
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" // **AGREGADO: User-Agent para simular navegador**
+                    "X-Requested-With" to "XMLHttpRequest",
+                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept" to "application/json, text/javascript, */*; q=0.01",
+                    "X-XSRF-TOKEN" to csrfToken
                 )
             )
             if (response.isSuccessful) {
-                Log.d("KatanimeProvider", "Petición POST de episodios exitosa. Código: ${response.code}")
-                // FIX: Usamos ?.let para manejar el String? de forma segura
-                response.body?.string()?.let { htmlContent ->
-                    Jsoup.parse(htmlContent, episodesPostUrl)
-                } ?: run {
-                    Log.e("KatanimeProvider", "El cuerpo de la respuesta POST para episodios es nulo o vacío.")
-                    null
-                }
+                val jsonString = response.body?.string()
+                jsonString?.tryParseJsonJackson<KatanimeEpisodesResponse>()
             } else {
-                val errorBody = response.body?.string()
-                Log.e("KatanimeProvider", "Error al obtener episodios vía POST: ${response.code} - Cuerpo de respuesta: ${errorBody?.take(500)}...") // Log parcial del cuerpo de error
+                Log.e("KatanimeProvider", "Error al obtener episodios vía POST a /eps: ${response.code} - Cuerpo: ${response.body?.string()?.take(500)}...")
                 null
             }
         } catch (e: Exception) {
-            Log.e("KatanimeProvider", "Excepción al obtener episodios vía POST: ${e.message}", e)
+            Log.e("KatanimeProvider", "Excepción al obtener episodios vía POST a /eps: ${e.message}", e)
             null
         }
 
-        if (episodesDoc == null) {
-            Log.e("KatanimeProvider", "No se pudo obtener el documento de episodios de la petición POST. Se devolverán 0 episodios.")
-            return newTvSeriesLoadResponse(title, url, TvType.Anime, emptyList()) {
-                this.plot = description
-                this.tags = genre
-                this.posterUrl = poster
-                this.backgroundPosterUrl = poster
+        val episodes = episodesResponseData?.ep?.data?.mapNotNull { episodeData ->
+            newEpisode(data = KatanimeEpisodeData(episodeData.numero, episodeData.url).toJsonJackson()) {
+                name = "Capítulo ${episodeData.numero}"
+                episode = episodeData.numero.toIntOrNull()
             }
-        }
-
-        // Aplicamos el selector al documento de la respuesta POST
-        val episodesElements = episodesDoc.select("#c_list .cap_list")
-        Log.d("KatanimeProvider", "Elementos de episodios encontrados por Jsoup en la respuesta POST: ${episodesElements.size}")
-
-        val episodes = episodesElements.mapNotNull { element ->
-            val epUrl = fixUrl(element.attr("abs:href"))
-            val epTitle = element.selectFirst(".entry-title-h2")?.ownText() ?: ""
-            val episodeNumber = Regex("""Capítulo\s+(\d+)""").find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
-
-            Log.d("KatanimeProvider", "Episodio procesado: Título=$epTitle, URL=$epUrl, Número=$episodeNumber")
-            newEpisode(data = KatanimeEpisodeData(epTitle, epUrl).toJsonJackson()) {
-                name = epTitle
-                episode = episodeNumber
-            }
-        }.reversed()
-
-        Log.d("KatanimeProvider", "Total de episodios construidos: ${episodes.size}")
+        }?.reversed() ?: emptyList()
 
         return newTvSeriesLoadResponse(title, url, TvType.Anime, episodes) {
             this.plot = description
             this.tags = genre
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
+            this.showStatus = statusVal
         }
     }
 
@@ -276,39 +277,65 @@ class KatanimeProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val targetUrl: String = data.tryParseJsonJackson<KatanimeEpisodeData>()?.url ?: data
-        Log.d("KatanimeProvider", "Cargando enlaces para: $targetUrl")
         if (targetUrl.isBlank()) {
             Log.w("KatanimeProvider", "URL de destino en blanco.")
             return false
         }
 
-        val doc = app.get(targetUrl).document
-        Log.d("KatanimeProvider", "Documento HTML obtenido para enlaces.")
+        val initialEpisodeDoc = app.get(targetUrl).document
+        val csrfToken = initialEpisodeDoc.selectFirst("input[name=\"_token\"]")?.attr("value")
+        if (csrfToken.isNullOrBlank()) {
+            Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página del episodio: $targetUrl")
+            return false
+        }
 
-        doc.select("[data-player]:not([data-player-name=\"Mega\"])").apmap { element ->
+        val fixedTokenPlusNumber = "90"
+        val currentTimeFormatted = DATE_FORMATTER_TOKEN_PLUS.format(Calendar.getInstance().time)
+        val tokenPlus = "${fixedTokenPlusNumber}_${currentTimeFormatted}"
+
+        val postFormBody = FormBody.Builder()
+            .add("_token", csrfToken)
+            .add("token_plus", tokenPlus)
+            .build()
+
+        val postResponse = app.post(
+            targetUrl,
+            requestBody = postFormBody,
+            headers = mapOf(
+                "Referer" to targetUrl,
+                "X-Requested-With" to "XMLHttpRequest",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept" to "*/*"
+            )
+        )
+
+        if (!postResponse.isSuccessful) {
+            Log.e("KatanimeProvider", "ERROR: Petición POST a $targetUrl falló con código ${postResponse.code}.")
+            return false
+        }
+
+        val finalEpisodeDoc = app.get(targetUrl).document
+
+        finalEpisodeDoc.select("[data-player]:not([data-player-name=\"Mega\"])").apmap { element ->
             runCatching {
                 val dataPlayer = element.attr("data-player")
-                Log.d("KatanimeProvider", "Encontrado data-player: $dataPlayer")
                 val playerDocument = app.get("$mainUrl/reproductor?url=$dataPlayer").document
 
                 val encryptedData = playerDocument
                     .selectFirst("script:containsData(var e =)")?.data()
                     ?.substringAfter("var e = '")?.substringBefore("';")
                     ?: return@apmap
-                Log.d("KatanimeProvider", "Datos encriptados: ${encryptedData.take(50)}...")
 
                 val json = encryptedData.tryParseJsonJackson<CryptoDto>() ?: return@apmap
                 val decryptedLink = CryptoAES.decryptWithSalt(json.ct!!, json.s!!, DECRYPTION_PASSWORD)
                     .replace("\\/", "/").replace("\"", "")
-                Log.d("KatanimeProvider", "Enlace desencriptado: $decryptedLink")
 
                 if (decryptedLink.contains("lulu.stream", ignoreCase = true)) {
-                    Log.d("KatanimeProvider", "Usando UnpackerExtractor para lulu.stream.")
                     val headers = Headers.Builder().add("Referer", "$mainUrl/").build()
                     val unpacker = UnpackerExtractor(app.baseClient, headers)
                     unpacker.videosFromUrl(decryptedLink, subtitleCallback, callback)
                 } else {
-                    Log.d("KatanimeProvider", "Usando loadExtractor para otros enlaces.")
+                    // Esta línea ya intenta usar cualquier extractor disponible
                     loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
                 }
             }.onFailure { e -> Log.e("Katanime", "Error al procesar data-player: ${e.message}", e) }
