@@ -1,30 +1,57 @@
-package com.example // Ajusta esto a tu paquete real de CloudStream
+package com.example // Ajusta esto a tu paquete real
 
 import android.util.Log
-import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.JsUnpacker // Importar el JsUnpacker de CloudStream
-
-import com.example.extractors.CryptoAES
-import com.example.extractors.PlaylistUtils
-import com.example.extractors.UnpackerExtractor
-
-// Importaciones de Jackson
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.readValue
-
+import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.JsUnpacker
+import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.loadExtractor
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import okhttp3.Headers
-import okhttp3.Request
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import com.lagradost.cloudstream3.utils.fixUrl
+
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
+import com.example.extractors.CryptoAES
+import com.example.extractors.PlaylistUtils
+import com.example.extractors.UnpackerExtractor
+
+val katanimeObjectMapper = ObjectMapper().apply {
+    registerModule(KotlinModule())
+    configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+}
+
+fun Any.toJsonJackson(): String = katanimeObjectMapper.writeValueAsString(this)
+inline fun <reified T> String.tryParseJsonJackson(): T? = runCatching { katanimeObjectMapper.readValue<T>(this) }.getOrNull()
+
+fun Element.getKatanimeImageUrl(): String? {
+    return when {
+        hasAttr("data-src") && !attr("data-src").contains("data:image/") -> attr("abs:data-src")
+        hasAttr("data-lazy-src") && !attr("data-lazy-src").contains("data:image/") -> attr("abs:data-lazy-src")
+        hasAttr("srcset") && !attr("srcset").contains("data:image/") -> attr("abs:srcset").substringBefore(" ")
+        hasAttr("src") && !attr("src").contains("data:image/") -> attr("abs:src")
+        else -> null
+    }
+}
+
+suspend fun <A, B> Iterable<A>.apmap(f: suspend (A) -> B): List<B> {
+    return kotlinx.coroutines.coroutineScope {
+        map { async { f(it) } }.awaitAll()
+    }
+}
 
 object KatanimeFiltersData {
     val TYPES = arrayOf(
@@ -63,14 +90,6 @@ class KatanimeProvider : MainAPI() {
         const val DECRYPTION_PASSWORD = "hanabi"
         private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH) }
 
-        val mapper = ObjectMapper().apply {
-            registerModule(KotlinModule())
-            configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-        }
-
-        fun Any.toJsonJackson(): String = mapper.writeValueAsString(this)
-        inline fun <reified T> String.tryParseJsonJackson(): T? = runCatching { mapper.readValue<T>(this) }.getOrNull()
-
         const val STATUS_ONGOING = 0
         const val STATUS_COMPLETED = 1
         const val STATUS_OTHER = 2
@@ -85,44 +104,33 @@ class KatanimeProvider : MainAPI() {
                 .headers(customHeaders)
                 .build()
         ).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("Failed to fetch $url: ${response.code}")
-            response.body?.string()?.let { Jsoup.parse(it, url) } ?: throw Exception("Empty body for $url")
+            if (!response.isSuccessful) throw Exception("Fallo al obtener $url: ${response.code}")
+            response.body?.string()?.let { Jsoup.parse(it, url) } ?: throw Exception("Cuerpo vacío para $url")
         }
-    }
-
-    private fun Element.getImageUrl(): String? {
-        return when {
-            isValidUrl("data-src") -> attr("abs:data-src")
-            isValidUrl("data-lazy-src") -> attr("abs:data-lazy-src")
-            isValidUrl("srcset") -> attr("abs:srcset").substringBefore(" ")
-            isValidUrl("src") -> attr("abs:src")
-            else -> null
-        }
-    }
-
-    private fun Element.isValidUrl(attrName: String): Boolean {
-        if (!hasAttr(attrName)) return false
-        return !attr(attrName).contains("data:image/")
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val popularDoc = getDocument("$mainUrl/populares")
         val items = ArrayList<HomePageList>()
         val popularAnime = popularDoc.select("#article-div .full > a").mapNotNull { element ->
-            val title = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
+            val title = element.selectFirst("img")?.attr("alt")
             val link = element.attr("abs:href")
-            val img = element.selectFirst("img")?.getImageUrl()
-            newAnimeSearchResponse(title, fixUrl(link)) { posterUrl = img; type = TvType.Anime }
+            val img = element.selectFirst("img")?.getKatanimeImageUrl()
+            if (title != null && link != null) {
+                newAnimeSearchResponse(title, fixUrl(link)) { posterUrl = img; type = TvType.Anime }
+            } else null
         }
         items.add(HomePageList("Populares en Katanime", popularAnime))
 
         val currentYear = Calendar.getInstance().get(Calendar.YEAR)
         val latestDoc = getDocument("$mainUrl/animes?fecha=$currentYear&p=$page")
         val latestAnime = latestDoc.select("#article-div .full > a").mapNotNull { element ->
-            val title = element.selectFirst("img")?.attr("alt") ?: return@mapNotNull null
+            val title = element.selectFirst("img")?.attr("alt")
             val link = element.attr("abs:href")
-            val img = element.selectFirst("img")?.getImageUrl()
-            newAnimeSearchResponse(title, fixUrl(link)) { posterUrl = img; type = TvType.Anime }
+            val img = element.selectFirst("img")?.getKatanimeImageUrl()
+            if (title != null && link != null) {
+                newAnimeSearchResponse(title, fixUrl(link)) { posterUrl = img; type = TvType.Anime }
+            } else null
         }
         items.add(HomePageList("Últimas Actualizaciones", latestAnime))
         return newHomePageResponse(items, false)
@@ -134,7 +142,7 @@ class KatanimeProvider : MainAPI() {
         return doc.select("#article-div .full > a").mapNotNull { element ->
             val title = element.selectFirst("img")?.attr("alt")
             val link = element.attr("abs:href")
-            val img = element.selectFirst("img")?.getImageUrl()
+            val img = element.selectFirst("img")?.getKatanimeImageUrl()
             if (title != null && link != null) {
                 newAnimeSearchResponse(title, fixUrl(link)) { posterUrl = img; type = TvType.Anime }
             } else null
@@ -144,14 +152,17 @@ class KatanimeProvider : MainAPI() {
     data class KatanimeEpisodeData(val name: String, val url: String)
 
     override suspend fun load(url: String): LoadResponse? {
-        val doc = getDocument(url)
+        Log.d("KatanimeProvider", "Cargando URL: $url")
+        val doc = app.get(url).document
+        Log.d("KatanimeProvider", "Documento HTML obtenido para $url")
 
         val title = doc.selectFirst(".comics-title")?.ownText() ?: ""
         val description = doc.selectFirst("#sinopsis p")?.ownText()
         val genre = doc.select(".anime-genres a").map { it.text() }
-        val poster = doc.selectFirst(".anime-poster img")?.attr("src") ?: doc.selectFirst(".anime-poster img")?.getImageUrl()
+        val poster = doc.selectFirst(".anime-poster img")?.attr("src") ?: doc.selectFirst(".anime-poster img")?.getKatanimeImageUrl()
 
-        // Aunque se calcule, no se usará si la propiedad 'status' no está disponible en el DSL
+        Log.d("KatanimeProvider", "Título extraído: $title")
+
         val statusInt = with(doc.select(".details-by #estado").text()) {
             when {
                 contains("Finalizado", true) -> STATUS_COMPLETED
@@ -160,30 +171,35 @@ class KatanimeProvider : MainAPI() {
             }
         }
 
-        val episodes = doc.select("#c_list .cap_list").mapNotNull { element ->
+        val episodesElements = doc.select("#c_list .cap_list")
+        Log.d("KatanimeProvider", "Elementos de episodios encontrados por Jsoup: ${episodesElements.size}")
+
+        val episodes = episodesElements.mapNotNull { element ->
             val epUrl = fixUrl(element.attr("abs:href"))
             val epTitle = element.selectFirst(".entry-title-h2")?.ownText() ?: ""
             val episodeNumber = Regex("""Capítulo\s+(\d+)""").find(epTitle)?.groupValues?.get(1)?.toIntOrNull()
 
-            newEpisode(KatanimeEpisodeData(epTitle, epUrl).toJsonJackson()) {
+            Log.d("KatanimeProvider", "Episodio procesado: Título=$epTitle, URL=$epUrl, Número=$episodeNumber")
+            newEpisode(data = KatanimeEpisodeData(epTitle, epUrl).toJsonJackson()) {
                 name = epTitle
                 episode = episodeNumber
             }
         }.reversed()
+
+        Log.d("KatanimeProvider", "Total de episodios construidos: ${episodes.size}")
 
         return newTvSeriesLoadResponse(title, url, TvType.Anime, episodes) {
             this.plot = description
             this.tags = genre
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
-            // ELIMINADA: this.status = statusInt // Eliminar si no existe esta propiedad asignable
         }
     }
 
     data class CryptoDto(
-        var ct: String? = null,
-        var iv: String? = null,
-        var s: String? = null
+        @JsonProperty("ct") var ct: String? = null,
+        @JsonProperty("iv") var iv: String? = null,
+        @JsonProperty("s") var s: String? = null
     )
 
     override suspend fun loadLinks(
@@ -193,32 +209,42 @@ class KatanimeProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val targetUrl: String = data.tryParseJsonJackson<KatanimeEpisodeData>()?.url ?: data
-        if (targetUrl.isBlank()) return false
+        Log.d("KatanimeProvider", "Cargando enlaces para: $targetUrl")
+        if (targetUrl.isBlank()) {
+            Log.w("KatanimeProvider", "URL de destino en blanco.")
+            return false
+        }
 
-        val doc = getDocument(targetUrl)
+        val doc = app.get(targetUrl).document
+        Log.d("KatanimeProvider", "Documento HTML obtenido para enlaces.")
 
         doc.select("[data-player]:not([data-player-name=\"Mega\"])").apmap { element ->
             runCatching {
                 val dataPlayer = element.attr("data-player")
-                val playerDocument = getDocument("$mainUrl/reproductor?url=$dataPlayer")
+                Log.d("KatanimeProvider", "Encontrado data-player: $dataPlayer")
+                val playerDocument = app.get("$mainUrl/reproductor?url=$dataPlayer").document
 
                 val encryptedData = playerDocument
                     .selectFirst("script:containsData(var e =)")?.data()
                     ?.substringAfter("var e = '")?.substringBefore("';")
                     ?: return@apmap
+                Log.d("KatanimeProvider", "Datos encriptados: ${encryptedData.take(50)}...")
 
                 val json = encryptedData.tryParseJsonJackson<CryptoDto>() ?: return@apmap
                 val decryptedLink = CryptoAES.decryptWithSalt(json.ct!!, json.s!!, DECRYPTION_PASSWORD)
                     .replace("\\/", "/").replace("\"", "")
+                Log.d("KatanimeProvider", "Enlace desencriptado: $decryptedLink")
 
                 if (decryptedLink.contains("lulu.stream", ignoreCase = true)) {
+                    Log.d("KatanimeProvider", "Usando UnpackerExtractor para lulu.stream.")
                     val headers = Headers.Builder().add("Referer", "$mainUrl/").build()
                     val unpacker = UnpackerExtractor(app.baseClient, headers)
                     unpacker.videosFromUrl(decryptedLink, subtitleCallback, callback)
                 } else {
+                    Log.d("KatanimeProvider", "Usando loadExtractor para otros enlaces.")
                     loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
                 }
-            }.onFailure { e -> Log.e("Katanime", "Error processing data-player: ${e.message}", e) }
+            }.onFailure { e -> Log.e("Katanime", "Error al procesar data-player: ${e.message}", e) }
         }
         return true
     }
