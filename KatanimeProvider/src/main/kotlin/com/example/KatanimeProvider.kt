@@ -238,9 +238,11 @@ class KatanimeProvider : MainAPI() {
                 "X-Requested-With" to "XMLHttpRequest",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
                 "Accept" to "application/json, text/javascript, */*; q=0.01",
-                "X-CSRF-TOKEN" to csrfToken, // <-- ¡Este es crucial!
-                "Origin" to mainUrl, // <-- ¡NUEVO!
-                "Accept-Language" to "es-ES,es;q=0.9" // <-- ¡NUEVO!
+                "X-CSRF-TOKEN" to csrfToken,
+                "Origin" to mainUrl,
+                "Accept-Language" to "es-ES,es;q=0.9",
+                // ¡ATENCIÓN! Pega la cadena de cookies completa que me acabas de dar aquí:
+                "Cookie" to "_gid=GA1.2.1691590932.1751478834; _ga_V358MX4G9Q=GS2.1.s1751478824\\\$o1\\\$g1\\\$t1751479676\\\$j58\\\$l0\\\$h0; _ga=GA1.2.755877887.1751478825; XSRF-TOKEN=eyJpdiI6IjJrcWp3SjVnR2p6VVE5WWdvRGdUNWc9PSIsInZhbHVlIjoiWkNZN2VUdkVuM2MzV0podHZHQ3Y4Mi81OE5KcUp1VjZRY3JiQTRmSk9oS2tQSDVkeVlndzd1RTlLZWwyOXd3MW12UHpwdE51aGw5WXM4Z2RuY0RTN28raXRUTlYxcTFTRmg3QnZGY2kxd0UzNGFiV2s0eEp2bkhCMENVVUVTOTAiLCJtYWMiOiIyMjc2OTJmMGRjMjE1ZDQyNDU0YTAzODg4Mjk3MGJiNTBkNmFlNWM1NzNlMmM4NzhhNjczYzg3YWJmMDNkNmI5IiwidGFnIjoiIn0%3D; katanime_session=eyJpdiI6IkVHcVNGeE4rc2g2SDFsUDdvMDZBeHc9PSIsInZhbHVlIjoiOGlOcitwN2ZweWphU0Ryd2FLNm1NSi8vWXhYdXJ2K3RUTDNyS0pMVGZURkZkU1Z4eC90RHJEMTZaM2FIYk8vYitFRTRMRXliOG4xNllrTDB6eTIzN0IzR1RDTDBpYmlmMkJ6TFZoYTA4YXQ0TzlwMnJpZ2lCUHpLSHdWK3k5RzIiLCJtYWMiOiIzNDcwZDEyMzBkODJjNDRlOWMyM2YxNWJjMWQ0ZjBmMThlODc3YWRkZjcwMWM3YjQ3YTEzOGY5YmNkN2ZjNDFhIiwidGFnIjoiIn0%3D; hWXtoLIHhiPkseOhViXPQeumteTRCp8Yh0siheYT=eyJpdiI6IkhiNDR5ZEdrZXdxOVhaVmhZNjBFdnc9PSIsInZhbHVlIjoiNmI3V0VmeWo5bmZEdnQvK2wvTU02MGl6MTkrZWcrYVJGRTlpVnE2YWlnQ2JVaUpiRkRoRVl1enV3N3lJaVFNL3ZSaFhkSWJCQ1ZNQWVjcEJaMVU0ZFhHU01SRkNydFdGR21YcUxoWUM0WXRrUjIwclk1ZzI0Q3NpQytlL3B2UEpTYXNkTW1TTllqeUNoWDhmUGJVd3oyd2h3VTc4VTh3ODd6azhDR2JiN3lPTm53aXZkNTZFZENldHcvc1F0WEc1OHA4Ujltb0doY0puTFA4ODVqSFZKeC9KQkRmaUxQTkw2cnUrNzAzS0JsWW95RHZFQmFqb0hzc0FHcjBBRHJMM292d1FCNXFCdHRsQ3N3OTZNbE9HY3lXNmxITGQzVXl0dnhzVkUrbXowMjkyN05QdHNMT3FWWkdGcW4zdVVxaDhyNFZpMGJuTnIzeXN1ZWo4YU8yOS9MNEJkTis2TkZjU1FoR1krN3pQL1hLb3V2M1luRUpBZHNxWS9QUm5TUFJLRWlyeDc5MjE1YzVhU3l1aUIzSjVYaXNTaGRocE9vNENPS3FCYjUwTVAxekUxYXZnRXl3TFA3bElSVUxhZlBuYiIsIm1hYyI6ImUwN2I1MmQ0NzAwMTllYTg5YTAzZjY4N2VjNjQ2MGE4YmY4OWU1MGM3MDM1YmI0NmI1NGE3YmNjYzVhNTBlYmMiLCJ0YWciOiIifQ%3D%3D"
             )
         )
 
