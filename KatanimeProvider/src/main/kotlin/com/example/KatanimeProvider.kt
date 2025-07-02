@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.JsUnpacker
 import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
+import okhttp3.FormBody // Importar FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -152,9 +153,10 @@ class KatanimeProvider : MainAPI() {
     data class KatanimeEpisodeData(val name: String, val url: String)
 
     override suspend fun load(url: String): LoadResponse? {
-        Log.d("KatanimeProvider", "Cargando URL: $url")
-        val doc = app.get(url).document
-        Log.d("KatanimeProvider", "Documento HTML obtenido para $url")
+        Log.d("KatanimeProvider", "Cargando URL principal de la serie: $url")
+        val doc = app.get(url).document // Obtenemos el HTML inicial para la info de la serie y el token.
+
+        Log.d("KatanimeProvider", "Documento HTML principal obtenido para $url.")
 
         val title = doc.selectFirst(".comics-title")?.ownText() ?: ""
         val description = doc.selectFirst("#sinopsis p")?.ownText()
@@ -171,8 +173,64 @@ class KatanimeProvider : MainAPI() {
             }
         }
 
-        val episodesElements = doc.select("#c_list .cap_list")
-        Log.d("KatanimeProvider", "Elementos de episodios encontrados por Jsoup: ${episodesElements.size}")
+        // --- INICIO DE LA LÓGICA PARA OBTENER EPISODIOS VÍA POST CON FORM-DATA ---
+        val episodesPostUrl = url + "eps"
+        Log.d("KatanimeProvider", "Intentando cargar episodios vía POST a: $episodesPostUrl")
+
+        // 1. Extraer el _token de la página principal
+        val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
+        if (csrfToken.isNullOrBlank()) {
+            Log.e("KatanimeProvider", "ERROR: No se encontró el token CSRF en la página principal. Posiblemente cambió el selector o la web.")
+            return null // No podemos continuar sin el token
+        }
+        Log.d("KatanimeProvider", "Token CSRF encontrado: ${csrfToken.take(10)}...") // Log parcial del token
+
+        // 2. Construir el FormBody con el token y el parámetro de página
+        val formBody = FormBody.Builder()
+            .add("_token", csrfToken)
+            .add("pagina", "1") // Asumimos la primera página de episodios
+            .build()
+        Log.d("KatanimeProvider", "FormBody construido con _token y pagina=1.")
+
+        val episodesDoc: org.jsoup.nodes.Document? = try {
+            val response = app.post(
+                episodesPostUrl,
+                requestBody = formBody, // Añadimos el FormBody aquí
+                headers = mapOf("Referer" to url) // El Referer es crucial
+            )
+            if (response.isSuccessful) {
+                Log.d("KatanimeProvider", "Petición POST de episodios exitosa. Código: ${response.code}")
+                // FIX: Usamos ?.let para manejar el String? de forma segura
+                response.body?.string()?.let { htmlContent ->
+                    Jsoup.parse(htmlContent, episodesPostUrl)
+                } ?: run {
+                    Log.e("KatanimeProvider", "El cuerpo de la respuesta POST para episodios es nulo o vacío.")
+                    null
+                }
+            } else {
+                Log.e("KatanimeProvider", "Error al obtener episodios vía POST: ${response.code} - ${response.body?.string()}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("KatanimeProvider", "Excepción al obtener episodios vía POST: ${e.message}", e)
+            null
+        }
+
+        if (episodesDoc == null) {
+            Log.e("KatanimeProvider", "No se pudo obtener el documento de episodios de la petición POST. Se devolverán 0 episodios.")
+            // En este punto, podríamos devolver un LoadResponse con episodios vacíos
+            // en lugar de null, si quieres que la página de la serie al menos se cargue.
+            return newTvSeriesLoadResponse(title, url, TvType.Anime, emptyList()) {
+                this.plot = description
+                this.tags = genre
+                this.posterUrl = poster
+                this.backgroundPosterUrl = poster
+            }
+        }
+
+        // Aplicamos el selector al documento de la respuesta POST
+        val episodesElements = episodesDoc.select("#c_list .cap_list")
+        Log.d("KatanimeProvider", "Elementos de episodios encontrados por Jsoup en la respuesta POST: ${episodesElements.size}")
 
         val episodes = episodesElements.mapNotNull { element ->
             val epUrl = fixUrl(element.attr("abs:href"))
