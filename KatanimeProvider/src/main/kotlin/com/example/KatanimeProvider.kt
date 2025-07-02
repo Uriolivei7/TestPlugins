@@ -238,7 +238,6 @@ class KatanimeProvider : MainAPI() {
                 "X-Requested-With" to "XMLHttpRequest",
                 "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept" to "application/json, text/javascript, */*; q=0.01"
-                // Se eliminó "X-XSRF-TOKEN" to csrfToken para evitar el "CSRF token mismatch"
             )
         )
 
