@@ -1,4 +1,4 @@
-package com.example // Ajusta esto a tu paquete real
+package com.example
 
 import android.util.Log
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -21,7 +21,7 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import com.lagradost.cloudstream3.utils.fixUrl // Ya importada, ¡genial!
+import com.lagradost.cloudstream3.utils.fixUrl
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -207,9 +207,7 @@ class KatanimeProvider : MainAPI() {
             }
         }
 
-        // --- CORRECCIÓN AQUÍ: Usar fixUrl para limpiar la URL antes de añadir /eps ---
-        val episodesPostUrl = fixUrl(url + "eps")
-        // --- FIN CORRECCIÓN ---
+        val episodesPostUrl = fixUrl(url + "eps") // Eliminado el slash inicial para evitar //eps
 
         val csrfToken = doc.selectFirst("input[name=\"_token\"]")?.attr("value")
         if (csrfToken.isNullOrBlank()) {
@@ -227,23 +225,24 @@ class KatanimeProvider : MainAPI() {
             .add("pagina", "1")
             .build()
 
-        val episodesResponseData: KatanimeEpisodesResponse? = try {
-            val response = app.post(
-                episodesPostUrl,
-                requestBody = formBody,
-                headers = mapOf(
-                    "Referer" to url,
-                    "X-Requested-With" to "XMLHttpRequest",
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept" to "application/json, text/javascript, */*; q=0.01",
-                    "X-XSRF-TOKEN" to csrfToken
-                )
+        val postResponse = app.post(
+            episodesPostUrl,
+            requestBody = formBody,
+            headers = mapOf(
+                "Referer" to url,
+                "X-Requested-With" to "XMLHttpRequest",
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept" to "application/json, text/javascript, */*; q=0.01"
+                // Se eliminó "X-XSRF-TOKEN" to csrfToken para evitar el "CSRF token mismatch"
             )
-            if (response.isSuccessful) {
-                val jsonString = response.body?.string()
+        )
+
+        val episodesResponseData: KatanimeEpisodesResponse? = try {
+            if (postResponse.isSuccessful) {
+                val jsonString = postResponse.body?.string()
                 jsonString?.tryParseJsonJackson<KatanimeEpisodesResponse>()
             } else {
-                Log.e("KatanimeProvider", "Error al obtener episodios vía POST a /eps: ${response.code} - Cuerpo: ${response.body?.string()?.take(500)}...")
+                Log.e("KatanimeProvider", "Error al obtener episodios vía POST a /eps: ${postResponse.code} - Cuerpo: ${postResponse.body?.string()?.take(500)}...")
                 null
             }
         } catch (e: Exception) {
