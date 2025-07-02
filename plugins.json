@@ -273,21 +273,21 @@
     "fileSize": 16000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/KatanimeProvider.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/KickassanimeProvider.cs3",
     "status": 1,
     "version": 1,
-    "apiVersion": 14,
-    "name": "KatAnime",
-    "internalName": "KatanimeProvider",
+    "apiVersion": 15,
+    "name": "Kickassanime",
+    "internalName": "KickassanimeProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para katanime.net",
+    "description": "Plugin para kaa.mx",
     "tvTypes": [
       "Anime"
     ],
-    "iconUrl": "https://katanime.net/favicon.ico?v=5.0.48",
-    "language": "es",
-    "fileSize": 48000
+    "iconUrl": "https://kaa.mx/favicon.ico",
+    "language": "en",
+    "fileSize": 44000
   }
 ]

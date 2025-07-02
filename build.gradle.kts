@@ -105,6 +105,7 @@ subprojects {
 
         implementation("org.mozilla:rhino:1.8.0")
         implementation("com.google.code.gson:gson:2.11.0")
+        implementation("androidx.annotation:annotation:1.8.0")
     }
 }
 
