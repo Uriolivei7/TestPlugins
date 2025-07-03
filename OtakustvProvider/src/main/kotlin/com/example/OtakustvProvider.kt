@@ -106,6 +106,7 @@ class OtakustvProvider : MainAPI() {
         }
         val doc = Jsoup.parse(html)
 
+        // ANIME FINALIZADOS (Existente)
         val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
         if (finishedAnimesContainer != null) {
             val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
@@ -121,6 +122,7 @@ class OtakustvProvider : MainAPI() {
             Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Animes Finalizados.")
         }
 
+        // RANKING (Existente)
         val rankingContainer = doc.selectFirst("div.ranking:has(h3:contains(RANKING))")
         if (rankingContainer != null) {
             val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
@@ -136,6 +138,7 @@ class OtakustvProvider : MainAPI() {
             Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Ranking.")
         }
 
+        // SIMULCASTS (Existente)
         val simulcastsContainer = doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")
         if (simulcastsContainer != null) {
             val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item: Element ->
@@ -150,6 +153,59 @@ class OtakustvProvider : MainAPI() {
         } else {
             Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Simulcasts.")
         }
+
+        // ***** NUEVAS SECCIONES *****
+
+        // DOBLADAS AL LATINO
+        val latinoContainer = doc.selectFirst("div.latino:has(h3:contains(DOBLADAS AL LATINO))")
+        if (latinoContainer != null) {
+            val latinoAnimes = latinoContainer.select(".carusel_latino .item").mapNotNull { item: Element ->
+                extractAnimeItem(item)
+            }
+            if (latinoAnimes.isNotEmpty()) {
+                items.add(HomePageList("Dobladas al Latino", latinoAnimes))
+                Log.d("OtakustvProvider", "getMainPage - Añadidos ${latinoAnimes.size} Animes Doblados al Latino.")
+            } else {
+                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Doblados al Latino.")
+            }
+        } else {
+            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Dobladas al Latino.")
+        }
+
+        // RECIENTEMENTE AÑADIDO (Revisado el selector para ser más específico)
+        // El HTML proporcionado muestra un div.reciente para "RECIENTEMENTE AÑADIDO" y otro para "ANIMES FINALIZADOS".
+        // Usamos `:not(:has(h3:contains(ANIMES FINALIZADOS)))` para diferenciarlos.
+        val recentlyAddedContainer = doc.selectFirst("div.reciente:has(h3:contains(RECIENTEMENTE AÑADIDO)):not(:has(h3:contains(ANIMES FINALIZADOS)))")
+        if (recentlyAddedContainer != null) {
+            val recentlyAddedAnimes = recentlyAddedContainer.select(".carusel_reciente .item").mapNotNull { item: Element ->
+                extractAnimeItem(item)
+            }
+            if (recentlyAddedAnimes.isNotEmpty()) {
+                items.add(HomePageList("Recientemente Añadido", recentlyAddedAnimes))
+                Log.d("OtakustvProvider", "getMainPage - Añadidos ${recentlyAddedAnimes.size} Animes Recientemente Añadidos.")
+            } else {
+                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Recientemente Añadidos.")
+            }
+        } else {
+            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Recientemente Añadido.")
+        }
+
+        // PROXIMAMENTE
+        val soonContainer = doc.selectFirst("div.pronto:has(h3:contains(PROXIMAMENTE))")
+        if (soonContainer != null) {
+            val soonAnimes = soonContainer.select(".carusel_pronto .item").mapNotNull { item: Element ->
+                extractAnimeItem(item)
+            }
+            if (soonAnimes.isNotEmpty()) {
+                items.add(HomePageList("Próximamente", soonAnimes))
+                Log.d("OtakustvProvider", "getMainPage - Añadidos ${soonAnimes.size} Animes Próximamente.")
+            } else {
+                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Próximamente.")
+            }
+        } else {
+            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Próximamente.")
+        }
+
 
         return HomePageResponse(items)
     }
@@ -282,14 +338,13 @@ class OtakustvProvider : MainAPI() {
             url = finalUrlToFetch,
             type = TvType.Anime,
             episodes = episodes
-            // La propiedad 'status' se asigna dentro del bloque lambda, si es que existe.
-            // Si sigue dando error, esta línea de 'status' deberá eliminarse.
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
             this.plot = description
             this.tags = tags
             this.year = year
+            //this.status = status // Mantengo esta línea. Si compiló la última vez, debería seguir haciéndolo.
         }
     }
 
@@ -361,20 +416,15 @@ class OtakustvProvider : MainAPI() {
 
                     if (!iframeHtml.isNullOrBlank()) {
                         val iframeDoc = Jsoup.parse(iframeHtml)
-                        var iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src") // HACEMOS 'var' para poder modificarlo
+                        var iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src")
 
                         if (!iframeSrc.isNullOrBlank()) {
-                            // ***** MODIFICACIÓN CLAVE PARA GOOGLE DRIVE *****
                             if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
                                 val modifiedSrc = iframeSrc.replace("/preview", "/edit")
                                 Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive de /preview a /edit: $modifiedSrc")
                                 iframeSrc = modifiedSrc
                             }
-                            // *************************************************
 
-                            Log.d("OtakustvProvider", "loadLinks - Iframe src encontrado para ID $encryptedId (potencialmente modificado): $iframeSrc")
-
-                            // Verificar si el enlace es de mega.nz para logging, ya que no son soportados por loadExtractor
                             if (iframeSrc.contains("mega.nz")) {
                                 Log.w("OtakustvProvider", "loadLinks - Enlace de MEGA.NZ encontrado. loadExtractor no soporta directamente MEGA.NZ.")
                             } else if (iframeSrc.contains("drive.google.com")) {
@@ -403,14 +453,12 @@ class OtakustvProvider : MainAPI() {
             val playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
             if (!playerIframeSrc.isNullOrBlank()) {
                 Log.d("OtakustvProvider", "loadLinks - No se encontraron enlaces de servidor a través de API, usando iframe principal: $playerIframeSrc")
-                // ***** MODIFICACIÓN CLAVE PARA GOOGLE DRIVE (FALLBACK) *****
                 var finalPlayerIframeSrc = playerIframeSrc
                 if (finalPlayerIframeSrc.contains("drive.google.com") && finalPlayerIframeSrc.contains("/preview")) {
                     val modifiedSrc = finalPlayerIframeSrc.replace("/preview", "/edit")
                     Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive del iframe principal de /preview a /edit: $modifiedSrc")
                     finalPlayerIframeSrc = modifiedSrc
                 }
-                // *************************************************************
 
                 loadExtractor(fixUrl(finalPlayerIframeSrc), targetUrl, subtitleCallback, callback)
                 linksFound = true
