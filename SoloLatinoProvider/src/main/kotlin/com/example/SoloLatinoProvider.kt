@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -396,40 +396,8 @@ class SoloLatinoProvider : MainAPI() {
                 if (foundXupalaceLinks.isNotEmpty()) {
                     foundXupalaceLinks.apmap { playerUrl ->
                         Log.d("SoloLatino", "Cargando extractor para link de Xupalace (go_to_playerVast): $playerUrl")
-
-                        if (playerUrl.contains("player-cdn.com")) {
-                            Log.d("SoloLatino", "Detectado player-cdn.com. Intentando obtener el HTML de la página de Abyss.to después de la redirección.")
-                            val abyssHtml = safeAppGet(fixUrl(playerUrl))
-                            if (abyssHtml != null) {
-                                val abyssDoc = Jsoup.parse(abyssHtml)
-
-                                val videoLink = abyssDoc.selectFirst("video[src$=.mp4]")?.attr("src")
-                                    ?: abyssDoc.selectFirst("video source[src$=.mp4]")?.attr("src")
-                                    ?: abyssDoc.selectFirst("video source[src$=.m3u8]")?.attr("src")
-                                    ?: abyssDoc.selectFirst("video")?.attr("src")
-
-                                if (!videoLink.isNullOrBlank()) {
-                                    val cleanedVideoLink = videoLink.substringBeforeLast("#mp4", videoLink)
-                                    Log.d("SoloLatino", "Encontrado link de video de Abyss.to en tag <video>: $cleanedVideoLink")
-                                    loadExtractor(cleanedVideoLink, initialIframeSrc, subtitleCallback, callback)
-                                } else {
-                                    val scriptContent = abyssDoc.select("script").map { it.html() }.joinToString("\n")
-                                    val storageRegex = Regex("""(https?://storage\.googleapis\.com/[^"']+\.(mp4|m3u8))""")
-                                    val match = storageRegex.find(scriptContent)
-                                    if (match != null) {
-                                        val finalVideoUrl = match.groupValues[1]
-                                        Log.d("SoloLatino", "Encontrado link de video de Abyss.to en script: $finalVideoUrl")
-                                        loadExtractor(finalVideoUrl, initialIframeSrc, subtitleCallback, callback)
-                                    } else {
-                                        Log.e("SoloLatino", "No se encontró el link de storage.googleapis.com en el HTML o scripts de Abyss.to.")
-                                    }
-                                }
-                            } else {
-                                Log.e("SoloLatino", "No se pudo obtener el HTML de la página de Abyss.to desde $playerUrl.")
-                            }
-                        } else {
-                            loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
-                        }
+                        // Aquí se eliminó la lógica específica de player-cdn.com
+                        loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
                     }
                     return true
                 } else {
