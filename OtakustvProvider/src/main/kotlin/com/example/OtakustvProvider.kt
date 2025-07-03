@@ -65,7 +65,7 @@ class OtakustvProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
-        val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
+        val url = if (page == 1) mainUrl else "$mainUrl/page/$page/" // Asegúrate que la paginación sea correcta.
 
         val html = safeAppGet(url)
         if (html == null) {
@@ -77,10 +77,13 @@ class OtakustvProvider : MainAPI() {
         // --- Función auxiliar para extraer datos comunes de los elementos de anime ---
         fun extractAnimeItem(element: Element): AnimeSearchResponse? {
             val titleElement = element.selectFirst("h2.font-GDSherpa-Bold a")
-            val title = titleElement?.text()?.trim()
+                ?: element.selectFirst("div.img-in a") // Selector alternativo para el enlace principal
+
+            val title = titleElement?.attr("title") ?: titleElement?.text()?.trim()
             val link = titleElement?.attr("href")
 
-            val posterElement = element.selectFirst("img.lazyload")
+            val posterElement = element.selectFirst("img.lazyload") // img con lazyload
+                ?: element.selectFirst("img.img-fluid") // img normal
             val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
 
             if (title != null && link != null) {
@@ -90,13 +93,19 @@ class OtakustvProvider : MainAPI() {
                 ) {
                     this.type = TvType.Anime
                     this.posterUrl = img
+                    // Puedes añadir más campos si los selectores están disponibles aquí
+                    // this.quality = Qualities.newValue si hay un indicador visible
+                    // this.plot = item.selectFirst("p.some-description-class")?.text() si aplica
                 }
             }
             return null
         }
 
-        // --- Extracción de "EPISODIOS ESTRENO" ---
-        val latestEpisodes = doc.select("div.reciente .row .pre").mapNotNull { item ->
+        // --- COMENTADA: Extracción de "EPISODIOS ESTRENO" ---
+        // Según tu solicitud, esta sección no se incluirá en la HomePage.
+        /*
+        val latestEpisodesElements = doc.select("div.reciente .row .pre")
+        val latestEpisodesList = latestEpisodesElements.mapNotNull { item ->
             val anime: AnimeSearchResponse? = extractAnimeItem(item)
             if (anime != null) {
                 val episodeNumberText = item.selectFirst("p.font15 span.bog")?.text()?.trim()
@@ -110,15 +119,22 @@ class OtakustvProvider : MainAPI() {
                 ) {
                     this.type = anime.type
                     this.posterUrl = anime.posterUrl
+                    this.quality = if (item.selectFirst("span.new_movie") != null) Qualities.newValue else null
+                    this.episode = episodeNumber
                 }
             } else null
         }
-        if (latestEpisodes.isNotEmpty()) {
-            items.add(HomePageList("Últimos Episodios", latestEpisodes))
-            Log.d("OtakusTV", "getMainPage - Añadidos ${latestEpisodes.size} Últimos Episodios.")
+        if (latestEpisodesList.isNotEmpty()) {
+            items.add(HomePageList("Últimos Episodios", latestEpisodesList))
+            Log.d("OtakusTV", "getMainPage - Añadidos ${latestEpisodesList.size} Últimos Episodios.")
+        } else {
+            Log.d("OtakusTV", "getMainPage - No se encontraron Últimos Episodios con los selectores actuales.")
         }
+        */
 
         // --- Extracción de "ANIMES FINALIZADOS" ---
+        // Selector para el contenedor padre de "Animes Finalizados".
+        // Si no funciona, verifica que el h3 con "ANIMES FINALIZADOS" y la clase "reciente" sean correctos.
         val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
         if (finishedAnimesContainer != null) {
             val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item ->
@@ -135,6 +151,8 @@ class OtakustvProvider : MainAPI() {
         }
 
         // --- Extracción de "RANKING" ---
+        // Selector para el contenedor padre de "Ranking".
+        // Si no funciona, verifica que el h3 con "RANKING" y la clase "ranking" sean correctos.
         val rankingContainer = doc.selectFirst("div.ranking:has(h3:contains(RANKING))")
         if (rankingContainer != null) {
             val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item ->
@@ -151,6 +169,8 @@ class OtakustvProvider : MainAPI() {
         }
 
         // --- Extracción de "SIMULCASTS" ---
+        // Selector para el contenedor padre de "Simulcasts".
+        // Si no funciona, verifica que el h3 con "SIMULCASTS" y la clase "simulcasts" sean correctos.
         val simulcastsContainer = doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")
         if (simulcastsContainer != null) {
             val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item ->
@@ -180,6 +200,7 @@ class OtakustvProvider : MainAPI() {
         }
         val doc = Jsoup.parse(html)
 
+        // Selector para resultados de búsqueda. Si no funciona, inspecciona la página de búsqueda.
         return doc.select("div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre").mapNotNull {
             val titleElement = it.selectFirst("h2.font-GDSherpa-Bold a")
             val title = titleElement?.text()?.trim()
@@ -209,11 +230,13 @@ class OtakustvProvider : MainAPI() {
         Log.d("OtakusTV", "load - URL de entrada: $url")
 
         var cleanUrl = url
+        // Intenta parsear la URL si viene en formato JSON, útil para episodios
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("OtakusTV", "load - URL limpia por JSON Regex: $cleanUrl")
         } else {
+            // Asegúrate de que la URL comienza con http(s):// y no tiene dobles barras iniciales
             if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                 cleanUrl = "https://" + cleanUrl.removePrefix("//")
                 Log.d("OtakusTV", "load - URL limpiada con HTTPS: $cleanUrl")
@@ -221,36 +244,45 @@ class OtakustvProvider : MainAPI() {
             Log.d("OtakusTV", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
         }
 
-        if (cleanUrl.isBlank()) {
-            Log.e("OtakusTV", "load - ERROR: URL limpia está en blanco.")
+        // Si la URL limpia apunta a un episodio, necesitamos la URL base del anime para cargar la información de la serie
+        val episodeRegex = Regex("""(.+)/episodio-\d+/?$""")
+        val animeBaseUrlMatch = episodeRegex.find(cleanUrl)
+        val finalUrlToFetch = if (animeBaseUrlMatch != null) {
+            val base = animeBaseUrlMatch.groupValues[1]
+            if (!base.endsWith("/")) "$base/" else base // Asegurar que la URL base termine en /
+        } else {
+            if (!cleanUrl.endsWith("/")) "$cleanUrl/" else cleanUrl // Asegurar que la URL base termine en /
+        }
+        Log.d("OtakusTV", "load - URL final para fetch HTML (base del anime): $finalUrlToFetch")
+
+
+        if (finalUrlToFetch.isBlank()) {
+            Log.e("OtakusTV", "load - ERROR: URL base del anime está en blanco después de procesar.")
             return null
         }
 
-        val html = safeAppGet(cleanUrl)
+        val html = safeAppGet(finalUrlToFetch) // ¡Usamos la URL base del anime!
         if (html == null) {
-            Log.e("OtakusTV", "load - No se pudo obtener HTML para la URL principal: $cleanUrl")
+            Log.e("OtakusTV", "load - No se pudo obtener HTML para la URL principal del anime: $finalUrlToFetch")
             return null
         }
         val doc = Jsoup.parse(html)
 
-        // **AJUSTE DE SELECTOR DE TÍTULO**
+        // --- Selectores de Información del Anime (página de detalles) ---
+        // Estos selectores son cruciales. Si no funcionan, deberás inspeccionar
+        // el HTML de una página de anime en OtakusTV para ajustarlos.
         val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
         Log.d("OtakusTV", "load - Título extraído: $title")
 
-        // **AJUSTE DE SELECTOR DE PÓSTER**
         val poster = doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src")
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
             ?: ""
         Log.d("OtakusTV", "load - Póster extraído: $poster")
 
-
-        // Extraer descripción, manejando el enlace "Ver más"
         val descriptionElement = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")
         val description = descriptionElement?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
         Log.d("OtakusTV", "load - Descripción extraída: $description")
 
-        // Los tags (géneros) no se encuentran en el HTML proporcionado con ul.Genre li a.
-        // Si no aparecen, la lista de tags estará vacía.
         val tags = doc.select("ul.Genre li a").map { it.text() }
         if (tags.isEmpty()) {
             Log.w("OtakusTV", "load - No se encontraron tags/géneros con el selector 'ul.Genre li a'.")
@@ -258,16 +290,18 @@ class OtakustvProvider : MainAPI() {
             Log.d("OtakusTV", "load - Tags extraídos: $tags")
         }
 
-        // Extraer fecha de estreno
         val releaseDateText = doc.selectFirst("span.date")?.text()?.replace("Estreno:", "")?.trim()
         val year = releaseDateText?.substringAfterLast("-")?.toIntOrNull()
         Log.d("OtakusTV", "load - Año extraído: $year")
 
 
-        // Extracción de episodios
+        // --- Extracción de Episodios ---
+        // Este selector para los episodios es muy específico.
+        // Si no funciona, inspecciona el HTML de una página de anime para ver el contenedor exacto de cada miniatura de episodio.
         val episodes = doc.select("div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20.text-center").mapNotNull { element ->
             val epUrl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
             val epTitle = element.selectFirst("span.font-GDSherpa-Bold a")?.text()?.trim() ?: ""
+            // Si el plot del episodio no existe o el selector no es correcto, será vacío.
             val epPlot = element.selectFirst("p.font14.mb-0.mt-2.text-left span.bog")?.text()?.trim() ?: ""
             val epPoster = element.selectFirst("img.img-fluid")?.attr("src") ?: ""
 
@@ -275,26 +309,26 @@ class OtakustvProvider : MainAPI() {
 
             if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
                 newEpisode(
-                    EpisodeLoadData(epTitle, epUrl).toJson()
+                    EpisodeLoadData(epTitle, epUrl).toJson() // Serializa a JSON para pasar los datos al loadLinks
                 ) {
                     this.name = epTitle
-                    this.season = null
+                    this.season = null // Si no hay temporadas claras, dejar null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
                 }
             } else null
-        }.reversed()
+        }.reversed() // Los episodios suelen estar listados de más reciente a más antiguo, reversed los pone en orden ascendente.
         Log.d("OtakusTV", "load - Se encontraron ${episodes.size} episodios.")
 
 
         return newTvSeriesLoadResponse(
             name = title,
-            url = cleanUrl,
+            url = finalUrlToFetch, // La URL base del anime
             type = TvType.Anime,
             episodes = episodes,
         ) {
             this.posterUrl = poster
-            this.backgroundPosterUrl = poster
+            this.backgroundPosterUrl = poster // A menudo se usa el mismo póster como fondo si no hay uno específico
             this.plot = description
             this.tags = tags
             this.year = year
@@ -378,39 +412,43 @@ class OtakustvProvider : MainAPI() {
         }
         val doc = Jsoup.parse(initialHtml)
 
+        // Primero, busca el iframe del reproductor principal, que es el método más fiable.
         val playerIframeSrc = doc.selectFirst("div.player-container iframe")?.attr("src")
 
-        if (playerIframeSrc.isNullOrBlank()) {
-            Log.e("OtakusTV", "loadLinks - No se encontró el iframe del reproductor principal en OtakusTV con el selector: div.player-container iframe")
+        if (!playerIframeSrc.isNullOrBlank()) {
+            Log.d("OtakusTV", "loadLinks - Iframe del reproductor principal encontrado: $playerIframeSrc")
+            // Carga el extractor para la URL del iframe.
+            loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
+            return true
+        } else {
+            Log.w("OtakusTV", "loadLinks - No se encontró el iframe del reproductor principal. Intentando métodos alternativos.")
 
+            // Alternativa 1: Buscar en los scripts por enlaces directos a reproductores conocidos.
             val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
 
-            val commonPlayerRegex = """(https?://(?:www\.)?(?:fembed|streamlare|ok.ru|yourupload|mp4upload|doodstream|filelions)\.com[^"'\s)]+)""".toRegex()
+            // Añade más dominios de extractores comunes si los conoces.
+            val commonPlayerRegex = """(https?://(?:www\.)?(?:fembed|streamlare|ok\.ru|yourupload|mp4upload|doodstream|filelions|mixdrop|streamsb|sblongvu|streamtape|gogocdn)\.com[^"'\s)]+)""".toRegex()
             val directMatches = commonPlayerRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
             if (directMatches.isNotEmpty()) {
-                Log.d("OtakusTV", "Encontrados enlaces directos a reproductores comunes en scripts.")
+                Log.d("OtakusTV", "loadLinks - Encontrados enlaces directos a reproductores comunes en scripts: ${directMatches.size}")
                 directMatches.apmap { playerUrl ->
-                    Log.d("OtakusTV", "Cargando extractor para: $playerUrl")
+                    Log.d("OtakusTV", "loadLinks - Cargando extractor para: $playerUrl")
                     loadExtractor(fixUrl(playerUrl), targetUrl, subtitleCallback, callback)
                 }
                 return true
             }
 
+            // Alternativa 2: Buscar URLs en atributos data-src o data-url.
             val dataSrcPlayer = doc.selectFirst("div[data-src]")?.attr("data-src") ?: doc.selectFirst("div[data-url]")?.attr("data-url")
             if (!dataSrcPlayer.isNullOrBlank()) {
-                Log.d("OtakusTV", "Encontrado enlace de reproductor en atributo data-src/data-url: $dataSrcPlayer")
+                Log.d("OtakusTV", "loadLinks - Encontrado enlace de reproductor en atributo data-src/data-url: $dataSrcPlayer")
                 loadExtractor(fixUrl(dataSrcPlayer), targetUrl, subtitleCallback, callback)
                 return true
             }
 
-            Log.w("OtakusTV", "loadLinks - No se encontró ningún reproductor de video en el HTML o scripts.")
+            Log.w("OtakusTV", "loadLinks - No se encontró ningún reproductor de video válido en el HTML o scripts.")
             return false
         }
-
-        Log.d("OtakusTV", "loadLinks - Iframe del reproductor encontrado: $playerIframeSrc")
-        loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
-
-        return true
     }
 }
