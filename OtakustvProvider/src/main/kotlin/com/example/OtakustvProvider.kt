@@ -260,11 +260,18 @@ class OtakustvProvider : MainAPI() {
         val status = parseStatus(statusText ?: "")
         Log.d("OtakustvProvider", "load - Estado extraído: $status")
 
-        val episodes = doc.select("ul.episodes-list li").mapNotNull { element ->
-            val epUrl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-            val epTitle = element.selectFirst("h2")?.text()?.trim() ?: ""
-            val epPoster = element.selectFirst("img")?.attr("src") ?: ""
-            val episodeNumber = element.selectFirst("a")?.attr("href")?.split("-")?.lastOrNull()?.toIntOrNull()
+        val episodes = doc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
+            val epLinkElement = element.selectFirst("a.item-temp") // Selecciona el enlace principal del episodio
+            val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
+
+            val epTitleElement = element.selectFirst("span.font-GDSherpa-Bold a")
+            val epTitle = epTitleElement?.text()?.trim() ?: ""
+
+            // El póster es la primera imagen dentro del enlace principal
+            val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
+
+            // El número de episodio se puede obtener de la URL
+            val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
 
             if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
                 newEpisode(
@@ -279,7 +286,9 @@ class OtakustvProvider : MainAPI() {
         }.reversed()
         Log.d("OtakustvProvider", "load - Se encontraron ${episodes.size} episodios.")
 
-        val recommendations = doc.select(".base-carusel .item").mapNotNull { item: Element -> // Especifica tipo si el error persiste
+        // SECCIÓN COMENTADA PARA ELIMINAR LAS RECOMENDACIONES
+        /*
+        val recommendations = doc.select(".base-carusel .item").mapNotNull { item: Element ->
             extractAnimeItem(item)
         }
         if (recommendations.isEmpty()) {
@@ -287,6 +296,7 @@ class OtakustvProvider : MainAPI() {
         } else {
             Log.d("OtakustvProvider", "load - Se encontraron ${recommendations.size} recomendaciones.")
         }
+        */
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -300,7 +310,7 @@ class OtakustvProvider : MainAPI() {
             this.tags = tags
             this.year = year
             //this.status = status // ¡Vuelve a poner 'this.'!
-            this.recommendations = recommendations
+            // this.recommendations = recommendations // ELIMINADO: Se elimina esta línea para no asignar recomendaciones
             //this.dubStatus = DubStatus.Subbed // ¡Vuelve a poner 'this.'!
         }
     }
