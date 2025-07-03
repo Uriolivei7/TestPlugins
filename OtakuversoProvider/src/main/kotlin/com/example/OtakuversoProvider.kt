@@ -28,9 +28,9 @@ import com.lagradost.cloudstream3.utils.loadExtractor // Importación correcta p
 // no necesitas una importación específica si ya tienes `com.lagradost.cloudstream3.*`.
 // La conversión a `toList()` antes de `amap` es la clave.
 
-class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
-    override var mainUrl = "https://otakuverso.net" // <-- CAMBIO AQUÍ: Nueva URL base
-    override var name = "Otakuverso" // <-- CAMBIO AQUÍ: Nuevo nombre del proveedor
+class OtakuversoProvider : MainAPI() {
+    override var mainUrl = "https://otakuverso.net"
+    override var name = "Otakuverso"
     override val supportedTypes = setOf(
         TvType.Anime,
     )
@@ -106,7 +106,7 @@ class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
         }
         val doc = Jsoup.parse(html)
 
-        // ANIME FINALIZADOS (Existente)
+        // ANIMES FINALIZADOS
         val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
         if (finishedAnimesContainer != null) {
             val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
@@ -122,7 +122,7 @@ class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
             Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Animes Finalizados.")
         }
 
-        // RANKING (Existente)
+        // RANKING
         val rankingContainer = doc.selectFirst("div.ranking:has(h3:contains(RANKING))")
         if (rankingContainer != null) {
             val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
@@ -138,8 +138,7 @@ class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
             Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Ranking.")
         }
 
-        // SIMULCASTS (Existente - Si Otakuverso tiene esta sección con este selector, la mantendría)
-        // Aunque no la proporcionaste en el HTML de Otakuverso, la dejo por si acaso la usan.
+        // SIMULCASTS
         val simulcastsContainer = doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")
         if (simulcastsContainer != null) {
             val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item: Element ->
@@ -155,25 +154,11 @@ class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
             Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Simulcasts.")
         }
 
-        // DOBLADAS AL LATINO (Si Otakuverso tiene esta sección con este selector, la mantendría)
-        // No la proporcionaste en el HTML de Otakuverso, pero la dejo por si acaso la usan.
-        val latinoContainer = doc.selectFirst("div.latino:has(h3:contains(DOBLADAS AL LATINO))")
-        if (latinoContainer != null) {
-            val latinoAnimes = latinoContainer.select(".carusel_latino .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (latinoAnimes.isNotEmpty()) {
-                items.add(HomePageList("Dobladas al Latino", latinoAnimes))
-                Log.d("OtakuversoProvider", "getMainPage - Añadidos ${latinoAnimes.size} Animes Doblados al Latino.")
-            } else {
-                Log.d("OtakuversoProvider", "getMainPage - No se encontraron Animes Doblados al Latino.")
-            }
-        } else {
-            Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Dobladas al Latino.")
-        }
+        // DOBLADAS AL LATINO -- SE ELIMINA YA QUE LA WEB ES EN SU MAYORÍA LATINO
+        // La sección 'Dobladas al Latino' ya no se busca como una categoría separada.
+        // Se asume que todo el contenido es latino.
 
-        // RECIENTEMENTE AÑADIDO (Si Otakuverso tiene esta sección con este selector, la mantendría)
-        // No la proporcionaste en el HTML de Otakuverso, pero la dejo por si acaso la usan.
+        // RECIENTEMENTE AÑADIDO
         val recentlyAddedContainer = doc.selectFirst("div.reciente:has(h3:contains(RECIENTEMENTE AÑADIDO)):not(:has(h3:contains(ANIMES FINALIZADOS)))")
         if (recentlyAddedContainer != null) {
             val recentlyAddedAnimes = recentlyAddedContainer.select(".carusel_reciente .item").mapNotNull { item: Element ->
@@ -189,8 +174,7 @@ class OtakuversoProvider : MainAPI() { // <-- CAMBIO AQUÍ: Nombre de la clase
             Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Recientemente Añadido.")
         }
 
-        // PROXIMAMENTE (Si Otakuverso tiene esta sección con este selector, la mantendría)
-        // No la proporcionaste en el HTML de Otakuverso, pero la dejo por si acaso la usan.
+        // PROXIMAMENTE
         val soonContainer = doc.selectFirst("div.pronto:has(h3:contains(PROXIMAMENTE))")
         if (soonContainer != null) {
             val soonAnimes = soonContainer.select(".carusel_pronto .item").mapNotNull { item: Element ->
