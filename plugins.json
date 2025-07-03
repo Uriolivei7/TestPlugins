@@ -264,5 +264,23 @@
     "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
     "language": "es",
     "fileSize": 16000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakustvProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 15,
+    "name": "OtakusTV",
+    "internalName": "OtakustvProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para www1.otakustv.com",
+    "tvTypes": [
+      "Anime"
+    ],
+    "iconUrl": "https://www1.otakustv.com/favicon.png",
+    "language": "es",
+    "fileSize": 20000
   }
 ]
