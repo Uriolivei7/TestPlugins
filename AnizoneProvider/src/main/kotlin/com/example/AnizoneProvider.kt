@@ -54,10 +54,13 @@ class AnizoneProvider : MainAPI() {
     override val hasQuickSearch = true
     override val hasDownloadSupport = true
 
+    // Mantén esto si quieres otras secciones, pero la principal será manejada por una nueva entrada.
+    // Si quieres que solo muestre "Últimos Animes", puedes simplificar esto.
     override val mainPage = mainPageOf(
-        "2" to "Últimas Series TV",
-        "4" to "Últimas Películas",
-        "6" to "Últimas Web"
+        "latest_anime" to "Últimos Animes", // Nueva entrada para la página principal
+        "2" to "Series TV Populares", // Ejemplo de renombre o reordenamiento
+        "4" to "Películas Populares",
+        "6" to "Web Populares"
     )
 
     private var initialCookies = mutableMapOf<String, String>()
@@ -78,6 +81,7 @@ class AnizoneProvider : MainAPI() {
 
             Log.d(name, "initializeLivewireGlobal: Intentando inicializar Livewire globalmente...")
             try {
+                // Asegúrate de que la URL de inicialización sea la base /anime si es donde están los últimos animes
                 val initReq = app.get("$mainUrl/anime")
                 this.initialCookies = initReq.cookies.toMutableMap()
                 val doc = initReq.document
@@ -212,44 +216,91 @@ class AnizoneProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         try {
-            val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
-            Log.d(name, "getMainPage: Iniciando con estado Livewire fresco para ${request.name}.")
+            // Manejo especial para la nueva entrada "Últimos Animes"
+            if (request.data == "latest_anime") {
+                Log.d(name, "getMainPage: Cargando la página principal de Últimos Animes.")
+                val urlToFetch = "$mainUrl/anime"
+                val initialReq = app.get(urlToFetch)
+                val doc = initialReq.document
+                val localCookies = initialReq.cookies.toMutableMap()
+                val localWireData = mutableMapOf(
+                    "wireSnapshot" to getSnapshot(doc),
+                    "token" to doc.select("script[data-csrf]").attr("data-csrf")
+                )
 
-            var initialLivewireResponse = liveWireBuilder(
-                mutableMapOf("type" to request.data),
-                mutableListOf(),
-                localCookies,
-                localWireData,
-                true
-            )
-            var doc = getHtmlFromWire(initialLivewireResponse)
-            var home: List<Element> = doc.select("div[wire:key]")
+                var home: List<Element> = doc.select("div[wire:key]")
+                var hasNextPage = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
 
-            if (page > 1) {
-                Log.w(name, "getMainPage: Paginación para página principal, intentando cargar más páginas. Página solicitada: $page")
-                for (i in 1 until page) {
-                    val loadMoreResponse = liveWireBuilder(
-                        mutableMapOf(),
-                        mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
-                        localCookies,
-                        localWireData,
-                        true
-                    )
-                    val newDoc = getHtmlFromWire(loadMoreResponse)
-                    val newElements = newDoc.select("div[wire:key]")
-                    if (newElements.isEmpty()) {
-                        Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
-                        break
+                // Cargar más páginas si es necesario para "Últimos Animes"
+                if (page > 1) {
+                    Log.w(name, "getMainPage (latest_anime): Paginación, intentando cargar más páginas. Página solicitada: $page")
+                    for (i in 1 until page) {
+                        val loadMoreResponse = liveWireBuilder(
+                            mutableMapOf(),
+                            mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
+                            localCookies,
+                            localWireData,
+                            true
+                        )
+                        val newDoc = getHtmlFromWire(loadMoreResponse)
+                        val newElements = newDoc.select("div[wire:key]")
+                        if (newElements.isEmpty()) {
+                            Log.w(name, "getMainPage (latest_anime): No se encontraron más elementos al cargar la página ${i + 1}.")
+                            hasNextPage = false // No hay más páginas
+                            break
+                        }
+                        home = newElements // Reemplaza con los elementos de la nueva página, o añade si la lógica lo permite.
+                        // Para una visualización coherente, Cloudstream normalmente carga una página a la vez.
+                        hasNextPage = (newDoc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
                     }
-                    home = newElements
                 }
-            }
 
-            Log.d(name, "getMainPage: Se encontraron ${home.size} resultados para ${request.name}.")
-            return newHomePageResponse(
-                HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
-                hasNext = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
-            )
+                Log.d(name, "getMainPage (latest_anime): Se encontraron ${home.size} resultados para Últimos Animes.")
+                return newHomePageResponse(
+                    HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
+                    hasNext = hasNextPage
+                )
+            } else {
+                // Lógica existente para otras categorías (Series TV, Películas, Web)
+                val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
+                Log.d(name, "getMainPage: Iniciando con estado Livewire fresco para ${request.name}.")
+
+                var initialLivewireResponse = liveWireBuilder(
+                    mutableMapOf("type" to request.data),
+                    mutableListOf(),
+                    localCookies,
+                    localWireData,
+                    true
+                )
+                var doc = getHtmlFromWire(initialLivewireResponse)
+                var home: List<Element> = doc.select("div[wire:key]")
+
+                if (page > 1) {
+                    Log.w(name, "getMainPage: Paginación para página principal, intentando cargar más páginas. Página solicitada: $page")
+                    for (i in 1 until page) {
+                        val loadMoreResponse = liveWireBuilder(
+                            mutableMapOf(),
+                            mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
+                            localCookies,
+                            localWireData,
+                            true
+                        )
+                        val newDoc = getHtmlFromWire(loadMoreResponse)
+                        val newElements = newDoc.select("div[wire:key]")
+                        if (newElements.isEmpty()) {
+                            Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
+                            break
+                        }
+                        home = newElements
+                    }
+                }
+
+                Log.d(name, "getMainPage: Se encontraron ${home.size} resultados para ${request.name}.")
+                return newHomePageResponse(
+                    HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
+                    hasNext = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
+                )
+            }
         } catch (e: Exception) {
             Log.e(name, "getMainPage: Error al cargar la página principal: ${e.message}", e)
             throw e
@@ -387,8 +438,7 @@ class AnizoneProvider : MainAPI() {
                             Log.w(name, "load: NO se encontró texto de fecha válido para el episodio. HTML del elemento padre: ${elt.html().take(500)}")
                             this.date = null
                         } else {
-                            // Ahora 'rawDate' se define aquí para que esté en el ámbito correcto
-                            val rawDate = dateText // Asignar dateText a rawDate
+                            val rawDate = dateText
                             Log.d(name, "load: Raw date text found for episode: '$rawDate'")
                             var parsedTime: Long? = null
                             val dateFormats = listOf(
