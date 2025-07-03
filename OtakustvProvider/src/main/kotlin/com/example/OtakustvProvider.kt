@@ -3,7 +3,7 @@ package com.example
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
-import com.lagradost.cloudstream3.utils.* // MANTEN ESTA IMPORTACIÓN para ExtractorLink y otros utils
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -23,17 +23,10 @@ import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.utils.loadExtractor // Importación correcta para la función de nivel superior
 
 // ***** IMPORTACIÓN PARA amap (para List y Set si aplica) *****
-// Dado que 'amap' es una función de extensión para List, si tu IDE no la autocorrige,
-// y está en el mismo paquete que MainAPI, no necesitas una importación específica.
-// Si aún te da error, intenta con:
-// import com.lagradost.cloudstream3.amap
-// o
-// import com.lagradost.cloudstream3.extractors.amap // si fuera el caso
-// Para este caso, dado que el stub que me pasaste de 'amap' está directamente en
-// `package com.lagradost.cloudstream3`, la importación ya debería estar cubierta
-// por `com.lagradost.cloudstream3.*` si es de nivel superior.
-// Si el error persiste, la solución es convertir a List ANTES de llamar a amap.
-// La versión de `List<A>.amap` es la que vamos a usar.
+// Dada la versión de amap que usas, es una función de extensión para List.
+// Si tu IDE no la autocorrige, y está en el mismo paquete que MainAPI,
+// no necesitas una importación específica si ya tienes `com.lagradost.cloudstream3.*`.
+// La conversión a `toList()` antes de `amap` es la clave.
 
 class OtakustvProvider : MainAPI() {
     override var mainUrl = "https://www1.otakustv.com"
@@ -288,17 +281,15 @@ class OtakustvProvider : MainAPI() {
             name = title,
             url = finalUrlToFetch,
             type = TvType.Anime,
-            episodes = episodes,
+            episodes = episodes
+            // La propiedad 'status' se asigna dentro del bloque lambda, si es que existe.
+            // Si sigue dando error, esta línea de 'status' deberá eliminarse.
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
             this.plot = description
             this.tags = tags
             this.year = year
-            // Eliminado 'this.status = status' si te da error en tu versión
-            // Si el constructor requiere 'status' como un parámetro directo,
-            // lo pondrías así: newTvSeriesLoadResponse(name, url, type, episodes, status=status)
-            // pero el error anterior sugería que la lambda no lo aceptaba.
         }
     }
 
@@ -344,14 +335,12 @@ class OtakustvProvider : MainAPI() {
         }
 
         var linksFound = false
-        // **** CORRECCIÓN: Convertir Set a List antes de llamar a amap ****
-        encryptedValues.toList().amap { encryptedId: String -> // Ahora 'amap' se llama sobre una List
+        encryptedValues.toList().amap { encryptedId: String ->
             Log.d("OtakustvProvider", "loadLinks - Pidiendo HTML del reproductor para ID cifrado: $encryptedId")
 
             val requestUrl = "$mainUrl/play-video?id=$encryptedId"
 
             val responseJsonString = try {
-                // 'app.get' está bien aquí, ya está dentro de un suspend y 'amap' lo permite.
                 app.get(
                     requestUrl,
                     headers = mapOf(
@@ -372,13 +361,30 @@ class OtakustvProvider : MainAPI() {
 
                     if (!iframeHtml.isNullOrBlank()) {
                         val iframeDoc = Jsoup.parse(iframeHtml)
-                        val iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src")
+                        var iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src") // HACEMOS 'var' para poder modificarlo
 
                         if (!iframeSrc.isNullOrBlank()) {
-                            Log.d("OtakustvProvider", "loadLinks - Iframe src encontrado para ID $encryptedId: $iframeSrc")
-                            linksFound = true
-                            // loadExtractor sigue con la misma firma, debería funcionar si la importación es correcta.
+                            // ***** MODIFICACIÓN CLAVE PARA GOOGLE DRIVE *****
+                            if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
+                                val modifiedSrc = iframeSrc.replace("/preview", "/edit")
+                                Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive de /preview a /edit: $modifiedSrc")
+                                iframeSrc = modifiedSrc
+                            }
+                            // *************************************************
+
+                            Log.d("OtakustvProvider", "loadLinks - Iframe src encontrado para ID $encryptedId (potencialmente modificado): $iframeSrc")
+
+                            // Verificar si el enlace es de mega.nz para logging, ya que no son soportados por loadExtractor
+                            if (iframeSrc.contains("mega.nz")) {
+                                Log.w("OtakustvProvider", "loadLinks - Enlace de MEGA.NZ encontrado. loadExtractor no soporta directamente MEGA.NZ.")
+                            } else if (iframeSrc.contains("drive.google.com")) {
+                                Log.d("OtakustvProvider", "loadLinks - Enlace de GOOGLE DRIVE encontrado. Pasando a loadExtractor.")
+                            } else {
+                                Log.d("OtakustvProvider", "loadLinks - Enlace de EXTRACTOR REGULAR: $iframeSrc")
+                            }
+
                             loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
+                            linksFound = true
                         } else {
                             Log.w("OtakustvProvider", "loadLinks - No se encontró 'src' en el iframe de la respuesta para ID: $encryptedId")
                         }
@@ -397,7 +403,16 @@ class OtakustvProvider : MainAPI() {
             val playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
             if (!playerIframeSrc.isNullOrBlank()) {
                 Log.d("OtakustvProvider", "loadLinks - No se encontraron enlaces de servidor a través de API, usando iframe principal: $playerIframeSrc")
-                loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
+                // ***** MODIFICACIÓN CLAVE PARA GOOGLE DRIVE (FALLBACK) *****
+                var finalPlayerIframeSrc = playerIframeSrc
+                if (finalPlayerIframeSrc.contains("drive.google.com") && finalPlayerIframeSrc.contains("/preview")) {
+                    val modifiedSrc = finalPlayerIframeSrc.replace("/preview", "/edit")
+                    Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive del iframe principal de /preview a /edit: $modifiedSrc")
+                    finalPlayerIframeSrc = modifiedSrc
+                }
+                // *************************************************************
+
+                loadExtractor(fixUrl(finalPlayerIframeSrc), targetUrl, subtitleCallback, callback)
                 linksFound = true
             } else {
                 Log.w("OtakustvProvider", "loadLinks - No se encontró ningún reproductor de video válido en el HTML inicial o scripts como fallback.")
