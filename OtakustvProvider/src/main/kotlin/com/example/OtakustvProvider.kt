@@ -4,16 +4,11 @@ import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.* // MANTEN ESTA IMPORTACIÓN para ExtractorLink y otros utils
-import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Element // Importación necesaria para Element
-import android.util.Base64
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
+import org.jsoup.nodes.Element
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
@@ -21,20 +16,28 @@ import kotlinx.coroutines.delay
 // Importaciones ESENCIALES y correctas:
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
-import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 
-// ***** CAMBIO CLAVE PARA loadExtractor *****
-//import com.lagradost.cloudstream3.extractors.loadExtractor // ¡RE-AÑADE ESTA IMPORTACIÓN!
-// ******************************************
+// ***** CORRECCIÓN CLAVE PARA loadExtractor *****
+import com.lagradost.cloudstream3.utils.loadExtractor // Importación correcta para la función de nivel superior
 
-// Asegúrate de que NO tengas esta línea si la de arriba es la que funciona:
-// import com.lagradost.cloudstream3.utils.ExtractorApi
+// ***** IMPORTACIÓN PARA amap (para List y Set si aplica) *****
+// Dado que 'amap' es una función de extensión para List, si tu IDE no la autocorrige,
+// y está en el mismo paquete que MainAPI, no necesitas una importación específica.
+// Si aún te da error, intenta con:
+// import com.lagradost.cloudstream3.amap
+// o
+// import com.lagradost.cloudstream3.extractors.amap // si fuera el caso
+// Para este caso, dado que el stub que me pasaste de 'amap' está directamente en
+// `package com.lagradost.cloudstream3`, la importación ya debería estar cubierta
+// por `com.lagradost.cloudstream3.*` si es de nivel superior.
+// Si el error persiste, la solución es convertir a List ANTES de llamar a amap.
+// La versión de `List<A>.amap` es la que vamos a usar.
 
 class OtakustvProvider : MainAPI() {
     override var mainUrl = "https://www1.otakustv.com"
-    override var name = "OtakusTV"
+    override var name = "Otakustv"
     override val supportedTypes = setOf(
         TvType.Anime,
     )
@@ -44,8 +47,6 @@ class OtakustvProvider : MainAPI() {
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
-
-    val userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36"
 
     private val cfKiller = CloudflareKiller()
 
@@ -100,7 +101,6 @@ class OtakustvProvider : MainAPI() {
         return null
     }
 
-    // ***** CAMBIO CLAVE PARA getMainPage: ELIMINA el '?' de 'request' *****
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
@@ -115,7 +115,7 @@ class OtakustvProvider : MainAPI() {
 
         val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
         if (finishedAnimesContainer != null) {
-            val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item: Element -> // Especifica tipo si el error persiste
+            val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
                 extractAnimeItem(item)
             }
             if (finishedAnimes.isNotEmpty()) {
@@ -130,7 +130,7 @@ class OtakustvProvider : MainAPI() {
 
         val rankingContainer = doc.selectFirst("div.ranking:has(h3:contains(RANKING))")
         if (rankingContainer != null) {
-            val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item: Element -> // Especifica tipo si el error persiste
+            val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
                 extractAnimeItem(item)
             }
             if (rankingAnimes.isNotEmpty()) {
@@ -145,7 +145,7 @@ class OtakustvProvider : MainAPI() {
 
         val simulcastsContainer = doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")
         if (simulcastsContainer != null) {
-            val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item: Element -> // Especifica tipo si el error persiste
+            val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item: Element ->
                 extractAnimeItem(item)
             }
             if (simulcastAnimes.isNotEmpty()) {
@@ -199,7 +199,7 @@ class OtakustvProvider : MainAPI() {
         Log.d("OtakustvProvider", "load - URL de entrada: $url")
 
         var cleanUrl = url
-        val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
+        val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"(?:,"title":"[^"]+")?\}""").find(url)
         if (urlJsonMatch != null) {
             cleanUrl = urlJsonMatch.groupValues[1]
             Log.d("OtakustvProvider", "load - URL limpia por JSON Regex: $cleanUrl")
@@ -261,16 +261,14 @@ class OtakustvProvider : MainAPI() {
         Log.d("OtakustvProvider", "load - Estado extraído: $status")
 
         val episodes = doc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
-            val epLinkElement = element.selectFirst("a.item-temp") // Selecciona el enlace principal del episodio
+            val epLinkElement = element.selectFirst("a.item-temp")
             val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
 
             val epTitleElement = element.selectFirst("span.font-GDSherpa-Bold a")
             val epTitle = epTitleElement?.text()?.trim() ?: ""
 
-            // El póster es la primera imagen dentro del enlace principal
             val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
 
-            // El número de episodio se puede obtener de la URL
             val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
 
             if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
@@ -286,18 +284,6 @@ class OtakustvProvider : MainAPI() {
         }.reversed()
         Log.d("OtakustvProvider", "load - Se encontraron ${episodes.size} episodios.")
 
-        // SECCIÓN COMENTADA PARA ELIMINAR LAS RECOMENDACIONES
-        /*
-        val recommendations = doc.select(".base-carusel .item").mapNotNull { item: Element ->
-            extractAnimeItem(item)
-        }
-        if (recommendations.isEmpty()) {
-            Log.w("OtakustvProvider", "load - No se encontraron recomendaciones con el selector '.base-carusel .item'.")
-        } else {
-            Log.d("OtakustvProvider", "load - Se encontraron ${recommendations.size} recomendaciones.")
-        }
-        */
-
         return newTvSeriesLoadResponse(
             name = title,
             url = finalUrlToFetch,
@@ -309,44 +295,10 @@ class OtakustvProvider : MainAPI() {
             this.plot = description
             this.tags = tags
             this.year = year
-            //this.status = status // ¡Vuelve a poner 'this.'!
-            // this.recommendations = recommendations // ELIMINADO: Se elimina esta línea para no asignar recomendaciones
-            //this.dubStatus = DubStatus.Subbed // ¡Vuelve a poner 'this.'!
-        }
-    }
-
-    data class SortedEmbed(
-        val servername: String,
-        val link: String,
-        val type: String
-    )
-
-    data class DataLinkEntry(
-        val file_id: String,
-        val video_language: String,
-        val sortedEmbeds: List<SortedEmbed>
-    )
-
-    private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
-        try {
-            val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
-
-            val ivBytes = encryptedBytes.copyOfRange(0, 16)
-            val ivSpec = IvParameterSpec(ivBytes)
-
-            val cipherTextBytes = encryptedBytes.copyOfRange(16, encryptedBytes.size)
-
-            val keySpec = SecretKeySpec(secretKey.toByteArray(UTF_8), "AES")
-
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
-
-            val decryptedBytes = cipher.doFinal(cipherTextBytes)
-
-            return String(decryptedBytes, UTF_8)
-        } catch (e: Exception) {
-            Log.e("OtakustvProvider", "Error al descifrar link: ${e.message}", e)
-            return null
+            // Eliminado 'this.status = status' si te da error en tu versión
+            // Si el constructor requiere 'status' como un parámetro directo,
+            // lo pondrías así: newTvSeriesLoadResponse(name, url, type, episodes, status=status)
+            // pero el error anterior sugería que la lambda no lo aceptaba.
         }
     }
 
@@ -358,26 +310,8 @@ class OtakustvProvider : MainAPI() {
     ): Boolean {
         Log.d("OtakustvProvider", "loadLinks - Data de entrada: $data")
 
-        var cleanedData = data
-        val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
-        val match = regexExtractUrl.find(data)
-
-        if (match != null) {
-            cleanedData = match.groupValues[1]
-            Log.d("OtakustvProvider", "loadLinks - Data limpia por Regex (primer intento): $cleanedData")
-        } else {
-            Log.d("OtakustvProvider", "loadLinks - Regex inicial no encontró coincidencia. Usando data original: $cleanedData")
-        }
-
-        val targetUrl: String
-        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
-        if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url
-            Log.d("OtakustvProvider", "loadLinks - URL final de episodio (de JSON): $targetUrl")
-        } else {
-            targetUrl = fixUrl(cleanedData)
-            Log.d("OtakustvProvider", "loadLinks - URL final (directa o ya limpia y fixUrl-ed): $targetUrl")
-        }
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
 
         if (targetUrl.isBlank()) {
             Log.e("OtakustvProvider", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
@@ -391,43 +325,86 @@ class OtakustvProvider : MainAPI() {
         }
         val doc = Jsoup.parse(initialHtml)
 
-        val playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
+        val encryptedValues = mutableSetOf<String>()
 
-        if (!playerIframeSrc.isNullOrBlank()) {
-            Log.d("OtakustvProvider", "loadLinks - Iframe del reproductor principal encontrado: $playerIframeSrc")
-
-            // Llamada directa a loadExtractor
-            loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
-            return true
-        } else {
-            Log.w("OtakustvProvider", "loadLinks - No se encontró el iframe del reproductor principal. Intentando métodos alternativos.")
-
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
-
-            val commonPlayerRegex = """(https?://(?:www\.)?(?:fembed|streamlare|ok\.ru|yourupload|mp4upload|doodstream|filelions|mixdrop|streamsb|sblongvu|streamtape|gogocdn|filemoon\.to)\.com[^"'\s)]+)""".toRegex()
-            val directMatches = commonPlayerRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
-
-            if (directMatches.isNotEmpty()) {
-                Log.d("OtakustvProvider", "loadLinks - Encontrados enlaces directos a reproductores comunes en scripts: ${directMatches.size}")
-                directMatches.apmap { playerUrl: String -> // Especifica tipo si el error persiste
-                    Log.d("OtakustvProvider", "loadLinks - Cargando extractor para: $playerUrl")
-                    // Llamada directa a loadExtractor
-                    loadExtractor(fixUrl(playerUrl), targetUrl, subtitleCallback, callback)
-                }
-                return true
+        doc.select("select#ssel option").forEach { option ->
+            val value = option.attr("value")
+            if (value.isNotBlank()) {
+                encryptedValues.add(value)
+                Log.d("OtakustvProvider", "loadLinks - Añadido valor de select: $value")
             }
-
-            val dataSrcPlayer = doc.selectFirst("div[data-src]")?.attr("data-src") ?: doc.selectFirst("div[data-url]")?.attr("data-url")
-            if (!dataSrcPlayer.isNullOrBlank()) {
-                Log.d("OtakustvProvider", "loadLinks - Encontrado enlace de reproductor en atributo data-src/data-url: $dataSrcPlayer")
-                // Llamada directa a loadExtractor
-                loadExtractor(fixUrl(dataSrcPlayer), targetUrl, subtitleCallback, callback)
-                return true
-            }
-
-            Log.w("OtakustvProvider", "loadLinks - No se encontró ningún reproductor de video válido en el HTML o scripts.")
-            return false
         }
+
+        doc.select("nav.menu_server ul li a").forEach { link ->
+            val rel = link.attr("rel")
+            if (rel.isNotBlank()) {
+                encryptedValues.add(rel)
+                Log.d("OtakustvProvider", "loadLinks - Añadido valor de nav rel: $rel")
+            }
+        }
+
+        var linksFound = false
+        // **** CORRECCIÓN: Convertir Set a List antes de llamar a amap ****
+        encryptedValues.toList().amap { encryptedId: String -> // Ahora 'amap' se llama sobre una List
+            Log.d("OtakustvProvider", "loadLinks - Pidiendo HTML del reproductor para ID cifrado: $encryptedId")
+
+            val requestUrl = "$mainUrl/play-video?id=$encryptedId"
+
+            val responseJsonString = try {
+                // 'app.get' está bien aquí, ya está dentro de un suspend y 'amap' lo permite.
+                app.get(
+                    requestUrl,
+                    headers = mapOf(
+                        "Referer" to targetUrl,
+                        "X-Requested-With" to "XMLHttpRequest"
+                    ),
+                    interceptor = cfKiller
+                ).text
+            } catch (e: Exception) {
+                Log.e("OtakustvProvider", "loadLinks - Error al hacer petición AJAX para $encryptedId: ${e.message}", e)
+                null
+            }
+
+            if (!responseJsonString.isNullOrBlank()) {
+                try {
+                    val jsonResponse = tryParseJson<Map<String, String>>(responseJsonString)
+                    val iframeHtml = jsonResponse?.get("html")
+
+                    if (!iframeHtml.isNullOrBlank()) {
+                        val iframeDoc = Jsoup.parse(iframeHtml)
+                        val iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src")
+
+                        if (!iframeSrc.isNullOrBlank()) {
+                            Log.d("OtakustvProvider", "loadLinks - Iframe src encontrado para ID $encryptedId: $iframeSrc")
+                            linksFound = true
+                            // loadExtractor sigue con la misma firma, debería funcionar si la importación es correcta.
+                            loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
+                        } else {
+                            Log.w("OtakustvProvider", "loadLinks - No se encontró 'src' en el iframe de la respuesta para ID: $encryptedId")
+                        }
+                    } else {
+                        Log.w("OtakustvProvider", "loadLinks - HTML de iframe vacío o no válido en la respuesta para ID: $encryptedId")
+                    }
+                } catch (e: Exception) {
+                    Log.e("OtakustvProvider", "loadLinks - Error al parsear JSON o HTML de la respuesta para ID $encryptedId: ${e.message}", e)
+                }
+            } else {
+                Log.w("OtakustvProvider", "loadLinks - Respuesta nula o vacía de la petición AJAX para ID: $encryptedId")
+            }
+        }
+
+        if (!linksFound) {
+            val playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
+            if (!playerIframeSrc.isNullOrBlank()) {
+                Log.d("OtakustvProvider", "loadLinks - No se encontraron enlaces de servidor a través de API, usando iframe principal: $playerIframeSrc")
+                loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
+                linksFound = true
+            } else {
+                Log.w("OtakustvProvider", "loadLinks - No se encontró ningún reproductor de video válido en el HTML inicial o scripts como fallback.")
+            }
+        }
+
+        return linksFound
     }
 
     private fun parseStatus(statusString: String): ShowStatus {
