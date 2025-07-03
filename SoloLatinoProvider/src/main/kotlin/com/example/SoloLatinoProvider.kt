@@ -2,7 +2,7 @@ package com.example // Asegúrate de que este paquete coincida EXACTAMENTE con l
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
-import com.lagradost.cloudstream3.network.CloudflareKiller // Ya importado, buen trabajo
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
@@ -16,12 +16,11 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
-import kotlinx.coroutines.delay // Importar para usar delay en los reintentos
+import kotlinx.coroutines.delay
 
-// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class SoloLatinoProvider : MainAPI() {
     override var mainUrl = "https://sololatino.net"
-    override var name = "SoloLatino" // Nombre más amigable para el usuario
+    override var name = "SoloLatino"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,
@@ -35,12 +34,8 @@ class SoloLatinoProvider : MainAPI() {
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
 
-    // Añadir una instancia de CloudflareKiller para usar en todas las peticiones
     private val cfKiller = CloudflareKiller()
 
-    // Función auxiliar para realizar peticiones HTTP con reintentos y CloudflareKiller
-    // Función auxiliar para realizar peticiones HTTP con reintentos y CloudflareKiller
-    // Función auxiliar para realizar peticiones HTTP con reintentos y CloudflareKiller
     private suspend fun safeAppGet(
         url: String,
         retries: Int = 3,
@@ -50,13 +45,11 @@ class SoloLatinoProvider : MainAPI() {
         for (i in 0 until retries) {
             try {
                 Log.d("SoloLatino", "safeAppGet - Intento ${i + 1}/$retries para URL: $url")
-                // Usar CloudflareKiller para la petición
                 val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs)
                 if (res.isSuccessful) {
                     Log.d("SoloLatino", "safeAppGet - Petición exitosa para URL: $url")
                     return res.text
                 } else {
-                    // ¡CORRECCIÓN FINAL! Quitamos .status.description y nos quedamos solo con el código
                     Log.w("SoloLatino", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
                 }
             } catch (e: Exception) {
@@ -71,12 +64,11 @@ class SoloLatinoProvider : MainAPI() {
         return null
     }
 
-    // Modificar getMainPage para usar safeAppGet
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val urls = listOf(
-            Pair("Peliculas", "$mainUrl/peliculas"),
             Pair("Series", "$mainUrl/series"),
+            Pair("Peliculas", "$mainUrl/peliculas"),
             Pair("Animes", "$mainUrl/animes")
         )
 
@@ -92,7 +84,7 @@ class SoloLatinoProvider : MainAPI() {
                 Log.e("SoloLatino", "getMainPage - No se pudo obtener HTML para $url")
                 return@apmap null
             }
-            val doc = Jsoup.parse(html) // Parsear el HTML
+            val doc = Jsoup.parse(html)
             val homeItems = doc.select("div.items article.item").mapNotNull {
                 val title = it.selectFirst("a div.data h3")?.text()
                 val link = it.selectFirst("a")?.attr("href")
@@ -109,14 +101,13 @@ class SoloLatinoProvider : MainAPI() {
                 } else null
             }
             HomePageList(name, homeItems)
-        }.filterNotNull() // Eliminar los resultados nulos
+        }.filterNotNull()
 
         items.addAll(homePageLists)
 
         return newHomePageResponse(items, false)
     }
 
-    // Modificar search para usar safeAppGet
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/?s=$query"
         val html = safeAppGet(url)
@@ -135,7 +126,7 @@ class SoloLatinoProvider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries // Esto podría ser TvType.Movie/Anime dependiendo del resultado de búsqueda real
+                    this.type = TvType.TvSeries
                     this.posterUrl = img
                 }
             } else null
@@ -147,7 +138,6 @@ class SoloLatinoProvider : MainAPI() {
         val url: String
     )
 
-    // Modificar load para usar safeAppGet
     override suspend fun load(url: String): LoadResponse? {
         Log.d("SoloLatino", "load - URL de entrada: $url")
 
@@ -276,7 +266,6 @@ class SoloLatinoProvider : MainAPI() {
         }
     }
 
-    // Modificar loadLinks para usar safeAppGet
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -407,7 +396,40 @@ class SoloLatinoProvider : MainAPI() {
                 if (foundXupalaceLinks.isNotEmpty()) {
                     foundXupalaceLinks.apmap { playerUrl ->
                         Log.d("SoloLatino", "Cargando extractor para link de Xupalace (go_to_playerVast): $playerUrl")
-                        loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
+
+                        if (playerUrl.contains("player-cdn.com")) {
+                            Log.d("SoloLatino", "Detectado player-cdn.com. Intentando obtener el HTML de la página de Abyss.to después de la redirección.")
+                            val abyssHtml = safeAppGet(fixUrl(playerUrl))
+                            if (abyssHtml != null) {
+                                val abyssDoc = Jsoup.parse(abyssHtml)
+
+                                val videoLink = abyssDoc.selectFirst("video[src$=.mp4]")?.attr("src")
+                                    ?: abyssDoc.selectFirst("video source[src$=.mp4]")?.attr("src")
+                                    ?: abyssDoc.selectFirst("video source[src$=.m3u8]")?.attr("src")
+                                    ?: abyssDoc.selectFirst("video")?.attr("src")
+
+                                if (!videoLink.isNullOrBlank()) {
+                                    val cleanedVideoLink = videoLink.substringBeforeLast("#mp4", videoLink)
+                                    Log.d("SoloLatino", "Encontrado link de video de Abyss.to en tag <video>: $cleanedVideoLink")
+                                    loadExtractor(cleanedVideoLink, initialIframeSrc, subtitleCallback, callback)
+                                } else {
+                                    val scriptContent = abyssDoc.select("script").map { it.html() }.joinToString("\n")
+                                    val storageRegex = Regex("""(https?://storage\.googleapis\.com/[^"']+\.(mp4|m3u8))""")
+                                    val match = storageRegex.find(scriptContent)
+                                    if (match != null) {
+                                        val finalVideoUrl = match.groupValues[1]
+                                        Log.d("SoloLatino", "Encontrado link de video de Abyss.to en script: $finalVideoUrl")
+                                        loadExtractor(finalVideoUrl, initialIframeSrc, subtitleCallback, callback)
+                                    } else {
+                                        Log.e("SoloLatino", "No se encontró el link de storage.googleapis.com en el HTML o scripts de Abyss.to.")
+                                    }
+                                }
+                            } else {
+                                Log.e("SoloLatino", "No se pudo obtener el HTML de la página de Abyss.to desde $playerUrl.")
+                            }
+                        } else {
+                            loadExtractor(fixUrl(playerUrl), initialIframeSrc, subtitleCallback, callback)
+                        }
                     }
                     return true
                 } else {
