@@ -18,7 +18,7 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// **Eliminamos la importación de LStatus, ya que tu declaración de LoadResponse no la contiene.**
+// Ya no necesitamos importar LStatus, ya que tu declaración de LoadResponse no la contiene.
 
 
 class OtakustvProvider : MainAPI() {
@@ -108,10 +108,16 @@ class OtakustvProvider : MainAPI() {
                 // Si quieres incluir el número de episodio en el título de la miniatura de la página principal:
                 val displayTitle = if (episodeNumber != null) "${anime.name} - Ep ${episodeNumber}" else anime.name
 
-                // Usamos .copy() ya que AnimeSearchResponse es una data class y debería funcionar.
-                // Si el error persiste en esta línea, la única explicación es un problema de IDE/compilación
-                // o que AnimeSearchResponse en tu entorno no es una data class o no tiene copy.
-                anime.copy(name = displayTitle)
+                // **CORRECCIÓN para 'copy':** Creamos una nueva instancia de AnimeSearchResponse.
+                // Si AnimeSearchResponse es una data class, .copy() debería funcionar,
+                // pero esto es una alternativa más robusta si hay problemas de compilación.
+                newAnimeSearchResponse(
+                    displayTitle, // Nuevo nombre
+                    anime.url // URL original
+                ) {
+                    this.type = anime.type
+                    this.posterUrl = anime.posterUrl
+                }
             } else null
         }
         if (latestEpisodes.isNotEmpty()) {
@@ -352,7 +358,7 @@ class OtakustvProvider : MainAPI() {
             Log.d("OtakusTV", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
             targetUrl = fixUrl(cleanedData)
-            Log.d("Otakustv", "loadLinks - URL final (directa o ya limpia y fixUrl-ed): $targetUrl")
+            Log.d("OtakusTV", "loadLinks - URL final (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
