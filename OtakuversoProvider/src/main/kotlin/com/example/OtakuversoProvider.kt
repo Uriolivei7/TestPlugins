@@ -21,7 +21,6 @@ import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakuversoProvider : MainAPI() {
-    // Asegúrate de que esto esté bien configurado y se use la extensión recompilada
     override var mainUrl = "https://otakuverso.net/home"
     override var name = "Otakuverso"
     override val supportedTypes = setOf(
@@ -76,7 +75,7 @@ class OtakuversoProvider : MainAPI() {
                     Log.w("OtakuversoProvider", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
                 }
             } catch (e: Exception) {
-                Log.e("OtakuversoProvider", "safeAppGet - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}", e)
+                Log.e("OtakuversoProvider", "safeAppGet - Error en intento ${i + 1}/$retries para URL: $e.message", e)
             }
             if (i < retries - 1) {
                 Log.d("OtakuversoProvider", "safeAppGet - Reintentando en ${delayMs / 1000.0} segundos...")
@@ -185,7 +184,9 @@ class OtakuversoProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/buscador?q=$query"
+        val url = "https://otakuverso.net/buscador?q=$query"
+        Log.d("OtakuversoProvider", "search - Buscando en URL: $url")
+
         val html = safeAppGet(url)
         if (html == null) {
             Log.e("OtakuversoProvider", "search - No se pudo obtener HTML para la búsqueda: $url")
@@ -193,13 +194,15 @@ class OtakuversoProvider : MainAPI() {
         }
         val doc = Jsoup.parse(html)
 
-        return doc.select("div.animes_lista div.col-6").mapNotNull {
-            val titleElement = it.selectFirst("p.font-GDSherpa-Bold")
+        return doc.select("div.animes_lista div.col-6").mapNotNull { element -> // Cambiado a 'element' para mayor claridad
+            val titleElement = element.selectFirst("p.font-GDSherpa-Bold")
             val title = titleElement?.text()?.trim()
-            val link = it.selectFirst("a")?.attr("href")
 
-            val posterElement = it.selectFirst("img.lazyload")
-            val img = posterElement?.attr("src") ?: posterElement?.attr("data-src")
+            // *** CORRECCIÓN CLAVE: El enlace está en la etiqueta 'a' que es padre de la imagen y el título ***
+            val link = element.selectFirst("a")?.attr("href")
+
+            val posterElement = element.selectFirst("img.img-fluid") // Selector más preciso para la imagen de búsqueda
+            val img = posterElement?.attr("src")
 
             if (title != null && link != null) {
                 newAnimeSearchResponse(
@@ -259,9 +262,8 @@ class OtakuversoProvider : MainAPI() {
         val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
         Log.d("OtakuversoProvider", "load - Título extraído: $title")
 
-        // *** CORRECCIÓN: Nuevo selector para el póster ***
         val poster = doc.selectFirst("div.img-in img.d-inline-block")?.attr("src")
-            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src") // Mantenemos el antiguo por si acaso
+            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src")
             ?: ""
         Log.d("OtakuversoProvider", "load - Póster extraído: $poster")
@@ -270,13 +272,9 @@ class OtakuversoProvider : MainAPI() {
         val description = descriptionElement?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
         Log.d("OtakuversoProvider", "load - Descripción extraída: $description")
 
-        // *** CORRECCIÓN: Nuevo selector para tags/géneros ***
-        // No hay un selector claro para "Genero:" en el HTML proporcionado.
-        // Solo veo "ul.fichas li:contains(Estreno:) strong" y "ul.fichas li:contains(Estado:) strong"
-        // Si hay una sección de géneros, la extraeríamos así:
-        val tags = doc.select("ul.fichas li:contains(Etiquetas:) a").map { it.text() } // Si "Etiquetas:" existe
-            ?: doc.select("ul.fichas li a").map { it.text() } // Intento más general si no hay etiqueta específica
-            ?: emptyList() // Fallback a lista vacía
+        val tags = doc.select("ul.fichas li:contains(Etiquetas:) a").map { it.text() }
+            ?: doc.select("ul.fichas li a").map { it.text() }
+            ?: emptyList()
 
         if (tags.isEmpty()) {
             Log.w("OtakuversoProvider", "load - No se encontraron tags/géneros con los selectores 'ul.fichas li:contains(Etiquetas:) a' o 'ul.fichas li a'.")
@@ -284,7 +282,6 @@ class OtakuversoProvider : MainAPI() {
             Log.d("OtakuversoProvider", "load - Tags extraídos: $tags")
         }
 
-        // *** CORRECCIÓN: Nuevo selector y parseo para el año de estreno ***
         val releaseDateText = doc.selectFirst("div.font14.mb-0.text-white.mt-0.mt-lg-2 span.date")?.text()?.trim()
         val year = Regex("""Estreno:\s*(\d{4})""").find(releaseDateText ?: "")?.groupValues?.get(1)?.toIntOrNull()
         Log.d("OtakuversoProvider", "load - Año extraído: $year")
@@ -293,15 +290,13 @@ class OtakuversoProvider : MainAPI() {
         val status = parseStatus(statusText ?: "")
         Log.d("OtakuversoProvider", "load - Estado extraído: $status")
 
-        // *** CORRECCIÓN: Nuevo selector para episodios ***
         val episodes = doc.select("div.row div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20.text-center").mapNotNull { element ->
             val epLinkElement = element.selectFirst("a.mb5.item-temp")
             val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
 
-            val epTitleElement = element.selectFirst("h1.font-GDSherpa-Bold.font14.mb-1.text-left a") // Título del episodio
+            val epTitleElement = element.selectFirst("h1.font-GDSherpa-Bold.font14.mb-1.text-left a")
             val epTitle = epTitleElement?.text()?.trim() ?: ""
 
-            // El póster del episodio es una imagen de marcador de posición 'noimage', podrías usarla o dejarla nula
             val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
 
             val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
@@ -311,12 +306,12 @@ class OtakuversoProvider : MainAPI() {
                     EpisodeLoadData(epTitle, epUrl).toJson()
                 ) {
                     this.name = epTitle
-                    this.season = null // Si no hay temporadas, dejar en null
+                    this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
                 }
             } else null
-        }.reversed() // Los episodios están en orden descendente, los invertimos para que estén en ascendente
+        }.reversed()
         Log.d("OtakuversoProvider", "load - Se encontraron ${episodes.size} episodios.")
 
         return newTvSeriesLoadResponse(
@@ -330,7 +325,7 @@ class OtakuversoProvider : MainAPI() {
             this.plot = description
             this.tags = tags
             this.year = year
-            //this.status = status
+            //.status = status
         }
     }
 
