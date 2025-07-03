@@ -18,8 +18,6 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// Ya no necesitamos importar LStatus, ya que tu declaración de LoadResponse no la contiene.
-
 
 class OtakustvProvider : MainAPI() {
     override var mainUrl = "https://www1.otakustv.com"
@@ -77,7 +75,7 @@ class OtakustvProvider : MainAPI() {
         val doc = Jsoup.parse(html)
 
         // --- Función auxiliar para extraer datos comunes de los elementos de anime ---
-        fun extractAnimeItem(element: Element): AnimeSearchResponse? { // Aseguramos que devuelve AnimeSearchResponse
+        fun extractAnimeItem(element: Element): AnimeSearchResponse? {
             val titleElement = element.selectFirst("h2.font-GDSherpa-Bold a")
             val title = titleElement?.text()?.trim()
             val link = titleElement?.attr("href")
@@ -99,21 +97,16 @@ class OtakustvProvider : MainAPI() {
 
         // --- Extracción de "EPISODIOS ESTRENO" ---
         val latestEpisodes = doc.select("div.reciente .row .pre").mapNotNull { item ->
-            // anime es ahora de tipo AnimeSearchResponse
             val anime: AnimeSearchResponse? = extractAnimeItem(item)
             if (anime != null) {
                 val episodeNumberText = item.selectFirst("p.font15 span.bog")?.text()?.trim()
                 val episodeNumber = Regex("""Episodio\s*(\d+)""").find(episodeNumberText ?: "")?.groupValues?.get(1)?.toIntOrNull()
 
-                // Si quieres incluir el número de episodio en el título de la miniatura de la página principal:
                 val displayTitle = if (episodeNumber != null) "${anime.name} - Ep ${episodeNumber}" else anime.name
 
-                // **CORRECCIÓN para 'copy':** Creamos una nueva instancia de AnimeSearchResponse.
-                // Si AnimeSearchResponse es una data class, .copy() debería funcionar,
-                // pero esto es una alternativa más robusta si hay problemas de compilación.
                 newAnimeSearchResponse(
-                    displayTitle, // Nuevo nombre
-                    anime.url // URL original
+                    displayTitle,
+                    anime.url
                 ) {
                     this.type = anime.type
                     this.posterUrl = anime.posterUrl
@@ -122,18 +115,23 @@ class OtakustvProvider : MainAPI() {
         }
         if (latestEpisodes.isNotEmpty()) {
             items.add(HomePageList("Últimos Episodios", latestEpisodes))
+            Log.d("OtakusTV", "getMainPage - Añadidos ${latestEpisodes.size} Últimos Episodios.")
         }
 
         // --- Extracción de "ANIMES FINALIZADOS" ---
         val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
         if (finishedAnimesContainer != null) {
-            // **CORRECCIÓN:** Corregido el error de tipografía aquí
             val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item ->
                 extractAnimeItem(item)
             }
             if (finishedAnimes.isNotEmpty()) {
                 items.add(HomePageList("Animes Finalizados", finishedAnimes))
+                Log.d("OtakusTV", "getMainPage - Añadidos ${finishedAnimes.size} Animes Finalizados.")
+            } else {
+                Log.d("OtakusTV", "getMainPage - No se encontraron Animes Finalizados en el carrusel.")
             }
+        } else {
+            Log.d("OtakusTV", "getMainPage - No se encontró el contenedor de Animes Finalizados.")
         }
 
         // --- Extracción de "RANKING" ---
@@ -144,7 +142,12 @@ class OtakustvProvider : MainAPI() {
             }
             if (rankingAnimes.isNotEmpty()) {
                 items.add(HomePageList("Ranking", rankingAnimes))
+                Log.d("OtakusTV", "getMainPage - Añadidos ${rankingAnimes.size} Animes en Ranking.")
+            } else {
+                Log.d("OtakusTV", "getMainPage - No se encontraron Animes en Ranking en el carrusel.")
             }
+        } else {
+            Log.d("OtakusTV", "getMainPage - No se encontró el contenedor de Ranking.")
         }
 
         // --- Extracción de "SIMULCASTS" ---
@@ -155,7 +158,12 @@ class OtakustvProvider : MainAPI() {
             }
             if (simulcastAnimes.isNotEmpty()) {
                 items.add(HomePageList("Simulcasts", simulcastAnimes))
+                Log.d("OtakusTV", "getMainPage - Añadidos ${simulcastAnimes.size} Simulcasts.")
+            } else {
+                Log.d("OtakusTV", "getMainPage - No se encontraron Simulcasts en el carrusel.")
             }
+        } else {
+            Log.d("OtakusTV", "getMainPage - No se encontró el contenedor de Simulcasts.")
         }
 
         val hasNextPage = doc.selectFirst("a.next.page-numbers") != null || doc.selectFirst("li.page-item a[rel=\"next\"]") != null
@@ -225,24 +233,35 @@ class OtakustvProvider : MainAPI() {
         }
         val doc = Jsoup.parse(html)
 
-        val title = doc.selectFirst("h1.Title")?.text() ?: ""
-        // La imagen del póster para el anime en sí se encuentra generalmente aquí:
-        val poster = doc.selectFirst("div.Image img")?.attr("src") ?: ""
+        // **AJUSTE DE SELECTOR DE TÍTULO**
+        val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
+        Log.d("OtakusTV", "load - Título extraído: $title")
+
+        // **AJUSTE DE SELECTOR DE PÓSTER**
+        val poster = doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src")
+            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
+            ?: ""
+        Log.d("OtakusTV", "load - Póster extraído: $poster")
 
 
         // Extraer descripción, manejando el enlace "Ver más"
         val descriptionElement = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")
-        // Obtener todos los nodos de texto y unirlos, luego recortar, para evitar incluir "Ver más"
         val description = descriptionElement?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
+        Log.d("OtakusTV", "load - Descripción extraída: $description")
 
+        // Los tags (géneros) no se encuentran en el HTML proporcionado con ul.Genre li a.
+        // Si no aparecen, la lista de tags estará vacía.
         val tags = doc.select("ul.Genre li a").map { it.text() }
-
-        // Extraer estado (ej. "Finalizado") - Ya no se usa directamente en LoadResponse
-        // val statusText = doc.selectFirst("span.btn-anime-info")?.text()?.trim()
+        if (tags.isEmpty()) {
+            Log.w("OtakusTV", "load - No se encontraron tags/géneros con el selector 'ul.Genre li a'.")
+        } else {
+            Log.d("OtakusTV", "load - Tags extraídos: $tags")
+        }
 
         // Extraer fecha de estreno
         val releaseDateText = doc.selectFirst("span.date")?.text()?.replace("Estreno:", "")?.trim()
         val year = releaseDateText?.substringAfterLast("-")?.toIntOrNull()
+        Log.d("OtakusTV", "load - Año extraído: $year")
 
 
         // Extracción de episodios
@@ -258,16 +277,14 @@ class OtakustvProvider : MainAPI() {
                 newEpisode(
                     EpisodeLoadData(epTitle, epUrl).toJson()
                 ) {
-                    this.name = epTitle // Usa esto para el título principal del episodio
-                    this.season = null // Asumiendo que no hay información de temporada directamente disponible en esta estructura
+                    this.name = epTitle
+                    this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
-                    // **CORRECCIÓN:** La clase Episode no tiene una propiedad 'plot'.
-                    // Si quieres incluir epPlot, podrías añadirlo al nombre:
-                    // this.name = if (epPlot.isNotBlank()) "$epTitle - $epPlot" else epTitle
                 }
             } else null
-        }.reversed() // Los episodios suelen aparecer en orden inverso (los más recientes primero) en la página, así que los invertimos para un orden cronológico.
+        }.reversed()
+        Log.d("OtakusTV", "load - Se encontraron ${episodes.size} episodios.")
 
 
         return newTvSeriesLoadResponse(
@@ -278,23 +295,11 @@ class OtakustvProvider : MainAPI() {
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
-            this.plot = description // La trama es para la serie, no para episodios individuales
+            this.plot = description
             this.tags = tags
-            // **CORRECCIÓN:** Se eliminó la asignación de status, ya que la propiedad no existe en LoadResponse
-            // this.status = parseStatus(statusText)
-            this.year = year // Establece el año aquí
+            this.year = year
         }
     }
-
-    // **CORRECCIÓN:** Se eliminó la función parseStatus, ya que la enumeración LStatus no se encuentra.
-    // private fun parseStatus(statusString: String?): LStatus? {
-    //     return when (statusString?.lowercase()) {
-    //         "finalizado" -> LStatus.Completed
-    //         "en emisión" -> LStatus.Ongoing
-    //         "próximamente" -> LStatus.ComingSoon
-    //         else -> null // O LStatus.Other si existe, o null
-    //     }
-    // }
 
 
     data class SortedEmbed(
