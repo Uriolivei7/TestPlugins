@@ -13,23 +13,16 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// Importaciones ESENCIALES y correctas:
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 
-// ***** CORRECCIÓN CLAVE PARA loadExtractor *****
-import com.lagradost.cloudstream3.utils.loadExtractor // Importación correcta para la función de nivel superior
-
-// ***** IMPORTACIÓN PARA amap (para List y Set si aplica) *****
-// Dada la versión de amap que usas, es una función de extensión para List.
-// Si tu IDE no la autocorrige, y está en el mismo paquete que MainAPI,
-// no necesitas una importación específica si ya tienes `com.lagradost.cloudstream3.*`.
-// La conversión a `toList()` antes de `amap` es la clave.
+import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakuversoProvider : MainAPI() {
-    override var mainUrl = "https://otakuverso.net"
+    // Asegúrate de que esto esté bien configurado y se use la extensión recompilada
+    override var mainUrl = "https://otakuverso.net/home"
     override var name = "Otakuverso"
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -98,6 +91,8 @@ class OtakuversoProvider : MainAPI() {
         val items = ArrayList<HomePageList>()
 
         val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
+        Log.d("OtakuversoProvider", "getMainPage - Fetching URL: $url (page $page)")
+
 
         val html = safeAppGet(url)
         if (html == null) {
@@ -153,10 +148,6 @@ class OtakuversoProvider : MainAPI() {
         } else {
             Log.d("OtakuversoProvider", "getMainPage - No se encontró el contenedor de Simulcasts.")
         }
-
-        // DOBLADAS AL LATINO -- SE ELIMINA YA QUE LA WEB ES EN SU MAYORÍA LATINO
-        // La sección 'Dobladas al Latino' ya no se busca como una categoría separada.
-        // Se asume que todo el contenido es latino.
 
         // RECIENTEMENTE AÑADIDO
         val recentlyAddedContainer = doc.selectFirst("div.reciente:has(h3:contains(RECIENTEMENTE AÑADIDO)):not(:has(h3:contains(ANIMES FINALIZADOS)))")
@@ -268,7 +259,9 @@ class OtakuversoProvider : MainAPI() {
         val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
         Log.d("OtakuversoProvider", "load - Título extraído: $title")
 
-        val poster = doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
+        // *** CORRECCIÓN: Nuevo selector para el póster ***
+        val poster = doc.selectFirst("div.img-in img.d-inline-block")?.attr("src")
+            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src") // Mantenemos el antiguo por si acaso
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src")
             ?: ""
         Log.d("OtakuversoProvider", "load - Póster extraído: $poster")
@@ -277,28 +270,38 @@ class OtakuversoProvider : MainAPI() {
         val description = descriptionElement?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
         Log.d("OtakuversoProvider", "load - Descripción extraída: $description")
 
-        val tags = doc.select("ul.fichas li:contains(Genero:) a").map { it.text() }
+        // *** CORRECCIÓN: Nuevo selector para tags/géneros ***
+        // No hay un selector claro para "Genero:" en el HTML proporcionado.
+        // Solo veo "ul.fichas li:contains(Estreno:) strong" y "ul.fichas li:contains(Estado:) strong"
+        // Si hay una sección de géneros, la extraeríamos así:
+        val tags = doc.select("ul.fichas li:contains(Etiquetas:) a").map { it.text() } // Si "Etiquetas:" existe
+            ?: doc.select("ul.fichas li a").map { it.text() } // Intento más general si no hay etiqueta específica
+            ?: emptyList() // Fallback a lista vacía
+
         if (tags.isEmpty()) {
-            Log.w("OtakuversoProvider", "load - No se encontraron tags/géneros con el selector 'ul.fichas li:contains(Genero:) a'.")
+            Log.w("OtakuversoProvider", "load - No se encontraron tags/géneros con los selectores 'ul.fichas li:contains(Etiquetas:) a' o 'ul.fichas li a'.")
         } else {
             Log.d("OtakuversoProvider", "load - Tags extraídos: $tags")
         }
 
-        val releaseDateText = doc.selectFirst("ul.fichas li:contains(Estreno:) strong")?.text()?.trim()
-        val year = releaseDateText?.split("-")?.firstOrNull()?.toIntOrNull()
+        // *** CORRECCIÓN: Nuevo selector y parseo para el año de estreno ***
+        val releaseDateText = doc.selectFirst("div.font14.mb-0.text-white.mt-0.mt-lg-2 span.date")?.text()?.trim()
+        val year = Regex("""Estreno:\s*(\d{4})""").find(releaseDateText ?: "")?.groupValues?.get(1)?.toIntOrNull()
         Log.d("OtakuversoProvider", "load - Año extraído: $year")
 
-        val statusText = doc.selectFirst("ul.fichas li:contains(Estado:) strong")?.text()?.trim()
+        val statusText = doc.selectFirst("span.btn-anime-info.font12.text-white.border.border-white")?.text()?.trim()
         val status = parseStatus(statusText ?: "")
         Log.d("OtakuversoProvider", "load - Estado extraído: $status")
 
-        val episodes = doc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
-            val epLinkElement = element.selectFirst("a.item-temp")
+        // *** CORRECCIÓN: Nuevo selector para episodios ***
+        val episodes = doc.select("div.row div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20.text-center").mapNotNull { element ->
+            val epLinkElement = element.selectFirst("a.mb5.item-temp")
             val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
 
-            val epTitleElement = element.selectFirst("span.font-GDSherpa-Bold a")
+            val epTitleElement = element.selectFirst("h1.font-GDSherpa-Bold.font14.mb-1.text-left a") // Título del episodio
             val epTitle = epTitleElement?.text()?.trim() ?: ""
 
+            // El póster del episodio es una imagen de marcador de posición 'noimage', podrías usarla o dejarla nula
             val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
 
             val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
@@ -308,12 +311,12 @@ class OtakuversoProvider : MainAPI() {
                     EpisodeLoadData(epTitle, epUrl).toJson()
                 ) {
                     this.name = epTitle
-                    this.season = null
+                    this.season = null // Si no hay temporadas, dejar en null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
                 }
             } else null
-        }.reversed()
+        }.reversed() // Los episodios están en orden descendente, los invertimos para que estén en ascendente
         Log.d("OtakuversoProvider", "load - Se encontraron ${episodes.size} episodios.")
 
         return newTvSeriesLoadResponse(
@@ -376,7 +379,7 @@ class OtakuversoProvider : MainAPI() {
         encryptedValues.toList().amap { encryptedId: String ->
             Log.d("OtakuversoProvider", "loadLinks - Pidiendo HTML del reproductor para ID cifrado: $encryptedId")
 
-            val requestUrl = "$mainUrl/play-video?id=$encryptedId"
+            val requestUrl = "https://otakuverso.net/play-video?id=$encryptedId"
 
             val responseJsonString = try {
                 app.get(
@@ -464,7 +467,7 @@ class OtakuversoProvider : MainAPI() {
 
     private fun fixUrl(url: String): String {
         return if (url.startsWith("/")) {
-            mainUrl + url
+            "https://otakuverso.net" + url
         } else {
             url
         }
