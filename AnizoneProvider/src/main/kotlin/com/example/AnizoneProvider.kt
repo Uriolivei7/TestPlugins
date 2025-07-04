@@ -54,13 +54,10 @@ class AnizoneProvider : MainAPI() {
     override val hasQuickSearch = true
     override val hasDownloadSupport = true
 
-    // Mantén esto si quieres otras secciones, pero la principal será manejada por una nueva entrada.
-    // Si quieres que solo muestre "Últimos Animes", puedes simplificar esto.
+    // Definimos las secciones principales según lo que hay en la web
     override val mainPage = mainPageOf(
-        "latest_anime" to "Últimos Animes", // Nueva entrada para la página principal
-        "2" to "Series TV Populares", // Ejemplo de renombre o reordenamiento
-        "4" to "Películas Populares",
-        "6" to "Web Populares"
+        "latest_anime" to "Últimos Animes",
+        "latest_episodes" to "Últimos Episodios"
     )
 
     private var initialCookies = mutableMapOf<String, String>()
@@ -81,8 +78,7 @@ class AnizoneProvider : MainAPI() {
 
             Log.d(name, "initializeLivewireGlobal: Intentando inicializar Livewire globalmente...")
             try {
-                // Asegúrate de que la URL de inicialización sea la base /anime si es donde están los últimos animes
-                val initReq = app.get("$mainUrl/anime")
+                val initReq = app.get(mainUrl)
                 this.initialCookies = initReq.cookies.toMutableMap()
                 val doc = initReq.document
                 this.initialWireData["token"] = doc.select("script[data-csrf]").attr("data-csrf")
@@ -99,8 +95,10 @@ class AnizoneProvider : MainAPI() {
     }
 
     private fun getSnapshot(doc : Document) : String {
-        return doc.select("main div[wire:snapshot]")
-            .attr("wire:snapshot").replace("&quot;", "\"")
+        return doc.selectFirst("div[wire:snapshot][wire:id]")
+            ?.attr("wire:snapshot")?.replace("&quot;", "\"")
+            ?: doc.select("main div[wire:snapshot]")
+                .attr("wire:snapshot").replace("&quot;", "\"")
     }
 
     private fun getSnapshot(json : JSONObject) : String {
@@ -160,7 +158,7 @@ class AnizoneProvider : MainAPI() {
             ) {
                 Log.w(name, "liveWireBuilder: Posible token Livewire o snapshot expirado/inválido. Estado HTTP: ${req.code}. Reintentando (intento: ${retryCount + 1})...")
                 if (retryCount < maxRetries) {
-                    val freshState = initializeLivewireForOperation(mainUrl)
+                    val freshState = initializeLivewireForOperation(mainUrl) // Re-inicializar desde la URL principal
                     currentCookies.clear()
                     currentCookies.putAll(freshState.first)
                     currentWireCreds.clear()
@@ -216,97 +214,43 @@ class AnizoneProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         try {
-            // Manejo especial para la nueva entrada "Últimos Animes"
-            if (request.data == "latest_anime") {
-                Log.d(name, "getMainPage: Cargando la página principal de Últimos Animes.")
-                val urlToFetch = "$mainUrl/anime"
-                val initialReq = app.get(urlToFetch)
-                val doc = initialReq.document
-                val localCookies = initialReq.cookies.toMutableMap()
-                val localWireData = mutableMapOf(
-                    "wireSnapshot" to getSnapshot(doc),
-                    "token" to doc.select("script[data-csrf]").attr("data-csrf")
-                )
+            val urlToFetch = mainUrl
 
-                var home: List<Element> = doc.select("div[wire:key]")
-                var hasNextPage = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
+            val initialReq = app.get(urlToFetch)
+            val doc = initialReq.document
 
-                // Cargar más páginas si es necesario para "Últimos Animes"
-                if (page > 1) {
-                    Log.w(name, "getMainPage (latest_anime): Paginación, intentando cargar más páginas. Página solicitada: $page")
-                    for (i in 1 until page) {
-                        val loadMoreResponse = liveWireBuilder(
-                            mutableMapOf(),
-                            mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
-                            localCookies,
-                            localWireData,
-                            true
-                        )
-                        val newDoc = getHtmlFromWire(loadMoreResponse)
-                        val newElements = newDoc.select("div[wire:key]")
-                        if (newElements.isEmpty()) {
-                            Log.w(name, "getMainPage (latest_anime): No se encontraron más elementos al cargar la página ${i + 1}.")
-                            hasNextPage = false // No hay más páginas
-                            break
-                        }
-                        home = newElements // Reemplaza con los elementos de la nueva página, o añade si la lógica lo permite.
-                        // Para una visualización coherente, Cloudstream normalmente carga una página a la vez.
-                        hasNextPage = (newDoc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
-                    }
+            var hasNextPage = false // Por defecto a falso, ya que las secciones no tienen "Load More"
+
+            val results: List<SearchResponse> = when (request.data) {
+                "latest_anime" -> {
+                    Log.d(name, "getMainPage: Cargando la sección 'Últimos Animes' desde el index.")
+                    // Selector para la sección 'Latest Anime'
+                    doc.select("h2:contains(Latest Anime) + ul li[wire:key]").mapNotNull { toResult(it) }
                 }
-
-                Log.d(name, "getMainPage (latest_anime): Se encontraron ${home.size} resultados para Últimos Animes.")
-                return newHomePageResponse(
-                    HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
-                    hasNext = hasNextPage
-                )
-            } else {
-                // Lógica existente para otras categorías (Series TV, Películas, Web)
-                val (localCookies, localWireData) = initializeLivewireForOperation("$mainUrl/anime")
-                Log.d(name, "getMainPage: Iniciando con estado Livewire fresco para ${request.name}.")
-
-                var initialLivewireResponse = liveWireBuilder(
-                    mutableMapOf("type" to request.data),
-                    mutableListOf(),
-                    localCookies,
-                    localWireData,
-                    true
-                )
-                var doc = getHtmlFromWire(initialLivewireResponse)
-                var home: List<Element> = doc.select("div[wire:key]")
-
-                if (page > 1) {
-                    Log.w(name, "getMainPage: Paginación para página principal, intentando cargar más páginas. Página solicitada: $page")
-                    for (i in 1 until page) {
-                        val loadMoreResponse = liveWireBuilder(
-                            mutableMapOf(),
-                            mutableListOf(mapOf("path" to "", "method" to "loadMore", "params" to listOf<String>())),
-                            localCookies,
-                            localWireData,
-                            true
-                        )
-                        val newDoc = getHtmlFromWire(loadMoreResponse)
-                        val newElements = newDoc.select("div[wire:key]")
-                        if (newElements.isEmpty()) {
-                            Log.w(name, "getMainPage: No se encontraron más elementos al cargar la página ${i + 1}.")
-                            break
-                        }
-                        home = newElements
-                    }
+                "latest_episodes" -> {
+                    Log.d(name, "getMainPage: Cargando la sección 'Últimos Episodios' desde el index.")
+                    // Selector para la sección 'Latest Episodes'
+                    // IMPORTANTE: La función `toResultFromEpisodeElement` se encargará de extraer el enlace a la serie de anime
+                    doc.select("h2:contains(Latest Episodes) + ul li").mapNotNull { toResultFromEpisodeElement(it) }
                 }
-
-                Log.d(name, "getMainPage: Se encontraron ${home.size} resultados para ${request.name}.")
-                return newHomePageResponse(
-                    HomePageList(request.name, home.map { toResult(it)}, isHorizontalImages = false),
-                    hasNext = (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null)
-                )
+                else -> {
+                    Log.w(name, "getMainPage: Categoría desconocida: ${request.data}")
+                    emptyList()
+                }
             }
+
+            Log.d(name, "getMainPage: Se encontraron ${results.size} resultados para ${request.name}.")
+            return newHomePageResponse(
+                HomePageList(request.name, results, isHorizontalImages = false),
+                hasNext = hasNextPage
+            )
         } catch (e: Exception) {
             Log.e(name, "getMainPage: Error al cargar la página principal: ${e.message}", e)
             throw e
         }
     }
 
+    // Función para convertir un elemento de serie de anime a SearchResponse
     private fun toResult(post: Element): SearchResponse {
         val title = post.selectFirst("img")?.attr("alt") ?: ""
         val url = post.selectFirst("a")?.attr("href") ?: ""
@@ -314,6 +258,26 @@ class AnizoneProvider : MainAPI() {
 
         return newMovieSearchResponse(title, url, TvType.Anime) {
             this.posterUrl = posterUrl
+        }
+    }
+
+    // NUEVA FUNCIÓN: Para convertir un elemento de episodio (de "Últimos Episodios") a un SearchResponse
+    // pero apuntando a la URL de la *serie de anime*.
+    private fun toResultFromEpisodeElement(episodeElement: Element): SearchResponse {
+        // Extrae el título de la serie de anime
+        val animeTitle = episodeElement.selectFirst("div.line-clamp-1 > a.title")?.attr("title")
+            ?: episodeElement.selectFirst("div.line-clamp-1 > a.title")?.text() ?: ""
+
+        // Extrae la URL de la serie de anime (anime padre, no el episodio en sí)
+        val animeUrl = episodeElement.selectFirst("div.line-clamp-1 > a.title")?.attr("href") ?: ""
+
+        // Extrae la URL del póster (generalmente la instantánea del episodio)
+        val posterUrl = episodeElement.selectFirst("img")?.attr("src")
+
+        return newMovieSearchResponse(animeTitle, animeUrl, TvType.Anime) {
+            this.posterUrl = posterUrl
+            // Podrías añadir el número de episodio a la descripción si es relevante
+            // Ejemplo: plot = episodeElement.selectFirst("a.title[title]")?.attr("title")
         }
     }
 
@@ -390,7 +354,7 @@ class AnizoneProvider : MainAPI() {
 
             var loadMoreCount = 0
             val maxLoadMoreRetries = 5
-            while (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore() растением\"]")!=null && loadMoreCount < maxLoadMoreRetries) {
+            while (doc.selectFirst(".h-12[x-intersect=\"\$wire.loadMore()\"]")!=null && loadMoreCount < maxLoadMoreRetries) {
                 Log.d(name, "load: Detectado 'Load More', intentando cargar más episodios. Intento: ${loadMoreCount + 1}")
                 try {
                     val liveWireResponse = liveWireBuilder(
@@ -529,5 +493,6 @@ class AnizoneProvider : MainAPI() {
             Log.e(name, "loadLinks: Error al cargar enlaces para $data: ${e.message}", e)
             return false
         }
+        return false // Esta línea nunca debería alcanzarse
     }
 }
