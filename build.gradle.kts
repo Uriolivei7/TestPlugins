@@ -8,12 +8,16 @@ buildscript {
         google()
         mavenCentral()
         maven("https://jitpack.io")
+        // AÑADIDO: Repositorio de GitHub Packages para el plugin recloudstream
+        maven { url = uri("https://maven.pkg.github.com/recloudstream/gradle") }
     }
 
     dependencies {
         classpath("com.android.tools.build:gradle:8.7.3")
+        // Mantuvimos -SNAPSHOT por ahora, pero la adición del repositorio de GitHub Packages
+        // puede ayudar a resolverlo si el plugin realmente se sirve desde allí.
+        // Si sigue fallando, la próxima acción sería buscar una versión específica del plugin.
         classpath("com.github.recloudstream:gradle:-SNAPSHOT")
-        // *** CAMBIO CLAVE AQUÍ: VOLVER A LA VERSIÓN DE KOTLIN 2.1.0 ***
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
     }
 }
