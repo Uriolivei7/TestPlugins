@@ -20,6 +20,7 @@ dependencyResolutionManagement {
 }
 rootProject.name = "TestPlugins"
 
+
 // Resto del código de auto-inclusión (no necesita cambios para este problema):
 val disabled = listOf<String>()
 

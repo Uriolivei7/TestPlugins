@@ -7,16 +7,13 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        // Shitpack repo which contains our tools and dependencies
         maven("https://jitpack.io")
-        // AÑADIDO: Repositorio de GitHub Packages para el plugin recloudstream
-        maven { url = uri("https://maven.pkg.github.com/recloudstream/gradle") }
     }
 
     dependencies {
         classpath("com.android.tools.build:gradle:8.7.3")
-        // Mantuvimos -SNAPSHOT por ahora, pero la adición del repositorio de GitHub Packages
-        // puede ayudar a resolverlo si el plugin realmente se sirve desde allí.
-        // Si sigue fallando, la próxima acción sería buscar una versión específica del plugin.
+        // Cloudstream gradle plugin which makes everything work and builds plugins
         classpath("com.github.recloudstream:gradle:-SNAPSHOT")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
     }
@@ -69,7 +66,7 @@ subprojects {
         cloudstream("com.lagradost:cloudstream3:pre-release")
 
         implementation(kotlin("stdlib"))
-
+        //implementation("com.github.Uriolivei7:TestPlugins:-0e9dcb96de-1")
         implementation("com.github.Blatzar:NiceHttp:0.4.13")
         implementation("org.jsoup:jsoup:1.18.3")
         implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
