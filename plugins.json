@@ -303,7 +303,7 @@
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/JkanimeProvider.cs3",
-    "status": 0,
+    "status": 1,
     "version": 1,
     "apiVersion": 17,
     "name": "JKanime",
