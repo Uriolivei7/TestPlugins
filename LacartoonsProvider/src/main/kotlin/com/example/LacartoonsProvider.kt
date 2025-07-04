@@ -15,19 +15,12 @@ import org.jsoup.nodes.Document
 import android.util.Base64 // Importar Base64 de Android
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import kotlinx.coroutines.delay
-
-// ##################################################################################
-// ########################### INICIO IMPORTACIONES PARA CRIPTOGRAFÍA ###############
-// ##################################################################################
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
-// ##################################################################################
-// ########################### FIN IMPORTACIONES PARA CRIPTOGRAFÍA ##################
-// ##################################################################################
 
 class LacartoonsProvider : MainAPI() {
     override var mainUrl = "https://www.lacartoons.com"
@@ -52,7 +45,6 @@ class LacartoonsProvider : MainAPI() {
             i += chunkSize
         }
     }
-
     private fun Document.toSearchResult(): List<SearchResponse> {
         return this.select(".categorias .conjuntos-series a").map {
             val title = it.selectFirst("p.nombre-serie")?.text()
@@ -110,10 +102,6 @@ class LacartoonsProvider : MainAPI() {
         }
     }
 
-    // ##################################################################################
-    // ########################### START DECRYPTION LOGIC ###############################
-    // ##################################################################################
-
     // 1. Array de Cadenas de Xr() - LIMPIADO y CORREGIDO
     private val xrStrings = arrayOf(
         "data-id", "replace", "some", "downloader-toast-container", "media-video-layout", "type", "--video-time-bg", "padStart", "startLoadingPoster", "div", "img", "subtitleFontSize", "--media-resumable-text-color", "--media-menu-text-secondary-color", "removeItem", "6458336UHbLtm", "impression", "logo", "Push Ads", "ended", "is-hidden", "zIndex", "no-download", "core", "uiElements", "backgroundSize", "parse", "href", "sandbox", "top: 0; left: 0; z-index: 3; width: 100%; height: 100%; position: absolute; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; font-size: 24px; cursor: pointer;", "width", "media-toggle-button", "banner", "provider-setup", "touchstart", "volume", "content", "blur", "displayContainer", "getTime", "CONTENT_PAUSE_REQUESTED", "download", "mute", "10139856JpWTpX", "FULLSCREEN", "--video-brand", "http", "cfStream", "COUNTDOWN", "visibilityState", "hash", "z-index: 2", ":root", "px; width: min-content; max-height: 100%; height: min-content; position: relative; overflow: hidden; cursor: pointer;", "resumeAcceptButton", "tooltipBackground", "playerAds", "px)", "translation", "vds-playlist-tooltip", "&api=", "pathname", "player", "AdsRequest", "offsetHeight", "<span>Play</span>", "Sorry there is no download link for this video", "htmlContainer", "translateX(", "--media-time-font-weight", "defaultSubtitle", "player-loading-text", "closed", "applyDynamicConfig", "Opss! Headless Browser is not allowed", "slot", "disabled", "metric", "Unknown error", "classList", "forEach", "getItem", "floor", "Sorry, this video is not available", "--media-slider-value-color", "vds-tooltip-content", "media-tooltip", "NORMAL", "requestAds", "play", "pop", "UiElements", "paused", "detail", "cover", "thumbnails", "AES-CBC", "media-player", "hidden", "<svg class=\"vds-icon\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\">\n  <path d=\"M12 7.66667C12 7.29848 12.2985 7 12.6666 7H26C26.3682 7 26.6666 7.29848 26.6666 7.66667V9.66667C26.6666 10.0349 26.3682 10.3333 26 10.3333H12.6666C12.2985 10.3333 12 10.0349 12 9.66667V7.66667Z\" fill=\"currentColor\"></path>\n  <path d=\"M12 15C12 14.6318 12.2985 14.3333 12.6666 14.3333H26C26.3682 14.3333 26.6666 14.6318 26.6666 15V17C26.6666 17.3682 26.3682 17.6667 26 17.6667H12.6666C12.2985 17.6667 12 17.3682 12 17V15Z\" fill=\"currentColor\"></path>\n  <path d=\"M5.99998 21.6667C5.63179 21.6667 5.33331 21.9651 5.33331 22.3333V24.3333C5.33331 24.7015 5.63179 25 5.99998 25H7.99998C8.36817 25 8.66665 24.7015 8.66665 24.3333V22.3333C8.66665 21.9651 8.36817 21.6667 7.99998 21.6667H5.99998Z\" fill=\"currentColor\"></path>\n  <path d=\"M12.6666 21.6667C12.2985 21.6667 12 21.9651 12 22.3333V24.3333C12 24.7015 12.2985 25 12.6666 25H26C26.3682 25 26.6666 24.7015 26.6666 24.3333V22.3333C26.6666 21.6667 26.3682 21.6667 26 21.6667H12.6666Z\" fill=\"currentColor\"></path>\n  <path d=\"M5.99998 14.3333C5.63179 14.3333 5.33331 14.6318 5.33331 15V17C5.33331 17.3682 5.63179 17.6667 5.99998 17.6667H7.99998C8.36817 17.6667 8.66665 17.3682 8.66665 17V15C8.66665 14.6318 8.36817 14.3333 7.99998 14.3333H5.99998Z\" fill=\"currentColor\"></path>\n  <path d=\"M5.99998 7C5.63179 7 5.33331 7.29848 5.33331 7.66667V9.66667C5.33331 10.0349 5.63179 10.3333 5.99998 10.3333H7.99998C8.36817 10.3333 8.66665 10.0349 8.66665 9.66667V7.66667Z\" fill=\"currentColor\"></path>\n</svg>", "stop", "No videoId found", "split", "getStatus", "ttStream", "126280RIvQKP", "onClick", "sliderLoadColor", "change", "sandboxed", "--media-tooltip-font-weight", "</button>\n                </div>\n            </div>\n        ", "Opss! Sandboxed our player is not allowed", "position", "true", ".resume-dialog-abort", "decode", "custom", "AD_ERROR", "You were watching this video at {{TIME}}. Do you want to resume?", "<p style=\"font-size: 28px\">", "script", "ads", "click", "iframeApi", "destroy", "onload", "includes", "url", "fontFamily", "ttdata", "/api/v1/download?id=", "media-tooltip-content", "p2pEngine", "AdDisplayContainer", "isPremium", "parent", "resize", "getWidth", "--media-slider-track-bg", "Watch", "black", "100%", "mp4", "unshift", "https://imasdk.googleapis.com/js/sdkloader/ima3.js", "right", "ima", "toISOString", "aria-label", "&w=", "menuSecondary", "contentDocument", "vds-tooltip", "backgroundColor", "vds-quality-button", "AdsManagerLoadedEvent", "value", "--video-controls-color", "ADS_MANAGER_LOADED", "showing", "/api/v1/folder?id=", "linearAdSlotHeight", "config", "test", "removeEventListener", "&r=", "/pproxy/", "querySelectorAll", "--media-cue-font-weight", "/tt/master.", "player-logo", "resumeTextColor", "/api/v1/video?id=", "indexOf", "webdriver", "hostname", "userAgent", "Start from beginning", "pointerdown", "reverse", "match", "onerror", "16yliFNJ", "encrypt", "--media-time-color", "player-button-container", "querySelector", "translations", "thumbnail", "restoreCustomPlaybackStateOnAdBreakComplete", "decrypt", "toString", "--media-tooltip-bg-color", "branding", "No folder found", "current-slide", "</p>\n                <div class=\"resume-dialog-actions\">\n                    <button class=\"resume-dialog-accept\">", "from", "width: 100%; height: 100%; z-index: 2; overflow: hidden;", "duration", "vds-playlist-button", "nextElementSibling", "src", "Direct Link", "adBlock", "poster", "next-slide-2", "193114rxqLzv", "Onclick Ads", "Please use a modern browser to watch this video", "qualities", "map", "left", "tooltipFontSize", "Close Ad", "resumePlayback", ".vds-download-button.vds-button", "encode", "location", "languages", "origin", "AdEvent", "catch", "getAdsManager", "navigator", "Please disable adblock to download this video", "menuPrimary", "target", "menuSection", "backgroundImage", "offsetWidth", "children", "preventDefault", "CLICK", "{{videoId}}", "subtitleColor", "contains", "--media-resumable-reject-button", "crypto", "Ready", "margin: 0px; padding: 0px; display: flex; justify-content: center; align-items: flex-end; height: 100%;", "Video is not ready yet", "superPlayer", "findIndex", "data", "downloadLink", " to download this video", "Please disable AdBlock to watch this video", "pointerup", "downloadButton", "&reportCurrentTime=1", "default_audio", "start", "touchend", "init", "clientX", "--media-user-text-bg", "visibilitychange", "placement", "stringify", "www.", "subtitleBackground", "--media-tooltip-font-size", "hls-error", "iconColor", "createElement", "style", "transparent", "setItem", "adId", "timeFontWeight", "direct", "referrer", "allowExternal", "playing", "currentTime", "Type", "open", "&poster=", "pause", "subtitleFontWeight", "text", "networkError", "span", "create", "Failed to setup player, please try again later.", "1634479IUNzXG", "postMessage", "player-loading", "getAd", "addEventListener", "isLinear", "url(\"", "--media-menu-text-color", "source", "coder", "userId", "innerHTML", "transform", "nonLinearAdSlotHeight", "seek", ".vds-quality-button", "/api/v1/info?id=", "innerWidth", "&subs=", "translateX(-", "language", "video", "sliderTrackColor", "message", "Resume", "\n            <div class=\"resume-dialog-content\">\n                <p>", "https://", "button", "position: absolute; right: calc(50% - 40px); top: 0px; color: white; cursor: pointer; z-index: 5; background-color: black; padding: 0px 6px; border-radius: 4px; display: none", "add", "codePointAt", "document", "maxWidth", "timeFontSize", "restrictCountry", "Download is unavailable", "set", "hls", "time-update", "preload.m3u8", "LOADED", "getHeight", "object", "--media-resumable-accept-button", "AdsLoader", "mode", "resumeRejectButton", "sliderTimeColor", "ancestorOrigins", "top", "assign", "downloadSource", "block", "show", "subtle", "media-tooltip-trigger", "direct://", "tooltipFontWeight", "startsWith", "firstChild", "subtitle", "downloader-button", "reload", "allowDownload", "protocol", "adsLoader", "fromCodePoint", "asset", "playerId", "setProperty", "AdsRenderingSettings", "textContent", "Loading...", "menuTopBar", "replaceChild", "subtitles", "tooltipColor", "loadVideoTimeout", "is-shown", "{{TIME}}", "--video-font-family", "Vast Tag", "--media-time-font-size", "onclick", "then", "name", "swarmId", "Headless Detected", "--media-menu-section-bg", "mouseover", "className", "tagName", "join", "slice", "restrictEmbed", "p2pStream", "visitorCountry", "4625526QfAdwx", "&dl=1", "ALL_ADS_COMPLETED", "innerHeight", "setAttribute", "next-slide-1", "body", "AD_ATTRIBUTION", "audioTracks", "vds-quality-tooltip", "appendChild", "startTime", "auto", "_blank", "/api/v1/player?t=", "torrentTrackers", "Switch quality", "firstElementChild", "screen", "resume:", "14242487VsOnLe", "importKey", "remove", "/api/v1/log?t=", "ViewMode", "aria-pressed", "allow-scripts allow-forms allow-popups allow-same-origin", "provider-change", "requestPointerLock", "height", "Getting download link...", "ready", "string", "defaultAudio", "fullscreen-change", "Banner Ads", "sliderTimeBackground", "downloader-button-container", "httpStream", "ipp", "title", "videoId", "Media source is not playable", ".resume-dialog-accept", "insertBefore", "media-provider", "bottom", "length", "parentNode", "null", "attributes", "--media-tooltip-color", "Quality", "textTracks", "Download", "observe", "getElementById", "shift", "getAttribute", "position: absolute; right: calc(50% - ", "vds-button", "all", "prev-slide-2", "<div class=\"toast\">", "application/x-mpegurl", "format", "iframe", "selected", ".vds-menu-button.vds-button", "mouseout", "startLoading", "px; height: min-content; position: absolute; border: 0px; overflow: hidden;"
@@ -139,9 +127,7 @@ class LacartoonsProvider : MainAPI() {
         }
         return S.toString()
     }
-
-    // 5. Función h(...m) (String.fromCodePoint en Kotlin)
-    // Se asegura que acepta un vararg de Int y lo convierte a String correctamente.
+    
     private fun h_fromCodePoint(vararg m: Int): String {
         if (m.isEmpty()) return ""
         val sb = StringBuilder()
@@ -230,8 +216,6 @@ class LacartoonsProvider : MainAPI() {
         F_str += charsToAddIE2
         println("LACartoons: b_generateKey - F_str (después de ieArray cp3,cp4): '$F_str' (añadido: '$charsToAddIE2', cp3: $cp3, cp4: $cp4)")
 
-
-        // CORRECCIÓN APLICADA AQUÍ: .slice(0, 2) cambiado a .substring(0, 2)
         // Convertir a Int si es necesario para el h_fromCodePoint
         val reversedJoinedSliceInt = ieArray.reversed().joinToString("").substring(0, 2).toInt() // "97" -> 97
         val cp5 = ieArray[3].toInt() * P_const + ieArray[3].toInt() * K_const
@@ -309,8 +293,6 @@ class LacartoonsProvider : MainAPI() {
         val charsToAddArgs = h_fromCodePoint(*argsForH.toIntArray())
         dollarStr.append(charsToAddArgs)
         println("LACartoons: T_generateIv - dollarStr (después de argsForH): '$dollarStr' (añadido: '$charsToAddArgs')")
-
-
         println("LACartoons: T_generateIv - dollarStr FINAL antes de x_encode: '$dollarStr'")
 
         return x_encode(dollarStr.toString())
@@ -338,10 +320,6 @@ class LacartoonsProvider : MainAPI() {
         return p_decode(decryptedBytes)
     }
 
-    // ##################################################################################
-    // ########################### END DECRYPTION LOGIC #################################
-    // ##################################################################################
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -356,7 +334,6 @@ class LacartoonsProvider : MainAPI() {
             return false
         }
 
-        // --- LÓGICA PARA SENDVID.COM ---
         if (iframeSrc.contains("sendvid.com/embed/")) {
             println("${name}: Detectado iframe de sendvid.com. Intentando extracción manual.")
             val sendvidEmbedUrl = iframeSrc
@@ -393,7 +370,6 @@ class LacartoonsProvider : MainAPI() {
                 return false
             }
         }
-        // --- FIN LÓGICA PARA SENDVID.COM ---
 
         // --- LÓGICA EXISTENTE PARA CUBEEMBED.RPMVID.COM ---
         else if (iframeSrc.contains("cubeembed.rpmvid.com")) {
