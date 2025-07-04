@@ -300,5 +300,23 @@
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
     "fileSize": 21000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/JkanimeProvider.cs3",
+    "status": 0,
+    "version": 1,
+    "apiVersion": 17,
+    "name": "JKanime",
+    "internalName": "JkanimeProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para jkanime.net",
+    "tvTypes": [
+      "Anime"
+    ],
+    "iconUrl": "https://cdn.jkdesu.com/assets3/css/img/favicon.ico?v=2.0.73",
+    "language": "es",
+    "fileSize": 31000
   }
 ]
