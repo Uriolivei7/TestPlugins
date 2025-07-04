@@ -144,7 +144,13 @@ class LacartoonsProvider : MainAPI() {
     // Se asegura que acepta un vararg de Int y lo convierte a String correctamente.
     private fun h_fromCodePoint(vararg m: Int): String {
         if (m.isEmpty()) return ""
-        return m.joinToString("") { Character.toChars(it).joinToString("") }
+        val sb = StringBuilder()
+        for (codePoint in m) {
+            // Character.toChars devuelve un CharArray que puede contener uno o dos chars para un codePoint.
+            // Convertimos ese CharArray a String y lo añadimos.
+            sb.append(String(Character.toChars(codePoint)))
+        }
+        return sb.toString()
     }
 
     // 7. Función x(m: String) (String a Bytes - TextEncoder equivalent)
