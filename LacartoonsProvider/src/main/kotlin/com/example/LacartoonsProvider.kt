@@ -3,6 +3,7 @@ package com.example
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.loadExtractor
@@ -140,10 +141,10 @@ class LacartoonsProvider : MainAPI() {
     }
 
     // 5. Función h(...m) (String.fromCodePoint en Kotlin)
+    // Se asegura que acepta un vararg de Int y lo convierte a String correctamente.
     private fun h_fromCodePoint(vararg m: Int): String {
         if (m.isEmpty()) return ""
-        // MODIFICACIÓN CRÍTICA AQUÍ: Usar String(IntArray, offset, count) para manejar code points correctamente
-        return String(m, 0, m.size)
+        return m.joinToString("") { Character.toChars(it).joinToString("") }
     }
 
     // 7. Función x(m: String) (String a Bytes - TextEncoder equivalent)
@@ -173,30 +174,32 @@ class LacartoonsProvider : MainAPI() {
 
         var F_str = ""
 
-        val fResult_phi = f("ᵟ".codePointAt(0)!!, P_const / 10)
+        // Corregido: .codePointAt(0) puede ser null si la cadena está vacía
+        val fResult_phi_char = "ᵟ".codePointAt(0) ?: 0
+        val fResult_phi = f(fResult_phi_char, P_const / 10)
         val dollarArray = fResult_phi.split("").filter { it.isNotEmpty() }
-
 
         for (element in dollarArray) {
             if (element.isNotEmpty()) {
-                F_str += h_fromCodePoint(P_const + element.codePointAt(0)!!)
+                F_str += h_fromCodePoint(P_const + (element.codePointAt(0) ?: 0))
             }
         }
 
         val protocolCodePoint = protocol.codePointAt(0)
         if (protocolCodePoint != null) {
-            F_str += h_fromCodePoint(f(protocolCodePoint, P_const / 10).codePointAt(0)!!)
+            F_str += h_fromCodePoint(f(protocolCodePoint, P_const / 10).codePointAt(0) ?: 0)
         }
 
         F_str += F_str.substring(1, minOf(F_str.length, 1 + 2))
 
         F_str += h_fromCodePoint(D_const, D_const - 1, D_const + 7)
 
-        val ieArray = "3579".split("").filter { it.isNotEmpty() }
+        val ieArray = "3579".split("").filter { it.isNotEmpty() } // ["3", "5", "7", "9"]
 
+        // Corregido: Asegurarse de que los elementos sean Int antes de la operación numérica
         F_str += h_fromCodePoint(
-            (ieArray[3] + ieArray[2]).toInt(),
-            (ieArray[1] + ieArray[2]).toInt()
+            (ieArray[3].toInt() + ieArray[2].toInt()), // 9 + 7 = 16
+            (ieArray[1].toInt() + ieArray[2].toInt())  // 5 + 7 = 12
         )
 
         F_str += h_fromCodePoint(
@@ -205,16 +208,16 @@ class LacartoonsProvider : MainAPI() {
         )
 
         // CORRECCIÓN APLICADA AQUÍ: .slice(0, 2) cambiado a .substring(0, 2)
-        val reversedJoinedSlice = ieArray.reversed().joinToString("").substring(0, 2)
+        // Convertir a Int si es necesario para el h_fromCodePoint
+        val reversedJoinedSlice = ieArray.reversed().joinToString("").substring(0, 2).toInt() // "97" -> 97
         F_str += h_fromCodePoint(
             ieArray[3].toInt() * P_const + ieArray[3].toInt() * K_const,
-            reversedJoinedSlice.toInt()
+            reversedJoinedSlice
         )
 
         println("LACartoons: F_str antes de x_encode: '$F_str'")
 
         return x_encode(F_str)
-
     }
 
     // 11. Función T() (Generar IV)
@@ -232,11 +235,11 @@ class LacartoonsProvider : MainAPI() {
         }
 
         var ie_str = ""
-        ie_str = F_const.toString() + ie_str + F_const.toString() + ie_str + F_const.toString()
+        ie_str = F_const.toString() + ie_str + F_const.toString() + ie_str + F_const.toString() // "111"
 
         val hostnameCodePoint = hostname.codePointAt(0)
         val he_val = if (hostnameCodePoint != null) {
-            ie_str.length * f(hostnameCodePoint, F_const).codePointAt(0)!!
+            ie_str.length * (f(hostnameCodePoint, F_const).codePointAt(0) ?: 0)
         } else {
             0
         }
@@ -295,7 +298,6 @@ class LacartoonsProvider : MainAPI() {
     // ########################### END DECRYPTION LOGIC #################################
     // ##################################################################################
 
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -310,7 +312,47 @@ class LacartoonsProvider : MainAPI() {
             return false
         }
 
-        if (iframeSrc.contains("cubeembed.rpmvid.com")) {
+        // --- LÓGICA PARA SENDVID.COM ---
+        if (iframeSrc.contains("sendvid.com/embed/")) {
+            println("${name}: Detectado iframe de sendvid.com. Intentando extracción manual.")
+            val sendvidEmbedUrl = iframeSrc
+
+            val embedDoc = try {
+                app.get(sendvidEmbedUrl).document
+            } catch (e: Exception) {
+                println("${name}: SENDVID_ERROR - No se pudo obtener el documento del embed de Sendvid: $sendvidEmbedUrl. ${e.message}")
+                return false
+            }
+
+            // Intenta obtener la URL del video de la etiqueta <source> dentro de <video>
+            val videoUrl = embedDoc.selectFirst("video#video-js-video source#video_source")?.attr("src")
+            // Como respaldo, intenta de las meta etiquetas Open Graph
+                ?: embedDoc.selectFirst("meta[property=og:video]")?.attr("content")
+                ?: embedDoc.selectFirst("meta[property=og:video:secure_url]")?.attr("content")
+
+            if (!videoUrl.isNullOrBlank()) {
+                println("${name}: SENDVID_SUCCESS - URL de video encontrada para Sendvid: $videoUrl")
+                callback.invoke(
+                    ExtractorLink(
+                        source = "Sendvid",
+                        name = "Sendvid",
+                        url = videoUrl,
+                        referer = sendvidEmbedUrl, // La URL del embed de Sendvid como referer
+                        quality = Qualities.Unknown.value,
+                        type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
+                        headers = mapOf("User-Agent" to "Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
+                    )
+                )
+                return true
+            } else {
+                println("${name}: SENDVID_WARN - No se encontró la URL del video en la página de Sendvid: $sendvidEmbedUrl")
+                return false
+            }
+        }
+        // --- FIN LÓGICA PARA SENDVID.COM ---
+
+        // --- LÓGICA EXISTENTE PARA CUBEEMBED.RPMVID.COM ---
+        else if (iframeSrc.contains("cubeembed.rpmvid.com")) {
             println("${name}: Detectado iframe de cubeembed.rpmvid.com, procesando internamente.")
             val cubembedUrl = iframeSrc
             val embedId = cubembedUrl.substringAfterLast("#")
@@ -379,7 +421,7 @@ class LacartoonsProvider : MainAPI() {
                             name = "Cubembed",
                             url = m3u8Url,
                             referer = "https://cubeembed.rpmvid.com/",
-                            quality = 0,
+                            quality = Qualities.Unknown.value,
                             type = ExtractorLinkType.M3U8,
                             headers = finalM3u8Headers
                         )
@@ -403,7 +445,7 @@ class LacartoonsProvider : MainAPI() {
                                 name = "Cubembed",
                                 url = m3u8UrlInfo,
                                 referer = "https://cubeembed.rpmvid.com/",
-                                quality = 0,
+                                quality = Qualities.Unknown.value,
                                 type = ExtractorLinkType.M3U8,
                                 headers = finalM3u8Headers
                             )
