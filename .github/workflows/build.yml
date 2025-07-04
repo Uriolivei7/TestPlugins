@@ -41,24 +41,31 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3.2.2
 
+      # --- AÑADIDO: Paso para limpiar la caché de Gradle en el ejecutor ---
+      - name: Clear Gradle Cache
+        run: |
+          rm -rf ~/.gradle/caches/modules-2
+          rm -rf ~/.gradle/caches/jars-*
+          rm -rf ~/.gradle/wrapper/dists # Esto forza la descarga de la distribución de Gradle también
+        shell: bash
+      # ------------------------------------------------------------------
+
       - name: Access Secrets
         env:
           CONSUMET_API: ${{ secrets.CONSUMET_API }}
-          BYPASS_API: ${{ secrets.BYPASS_API }}
           SIMKL_API: ${{ secrets.SIMKL_API }}
         run: |
           cd $GITHUB_WORKSPACE/src
           echo CONSUMET_API=$CONSUMET_API >> local.properties
-          echo BYPASS_API=$BYPASS_API >> local.properties
           echo SIMKL_API=$SIMKL_API >> local.properties
 
       - name: Build Plugins
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
-          ./gradlew make makePluginsJson --refresh-dependencies # <--- ¡LÍNEA MODIFICADA AQUÍ!
+          ./gradlew make makePluginsJson --refresh-dependencies # Mantenemos --refresh-dependencies
           cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
-          cp build/plugins.json $GITHUB_WORKSPACE/repo.json
+          cp build/plugins.json $GITHUB_WORKSPACE/builds # Asegúrate que esto apunta a $GITHUB_WORKSPACE/builds si es tu repo de salida
 
       - name: Push builds
         run: |
