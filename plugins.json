@@ -15,7 +15,7 @@
       "Cartoon",
       "Anime"
     ],
-    "version": 2.5,
+    "version": 2,
     "internalName": "SoloLatinoProvider",
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
     "name": "SoloLatino"
@@ -135,7 +135,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/VerseriesonlineProvider.cs3",
     "status": 1,
-    "version": 1,
+    "version": 2,
     "apiVersion": 8,
     "name": "VerOnline",
     "internalName": "VeronlineProvider",
@@ -150,7 +150,7 @@
     ],
     "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
     "language": "es",
-    "fileSize": 21000
+    "fileSize": 20000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/LacartoonsProvider.cs3",

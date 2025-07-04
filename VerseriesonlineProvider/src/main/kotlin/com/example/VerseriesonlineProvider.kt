@@ -27,38 +27,11 @@ class VerseriesonlineProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        val urls = listOf(
-            Pair("Últimas Series Agregadas", "$mainUrl/series-online.html"),
-        )
 
-        val homePageLists = urls.apmap { (name, url) ->
-            val tvType = TvType.TvSeries
-            val doc = app.get(url).document
-            val homeItems = doc.select("div.movs article.item").mapNotNull {
-                val title = it.selectFirst("a div.data h3")?.text()?.trim().orEmpty()
-                val link = it.selectFirst("a")?.attr("href")?.trim().orEmpty()
-                val img = it.selectFirst("div.poster img")?.attr("data-src")
-                    ?: it.selectFirst("div.poster img")?.attr("src")?.trim().orEmpty()
-
-                if (title.isNotBlank() && link.isNotBlank()) {
-                    Log.d("Veronline", "Home Item found: $title, Link: $link, Img: $img")
-                    newTvSeriesSearchResponse(
-                        title,
-                        fixUrl(link)
-                    ) {
-                        this.type = tvType
-                        this.posterUrl = fixUrl(img)
-                    }
-                } else {
-                    Log.w("Veronline", "Missing title or link for a home item. Title: $title, Link: $link")
-                    null
-                }
-            }
-            Log.d("Veronline", "Total Home Items for $name: ${homeItems.size}")
-            HomePageList(name, homeItems)
-        }
-
+        // Obtenemos el documento de la página principal UNA SOLA VEZ
         val mainPageDoc = app.get(mainUrl).document
+
+        // --- SECCIÓN 1: Destacadas (el slider, que ya funciona) ---
         val sliderItems = mainPageDoc.select("div#owl-slider div.owl-item div.shortstory").mapNotNull {
             val tvType = TvType.TvSeries
             val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
@@ -83,7 +56,35 @@ class VerseriesonlineProvider : MainAPI() {
         if (sliderItems.isNotEmpty()) {
             items.add(0, HomePageList("Destacadas", sliderItems))
         }
-        items.addAll(homePageLists)
+
+        // --- SECCIÓN 2: Últimas Series Agregadas (usando el HTML que me mostraste de la página principal) ---
+        val tvType = TvType.TvSeries
+        // Usamos el mismo mainPageDoc ya que esta sección está en la página principal
+        val latestSeriesItems = mainPageDoc.select("div.block-site-b div.shortstory-in").mapNotNull {
+            val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
+            val link = it.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty()
+            val img = it.selectFirst("div.short-images img")?.attr("src")?.trim().orEmpty()
+
+            if (title.isNotBlank() && link.isNotBlank()) {
+                Log.d("Veronline", "Latest Series Item found: $title, Link: $link, Img: $img")
+                newTvSeriesSearchResponse(
+                    title,
+                    fixUrl(link)
+                ) {
+                    this.type = tvType
+                    this.posterUrl = fixUrl(img)
+                }
+            } else {
+                Log.w("Veronline", "Missing title or link for latest series item. Title: $title, Link: $link")
+                null
+            }
+        }
+        Log.d("Veronline", "Total 'Últimas Series Agregadas' Items: ${latestSeriesItems.size}")
+
+        // Agregamos esta lista a los items de la página principal
+        if (latestSeriesItems.isNotEmpty()) {
+            items.add(HomePageList("Últimas Series Agregadas", latestSeriesItems))
+        }
 
         Log.d("Veronline", "Final number of HomePageLists: ${items.size}")
         return newHomePageResponse(items, false)
