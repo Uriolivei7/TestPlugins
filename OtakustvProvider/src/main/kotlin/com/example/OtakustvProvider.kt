@@ -10,23 +10,14 @@ import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import kotlin.collections.ArrayList
-import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
-// Importaciones ESENCIALES y correctas:
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 
-// ***** CORRECCIÓN CLAVE PARA loadExtractor *****
-import com.lagradost.cloudstream3.utils.loadExtractor // Importación correcta para la función de nivel superior
-
-// ***** IMPORTACIÓN PARA amap (para List y Set si aplica) *****
-// Dada la versión de amap que usas, es una función de extensión para List.
-// Si tu IDE no la autocorrige, y está en el mismo paquete que MainAPI,
-// no necesitas una importación específica si ya tienes `com.lagradost.cloudstream3.*`.
-// La conversión a `toList()` antes de `amap` es la clave.
+import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakustvProvider : MainAPI() {
     override var mainUrl = "https://www1.otakustv.com"
@@ -74,158 +65,64 @@ class OtakustvProvider : MainAPI() {
     ): String? {
         for (i in 0 until retries) {
             try {
-                Log.d("OtakustvProvider", "safeAppGet - Intento ${i + 1}/$retries para URL: $url")
                 val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs)
-                if (res.isSuccessful) {
-                    Log.d("OtakustvProvider", "safeAppGet - Petición exitosa para URL: $url")
-                    return res.text
-                } else {
-                    Log.w("OtakustvProvider", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
-                }
+                if (res.isSuccessful) return res.text
             } catch (e: Exception) {
-                Log.e("OtakustvProvider", "safeAppGet - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}", e)
+                Log.e("OtakustvProvider", "safeAppGet error for URL: $url: ${e.message}", e)
             }
-            if (i < retries - 1) {
-                Log.d("OtakustvProvider", "safeAppGet - Reintentando en ${delayMs / 1000.0} segundos...")
-                delay(delayMs)
-            }
+            if (i < retries - 1) delay(delayMs)
         }
-        Log.e("OtakustvProvider", "safeAppGet - Fallaron todos los intentos para URL: $url")
         return null
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-
         val url = if (page == 1) mainUrl else "$mainUrl/page/$page/"
-
-        val html = safeAppGet(url)
-        if (html == null) {
-            Log.e("OtakustvProvider", "getMainPage - No se pudo obtener HTML para $url")
-            return null
-        }
+        val html = safeAppGet(url) ?: return null
         val doc = Jsoup.parse(html)
 
-        // ANIME FINALIZADOS (Existente)
-        val finishedAnimesContainer = doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")
-        if (finishedAnimesContainer != null) {
-            val finishedAnimes = finishedAnimesContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (finishedAnimes.isNotEmpty()) {
-                items.add(HomePageList("Animes Finalizados", finishedAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${finishedAnimes.size} Animes Finalizados.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Finalizados en el carrusel.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Animes Finalizados.")
+        doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")?.let { container ->
+            val animes = container.select(".carusel_ranking .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Animes Finalizados", animes))
         }
 
-        // RANKING (Existente)
-        val rankingContainer = doc.selectFirst("div.ranking:has(h3:contains(RANKING))")
-        if (rankingContainer != null) {
-            val rankingAnimes = rankingContainer.select(".carusel_ranking .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (rankingAnimes.isNotEmpty()) {
-                items.add(HomePageList("Ranking", rankingAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${rankingAnimes.size} Animes en Ranking.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes en Ranking en el carrusel.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Ranking.")
+        doc.selectFirst("div.ranking:has(h3:contains(RANKING))")?.let { container ->
+            val animes = container.select(".carusel_ranking .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Ranking", animes))
         }
 
-        // SIMULCASTS (Existente)
-        val simulcastsContainer = doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")
-        if (simulcastsContainer != null) {
-            val simulcastAnimes = simulcastsContainer.select(".carusel_simulcast .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (simulcastAnimes.isNotEmpty()) {
-                items.add(HomePageList("Simulcasts", simulcastAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${simulcastAnimes.size} Simulcasts.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Simulcasts en el carrusel.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Simulcasts.")
+        doc.selectFirst("div.simulcasts:has(h3:contains(SIMULCASTS))")?.let { container ->
+            val animes = container.select(".carusel_simulcast .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Simulcasts", animes))
         }
 
-        // ***** NUEVAS SECCIONES *****
-
-        // DOBLADAS AL LATINO
-        val latinoContainer = doc.selectFirst("div.latino:has(h3:contains(DOBLADAS AL LATINO))")
-        if (latinoContainer != null) {
-            val latinoAnimes = latinoContainer.select(".carusel_latino .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (latinoAnimes.isNotEmpty()) {
-                items.add(HomePageList("Dobladas al Latino", latinoAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${latinoAnimes.size} Animes Doblados al Latino.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Doblados al Latino.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Dobladas al Latino.")
+        doc.selectFirst("div.latino:has(h3:contains(DOBLADAS AL LATINO))")?.let { container ->
+            val animes = container.select(".carusel_latino .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Dobladas al Latino", animes))
         }
 
-        // RECIENTEMENTE AÑADIDO (Revisado el selector para ser más específico)
-        // El HTML proporcionado muestra un div.reciente para "RECIENTEMENTE AÑADIDO" y otro para "ANIMES FINALIZADOS".
-        // Usamos `:not(:has(h3:contains(ANIMES FINALIZADOS)))` para diferenciarlos.
-        val recentlyAddedContainer = doc.selectFirst("div.reciente:has(h3:contains(RECIENTEMENTE AÑADIDO)):not(:has(h3:contains(ANIMES FINALIZADOS)))")
-        if (recentlyAddedContainer != null) {
-            val recentlyAddedAnimes = recentlyAddedContainer.select(".carusel_reciente .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (recentlyAddedAnimes.isNotEmpty()) {
-                items.add(HomePageList("Recientemente Añadido", recentlyAddedAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${recentlyAddedAnimes.size} Animes Recientemente Añadidos.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Recientemente Añadidos.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Recientemente Añadido.")
+        doc.selectFirst("div.reciente:has(h3:contains(RECIENTEMENTE AÑADIDO)):not(:has(h3:contains(ANIMES FINALIZADOS)))")?.let { container ->
+            val animes = container.select(".carusel_reciente .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Recientemente Añadido", animes))
         }
 
-        // PROXIMAMENTE
-        val soonContainer = doc.selectFirst("div.pronto:has(h3:contains(PROXIMAMENTE))")
-        if (soonContainer != null) {
-            val soonAnimes = soonContainer.select(".carusel_pronto .item").mapNotNull { item: Element ->
-                extractAnimeItem(item)
-            }
-            if (soonAnimes.isNotEmpty()) {
-                items.add(HomePageList("Próximamente", soonAnimes))
-                Log.d("OtakustvProvider", "getMainPage - Añadidos ${soonAnimes.size} Animes Próximamente.")
-            } else {
-                Log.d("OtakustvProvider", "getMainPage - No se encontraron Animes Próximamente.")
-            }
-        } else {
-            Log.d("OtakustvProvider", "getMainPage - No se encontró el contenedor de Próximamente.")
+        doc.selectFirst("div.pronto:has(h3:contains(PROXIMAMENTE))")?.let { container ->
+            val animes = container.select(".carusel_pronto .item").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Próximamente", animes))
         }
-
 
         return HomePageResponse(items)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscador?q=$query"
-        val html = safeAppGet(url)
-        if (html == null) {
-            Log.e("OtakustvProvider", "search - No se pudo obtener HTML para la búsqueda: $url")
-            return emptyList()
-        }
+        val html = safeAppGet(url) ?: return emptyList()
         val doc = Jsoup.parse(html)
 
         return doc.select("div.animes_lista div.col-6").mapNotNull {
-            val titleElement = it.selectFirst("p.font-GDSherpa-Bold")
-            val title = titleElement?.text()?.trim()
+            val title = it.selectFirst("p.font-GDSherpa-Bold")?.text()?.trim()
             val link = it.selectFirst("a")?.attr("href")
-
-            val posterElement = it.selectFirst("img.lazyload")
-            val img = posterElement?.attr("src") ?: posterElement?.attr("data-src")
+            val img = it.selectFirst("img.lazyload")?.attr("src") ?: it.selectFirst("img.lazyload")?.attr("data-src")
 
             if (title != null && link != null) {
                 newAnimeSearchResponse(
@@ -245,106 +142,89 @@ class OtakustvProvider : MainAPI() {
     )
 
     override suspend fun load(url: String): LoadResponse? {
-        Log.d("OtakustvProvider", "load - URL de entrada: $url")
-
         var cleanUrl = url
         val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"(?:,"title":"[^"]+")?\}""").find(url)
-        if (urlJsonMatch != null) {
-            cleanUrl = urlJsonMatch.groupValues[1]
-            Log.d("OtakustvProvider", "load - URL limpia por JSON Regex: $cleanUrl")
-        } else {
-            if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
-                cleanUrl = "https://" + cleanUrl.removePrefix("//")
-                Log.d("OtakustvProvider", "load - URL limpiada con HTTPS: $cleanUrl")
-            }
-            Log.d("OtakustvProvider", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
-        }
+        if (urlJsonMatch != null) cleanUrl = urlJsonMatch.groupValues[1]
+        else if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) cleanUrl = "https://" + cleanUrl.removePrefix("//")
 
-        val episodeRegex = Regex("""(.+)/episodio-\d+/?$""")
-        val animeBaseUrlMatch = episodeRegex.find(cleanUrl)
+        val animeBaseUrlMatch = Regex("""(.+)/episodio-\d+/?$""").find(cleanUrl)
         val finalUrlToFetch = if (animeBaseUrlMatch != null) {
             val base = animeBaseUrlMatch.groupValues[1]
             if (!base.endsWith("/")) "$base/" else base
         } else {
             if (!cleanUrl.endsWith("/")) "$cleanUrl/" else cleanUrl
         }
-        Log.d("OtakustvProvider", "load - URL final para fetch HTML (base del anime): $finalUrlToFetch")
+        if (finalUrlToFetch.isBlank()) return null
 
-        if (finalUrlToFetch.isBlank()) {
-            Log.e("OtakustvProvider", "load - ERROR: URL base del anime está en blanco después de procesar.")
-            return null
-        }
-
-        val html = safeAppGet(finalUrlToFetch)
-        if (html == null) {
-            Log.e("OtakustvProvider", "load - No se pudo obtener HTML para la URL principal del anime: $finalUrlToFetch")
-            return null
-        }
+        val html = safeAppGet(finalUrlToFetch) ?: return null
         val doc = Jsoup.parse(html)
 
         val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
-        Log.d("OtakustvProvider", "load - Título extraído: $title")
-
         val poster = doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
-            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src")
-            ?: ""
-        Log.d("OtakustvProvider", "load - Póster extraído: $poster")
-
-        val descriptionElement = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")
-        val description = descriptionElement?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
-        Log.d("OtakustvProvider", "load - Descripción extraída: $description")
-
+            ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src") ?: ""
+        val description = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
         val tags = doc.select("ul.fichas li:contains(Genero:) a").map { it.text() }
-        if (tags.isEmpty()) {
-            Log.w("OtakustvProvider", "load - No se encontraron tags/géneros con el selector 'ul.fichas li:contains(Genero:) a'.")
-        } else {
-            Log.d("OtakustvProvider", "load - Tags extraídos: $tags")
+        val year = doc.selectFirst("ul.fichas li:contains(Estreno:) strong")?.text()?.trim()?.split("-")?.firstOrNull()?.toIntOrNull()
+        val status = parseStatus(doc.selectFirst("ul.fichas li:contains(Estado:) strong")?.text()?.trim() ?: "")
+
+        val additionalTags = mutableListOf<String>()
+        val audioText = doc.selectFirst("ul.fichas li:contains(Idioma:) strong")?.text()?.trim()
+        if (audioText != null) {
+            when {
+                audioText.contains("latino", ignoreCase = true) -> additionalTags.add("Doblado Latino")
+                audioText.contains("subtitulado", ignoreCase = true) || audioText.contains("sub español", ignoreCase = true) -> additionalTags.add("Subtitulado")
+            }
         }
 
-        val releaseDateText = doc.selectFirst("ul.fichas li:contains(Estreno:) strong")?.text()?.trim()
-        val year = releaseDateText?.split("-")?.firstOrNull()?.toIntOrNull()
-        Log.d("OtakustvProvider", "load - Año extraído: $year")
+        val allEpisodeUrls = mutableListOf<String>()
+        val dropdownMenuLinks = doc.select("div.dropdown-menu a")
+        if (dropdownMenuLinks.isNotEmpty()) {
+            dropdownMenuLinks.forEach { linkElement ->
+                val pageUrl = fixUrl(linkElement.attr("href"))
+                if (pageUrl.isNotBlank()) allEpisodeUrls.add(pageUrl)
+            }
+        } else {
+            allEpisodeUrls.add(finalUrlToFetch)
+        }
 
-        val statusText = doc.selectFirst("ul.fichas li:contains(Estado:) strong")?.text()?.trim()
-        val status = parseStatus(statusText ?: "")
-        Log.d("OtakustvProvider", "load - Estado extraído: $status")
+        val allEpisodes = ArrayList<Episode>()
+        for (pageUrl in allEpisodeUrls) {
+            val pageHtml = safeAppGet(pageUrl) ?: continue
+            val pageDoc = Jsoup.parse(pageHtml)
 
-        val episodes = doc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
-            val epLinkElement = element.selectFirst("a.item-temp")
-            val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
+            val episodesOnPage = pageDoc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
+                val epLinkElement = element.selectFirst("a.item-temp")
+                val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
+                val epTitle = element.selectFirst("span.font-GDSherpa-Bold a")?.text()?.trim() ?: ""
+                val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
+                val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
 
-            val epTitleElement = element.selectFirst("span.font-GDSherpa-Bold a")
-            val epTitle = epTitleElement?.text()?.trim() ?: ""
+                if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
+                    newEpisode(EpisodeLoadData(epTitle, epUrl).toJson()) {
+                        this.name = epTitle
+                        this.season = null
+                        this.episode = episodeNumber
+                        this.posterUrl = epPoster
+                    }
+                } else null
+            }
+            allEpisodes.addAll(episodesOnPage)
+        }
 
-            val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
-
-            val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
-
-            if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
-                newEpisode(
-                    EpisodeLoadData(epTitle, epUrl).toJson()
-                ) {
-                    this.name = epTitle
-                    this.season = null
-                    this.episode = episodeNumber
-                    this.posterUrl = epPoster
-                }
-            } else null
-        }.reversed()
-        Log.d("OtakustvProvider", "load - Se encontraron ${episodes.size} episodios.")
+        val finalEpisodes = allEpisodes.reversed()
 
         return newTvSeriesLoadResponse(
             name = title,
             url = finalUrlToFetch,
             type = TvType.Anime,
-            episodes = episodes
+            episodes = finalEpisodes
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
             this.plot = description
-            this.tags = tags
+            this.tags = tags + additionalTags
             this.year = year
-            //this.status = status // Mantengo esta línea. Si compiló la última vez, debería seguir haciéndolo.
+            //this.status = status
         }
     }
 
@@ -354,47 +234,24 @@ class OtakustvProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        Log.d("OtakustvProvider", "loadLinks - Data de entrada: $data")
-
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
         val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
+        if (targetUrl.isBlank()) return false
 
-        if (targetUrl.isBlank()) {
-            Log.e("OtakustvProvider", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
-            return false
-        }
-
-        val initialHtml = safeAppGet(targetUrl)
-        if (initialHtml == null) {
-            Log.e("OtakustvProvider", "loadLinks - No se pudo obtener HTML para la URL principal del contenido: $targetUrl")
-            return false
-        }
+        val initialHtml = safeAppGet(targetUrl) ?: return false
         val doc = Jsoup.parse(initialHtml)
 
         val encryptedValues = mutableSetOf<String>()
-
         doc.select("select#ssel option").forEach { option ->
-            val value = option.attr("value")
-            if (value.isNotBlank()) {
-                encryptedValues.add(value)
-                Log.d("OtakustvProvider", "loadLinks - Añadido valor de select: $value")
-            }
+            option.attr("value").takeIf { it.isNotBlank() }?.let { encryptedValues.add(it) }
         }
-
         doc.select("nav.menu_server ul li a").forEach { link ->
-            val rel = link.attr("rel")
-            if (rel.isNotBlank()) {
-                encryptedValues.add(rel)
-                Log.d("OtakustvProvider", "loadLinks - Añadido valor de nav rel: $rel")
-            }
+            link.attr("rel").takeIf { it.isNotBlank() }?.let { encryptedValues.add(it) }
         }
 
         var linksFound = false
         encryptedValues.toList().amap { encryptedId: String ->
-            Log.d("OtakustvProvider", "loadLinks - Pidiendo HTML del reproductor para ID cifrado: $encryptedId")
-
             val requestUrl = "$mainUrl/play-video?id=$encryptedId"
-
             val responseJsonString = try {
                 app.get(
                     requestUrl,
@@ -404,66 +261,33 @@ class OtakustvProvider : MainAPI() {
                     ),
                     interceptor = cfKiller
                 ).text
-            } catch (e: Exception) {
-                Log.e("OtakustvProvider", "loadLinks - Error al hacer petición AJAX para $encryptedId: ${e.message}", e)
-                null
-            }
+            } catch (e: Exception) { null }
 
             if (!responseJsonString.isNullOrBlank()) {
                 try {
-                    val jsonResponse = tryParseJson<Map<String, String>>(responseJsonString)
-                    val iframeHtml = jsonResponse?.get("html")
-
+                    val iframeHtml = tryParseJson<Map<String, String>>(responseJsonString)?.get("html")
                     if (!iframeHtml.isNullOrBlank()) {
-                        val iframeDoc = Jsoup.parse(iframeHtml)
-                        var iframeSrc = iframeDoc.selectFirst("iframe")?.attr("src")
-
+                        var iframeSrc = Jsoup.parse(iframeHtml).selectFirst("iframe")?.attr("src")
                         if (!iframeSrc.isNullOrBlank()) {
                             if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
-                                val modifiedSrc = iframeSrc.replace("/preview", "/edit")
-                                Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive de /preview a /edit: $modifiedSrc")
-                                iframeSrc = modifiedSrc
+                                iframeSrc = iframeSrc.replace("/preview", "/edit")
                             }
-
-                            if (iframeSrc.contains("mega.nz")) {
-                                Log.w("OtakustvProvider", "loadLinks - Enlace de MEGA.NZ encontrado. loadExtractor no soporta directamente MEGA.NZ.")
-                            } else if (iframeSrc.contains("drive.google.com")) {
-                                Log.d("OtakustvProvider", "loadLinks - Enlace de GOOGLE DRIVE encontrado. Pasando a loadExtractor.")
-                            } else {
-                                Log.d("OtakustvProvider", "loadLinks - Enlace de EXTRACTOR REGULAR: $iframeSrc")
-                            }
-
                             loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
                             linksFound = true
-                        } else {
-                            Log.w("OtakustvProvider", "loadLinks - No se encontró 'src' en el iframe de la respuesta para ID: $encryptedId")
                         }
-                    } else {
-                        Log.w("OtakustvProvider", "loadLinks - HTML de iframe vacío o no válido en la respuesta para ID: $encryptedId")
                     }
-                } catch (e: Exception) {
-                    Log.e("OtakustvProvider", "loadLinks - Error al parsear JSON o HTML de la respuesta para ID $encryptedId: ${e.message}", e)
-                }
-            } else {
-                Log.w("OtakustvProvider", "loadLinks - Respuesta nula o vacía de la petición AJAX para ID: $encryptedId")
+                } catch (e: Exception) { }
             }
         }
 
         if (!linksFound) {
-            val playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
+            var playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
             if (!playerIframeSrc.isNullOrBlank()) {
-                Log.d("OtakustvProvider", "loadLinks - No se encontraron enlaces de servidor a través de API, usando iframe principal: $playerIframeSrc")
-                var finalPlayerIframeSrc = playerIframeSrc
-                if (finalPlayerIframeSrc.contains("drive.google.com") && finalPlayerIframeSrc.contains("/preview")) {
-                    val modifiedSrc = finalPlayerIframeSrc.replace("/preview", "/edit")
-                    Log.d("OtakustvProvider", "loadLinks - Modificando URL de Google Drive del iframe principal de /preview a /edit: $modifiedSrc")
-                    finalPlayerIframeSrc = modifiedSrc
+                if (playerIframeSrc.contains("drive.google.com") && playerIframeSrc.contains("/preview")) {
+                    playerIframeSrc = playerIframeSrc.replace("/preview", "/edit")
                 }
-
-                loadExtractor(fixUrl(finalPlayerIframeSrc), targetUrl, subtitleCallback, callback)
+                loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
                 linksFound = true
-            } else {
-                Log.w("OtakustvProvider", "loadLinks - No se encontró ningún reproductor de video válido en el HTML inicial o scripts como fallback.")
             }
         }
 
