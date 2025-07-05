@@ -17,7 +17,7 @@ import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
 class VerpelishdProvider : MainAPI() {
-    override var mainUrl = "https://verpelishd.me"
+    override var mainUrl = "https://verpelishd.me/portal"
     override var name = "VerpelisHD"
     override val supportedTypes = setOf(
         TvType.Movie,
