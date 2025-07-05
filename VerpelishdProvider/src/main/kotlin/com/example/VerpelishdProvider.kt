@@ -369,11 +369,15 @@ class VerpelishdProvider : MainAPI() {
             for (seasonNumber in allSeasons) {
                 // Construir la URL de la petición AJAX para cada temporada
                 val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php" // Usamos searchBaseUrl que es "https://verpelishd.me"
+
+                // ¡CAMBIOS AQUÍ EN formData!
                 val formData = mapOf(
-                    "action" to "seasons",
-                    "id" to seriesId,
+                    "action" to "corvus_get_episodes", // <-- ¡CORREGIDO!
+                    "post_id" to seriesId,             // <-- ¡CORREGIDO!
                     "season" to seasonNumber.toString(),
                     "nonce" to nonce,
+                    "results" to "1000",               // <-- ¡AÑADIDO! Un número grande para obtener todos los resultados
+                    "offset" to "0",                   // <-- ¡AÑADIDO!
                     "order" to "DESC"
                 )
 
@@ -385,9 +389,10 @@ class VerpelishdProvider : MainAPI() {
                     data = formData,
                     headers = mapOf(
                         "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to cleanUrl // ¡Añadimos el Referer aquí!
+                        "Referer" to cleanUrl // Dejar como está, parece correcto por la política de Referrer.
                     )
                 )
+
 
                 if (!ajaxResponse.isSuccessful) {
                     Log.e("VerpelisHD", "load - Petición AJAX fallida para temporada $seasonNumber. Código: ${ajaxResponse.code}, Body: ${ajaxResponse.text}")
