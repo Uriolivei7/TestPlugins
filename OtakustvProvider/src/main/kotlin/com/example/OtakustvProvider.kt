@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete sea correcto para tu proyecto
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -163,19 +163,12 @@ class OtakustvProvider : MainAPI() {
         val poster = doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src") ?: ""
         val description = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
-
-        // NUEVO SELECTOR PARA GÉNEROS/ETIQUETAS
-        val tags = doc.select("div.font14.mb-0.text-white.mt-0.mt-lg-2 a[href*='/genero/']").map { it.text() }
-
-        val releaseDateText = doc.selectFirst("div.font14.mb-0.text-white.mt-0.mt-lg-2 strong:contains(Estreno) + span.date")?.text()?.trim()
-        val year = Regex("""(\d{4})""").find(releaseDateText ?: "")?.groupValues?.get(1)?.toIntOrNull()
-
-        val statusText = doc.selectFirst("span.btn-anime-info.font12.text-white.border.border-white")?.text()?.trim()
-        val status = parseStatus(statusText ?: "")
+        val tags = doc.select("ul.fichas li:contains(Genero:) a").map { it.text() }
+        val year = doc.selectFirst("ul.fichas li:contains(Estreno:) strong")?.text()?.trim()?.split("-")?.firstOrNull()?.toIntOrNull()
+        val status = parseStatus(doc.selectFirst("ul.fichas li:contains(Estado:) strong")?.text()?.trim() ?: "")
 
         val additionalTags = mutableListOf<String>()
-        // NUEVO SELECTOR PARA ETIQUETAS DE AUDIO
-        val audioText = doc.selectFirst("div.font14.mb-0.text-white.mt-0.mt-lg-2 strong:contains(Idioma) + strong")?.text()?.trim()
+        val audioText = doc.selectFirst("ul.fichas li:contains(Idioma:) strong")?.text()?.trim()
         if (audioText != null) {
             when {
                 audioText.contains("latino", ignoreCase = true) -> additionalTags.add("Doblado Latino")
@@ -183,16 +176,15 @@ class OtakustvProvider : MainAPI() {
             }
         }
 
-        val allEpisodeUrls = mutableSetOf<String>() // Usamos Set para evitar URLs duplicadas
-        allEpisodeUrls.add(finalUrlToFetch) // Siempre añadimos la URL base como la primera página
-
-        // NUEVA LÓGICA PARA PAGINACIÓN DE EPISODIOS
-        val paginationLinks = doc.select("ul.pagination a.page-link")
-        if (paginationLinks.isNotEmpty()) {
-            paginationLinks.forEach { linkElement ->
+        val allEpisodeUrls = mutableListOf<String>()
+        val dropdownMenuLinks = doc.select("div.dropdown-menu a")
+        if (dropdownMenuLinks.isNotEmpty()) {
+            dropdownMenuLinks.forEach { linkElement ->
                 val pageUrl = fixUrl(linkElement.attr("href"))
                 if (pageUrl.isNotBlank()) allEpisodeUrls.add(pageUrl)
             }
+        } else {
+            allEpisodeUrls.add(finalUrlToFetch)
         }
 
         val allEpisodes = ArrayList<Episode>()
@@ -219,7 +211,7 @@ class OtakustvProvider : MainAPI() {
             allEpisodes.addAll(episodesOnPage)
         }
 
-        val finalEpisodes = allEpisodes.sortedBy { it.episode } // Ordenar por número de episodio
+        val finalEpisodes = allEpisodes.reversed()
 
         return newTvSeriesLoadResponse(
             name = title,
