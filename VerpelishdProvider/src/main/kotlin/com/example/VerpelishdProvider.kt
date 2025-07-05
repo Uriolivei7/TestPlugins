@@ -16,9 +16,12 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 
+// NECESITARÁS ESTA IMPORTACIÓN PARA @JsonProperty SI NO LA TIENES YA
+import com.fasterxml.jackson.annotation.JsonProperty
+
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
-    private val searchBaseUrl = "https://verpelishd.me"
+    private val searchBaseUrl = "https://verpelishd.me" // Usaremos esto para construir la URL de la serie
     override var name = "VerpelisHD"
     override val supportedTypes = setOf(
         TvType.Movie,
@@ -88,7 +91,7 @@ class VerpelishdProvider : MainAPI() {
                         fixUrl(link)
                     ) {
                         this.type = type
-                        posterUrl = img // Corregido: sin 'this.'
+                        posterUrl = img
                     }
                 } else null
             }
@@ -104,37 +107,27 @@ class VerpelishdProvider : MainAPI() {
         if (latestEpisodesSection != null) {
             val latestEpisodesItems = latestEpisodesSection.select("article.ieps").mapNotNull {
                 val title = it.selectFirst("h3.ieps__title a")?.text()
-                // El 'link' aquí es la URL del episodio. Necesitamos la URL de la serie.
-                // Asumimos que la URL de la serie se puede obtener limpiando la URL del episodio.
-                // Ejemplo: https://verpelishd.me/series/nombre-serie/temporada-x/episodio-y/
-                // Queremos: https://verpelishd.me/series/nombre-serie/
-                val episodeLink = it.selectFirst("a")?.attr("href")
+                val episodeLink = it.selectFirst("a")?.attr("href") // URL del episodio
                 val img = it.selectFirst("picture.ieps__image img")?.attr("src")
 
-                // Extracción de season/episode num (aunque no lo usaremos directamente para el link del SearchResponse)
-                val numerandoText = it.selectFirst("div.ieps__meta span.num")?.text()
-                val seasonNum = it.selectFirst("div.ieps__meta span.ssn")?.text()?.replace("S", "")?.toIntOrNull()
-                val episodeNum = numerandoText?.replace("E", "")?.toIntOrNull()
-
                 if (title != null && episodeLink != null) {
-                    // Generar la URL de la serie a partir de la URL del episodio
-                    // Esto es un patrón común: /series/nombre-serie/temporada-X/episodio-Y/ -> /series/nombre-serie/
-                    val seriesUrl = Regex("""(https?:\/\/[^\/]+\/serie\/[^\/]+)\/""").find(episodeLink)?.groupValues?.get(1)
+                    // NUEVA REGEX para extraer el slug de la serie de la URL del episodio
+                    // Ejemplo: https://verpelishd.me/episodios/duster-s1x8/ -> duster
+                    val seriesSlugMatch = Regex("""\/episodios\/([^\/]+?)-s\d+x\d+\/""").find(episodeLink)
+                    val seriesSlug = seriesSlugMatch?.groupValues?.get(1)
 
-                    if (seriesUrl != null) {
+                    if (seriesSlug != null) {
+                        val seriesUrl = "$searchBaseUrl/serie/${seriesSlug}/" // Construimos la URL de la serie
                         newAnimeSearchResponse(
                             title,
-                            fixUrl(seriesUrl) // AQUI LA URL ES LA DE LA SERIE COMPLETA
+                            fixUrl(seriesUrl) // AHORA LA URL ES LA DE LA SERIE COMPLETA
                         ) {
                             this.type = TvType.TvSeries
                             posterUrl = img
-                            // Ya no necesitamos EpisodeLoadData como la URL principal del SearchResponse.
-                            // La información de episodio se cargará dinámicamente cuando se haga Load().
                         }
                     } else {
-                        // Log si no podemos extraer la URL de la serie, para depuración
                         Log.w("VerpelisHD", "getMainPage - No se pudo extraer la URL de la serie de: $episodeLink")
-                        null
+                        null // Si no se puede extraer la URL de la serie, no agregamos este elemento
                     }
                 } else null
             }
@@ -159,7 +152,7 @@ class VerpelishdProvider : MainAPI() {
                         fixUrl(link)
                     ) {
                         this.type = TvType.Movie
-                        posterUrl = img // Corregido: sin 'this.'
+                        posterUrl = img
                     }
                 } else null
             }
@@ -184,7 +177,7 @@ class VerpelishdProvider : MainAPI() {
                         fixUrl(link)
                     ) {
                         this.type = TvType.TvSeries
-                        posterUrl = img // Corregido: sin 'this.'
+                        posterUrl = img
                     }
                 } else null
             }
@@ -208,7 +201,7 @@ class VerpelishdProvider : MainAPI() {
                     val type = when {
                         typeString?.contains("Películas", ignoreCase = true) == true -> TvType.Movie
                         typeString?.contains("Series", ignoreCase = true) == true -> TvType.TvSeries
-                        else -> null // O un tipo por defecto si no se puede determinar
+                        else -> null
                     }
 
                     if (type != null) {
@@ -217,9 +210,7 @@ class VerpelishdProvider : MainAPI() {
                             fixUrl(link)
                         ) {
                             this.type = type
-                            posterUrl = img // Corregido: sin 'this.'
-                            //plot = it.selectFirst("div.ppitem__overview p")?.text() // Corregido: sin 'this.'
-                            //duration = it.selectFirst("footer.ppitem__footer span")?.text() // Corregido: sin 'this.'
+                            posterUrl = img
                         }
                     } else null
                 } else null
@@ -256,30 +247,55 @@ class VerpelishdProvider : MainAPI() {
                     fixUrl(link)
                 ) {
                     this.type = type
-                    posterUrl = img // Corregido: sin 'this.'
+                    posterUrl = img
                 }
             } else null
         }
     }
 
+    // Data class para serializar/deserializar la URL de episodio para loadLinks
     data class EpisodeLoadData(
-        val title: String,
-        val url: String,
-        val season: Int?, // Añadir season para facilitar la búsqueda AJAX
-        val episode: Int? // Añadir episode para facilitar la búsqueda AJAX
+        val title: String, // Título de la serie
+        val url: String, // URL del episodio específico
+        val season: Int?,
+        val episode: Int?
+    )
+
+    // Data classes para parsear la respuesta JSON de la API de episodios
+    data class EpisodeApiResponse(
+        @JsonProperty("success") val success: Boolean,
+        @JsonProperty("data") val data: EpisodeApiData
+    )
+
+    data class EpisodeApiData(
+        @JsonProperty("results") val results: List<EpisodeApiResult>,
+        @JsonProperty("hasMore") val hasMore: Boolean
+    )
+
+    data class EpisodeApiResult(
+        @JsonProperty("permalink") val permalink: String,
+        @JsonProperty("title") val title: String, // Título de la serie
+        @JsonProperty("name") val name: String, // Título del episodio
+        @JsonProperty("overview") val overview: String,
+        @JsonProperty("release_date") val release_date: String?,
+        @JsonProperty("season_number") val season_number: Int,
+        @JsonProperty("episode_number") val episode_number: Int,
+        @JsonProperty("runtime") val runtime: String?,
+        @JsonProperty("series_id") val series_id: String,
+        @JsonProperty("episode_image") val episode_image: String?
     )
 
     override suspend fun load(url: String): LoadResponse? {
         Log.d("VerpelisHD", "load - URL de entrada: $url")
 
         var cleanUrl = url
-        // Intenta parsear si la URL viene de EpisodeLoadData (para últimos episodios)
+        // Intentar parsear si la URL viene de EpisodeLoadData (para cuando se hace clic en un episodio listado en LoadResponse)
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanUrl)
         if (parsedEpisodeData != null) {
-            cleanUrl = parsedEpisodeData.url
+            cleanUrl = parsedEpisodeData.url // Si es un JSON, obtenemos la URL del episodio de ahí
             Log.d("VerpelisHD", "load - URL limpia de EpisodeLoadData: $cleanUrl")
         } else {
-            // Limpieza general de URL si no es un JSON de EpisodeLoadData
+            // Limpieza general de URL si no es un JSON de EpisodeLoadData (para películas o series clickeadas directamente desde el SearchResponse)
             val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
             if (urlJsonMatch != null) {
                 cleanUrl = urlJsonMatch.groupValues[1]
@@ -292,7 +308,6 @@ class VerpelishdProvider : MainAPI() {
                 Log.d("VerpelisHD", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
             }
         }
-
 
         if (cleanUrl.isBlank()) {
             Log.e("VerpelisHD", "load - ERROR: URL limpia está en blanco.")
@@ -327,47 +342,60 @@ class VerpelishdProvider : MainAPI() {
 
             // Obtener todas las temporadas disponibles del HTML
             val seasonsButtons = doc.select("details.eps-ssns div button")
-            val allSeasons = seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sortedDescending()
+            // Si no hay botones de temporadas, intentamos con la temporada 1 por defecto
+            val allSeasons = if (seasonsButtons.isNotEmpty()) {
+                seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sortedDescending()
+            } else {
+                Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada 1.")
+                listOf(1) // Asumimos al menos una temporada si no se especifican
+            }
+
 
             for (seasonNumber in allSeasons) {
                 // Construir la URL de la petición AJAX para cada temporada
-                val ajaxUrl = "$ajaxUrlBase/admin-ajax.php"
+                val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php" // Usamos searchBaseUrl que es "https://verpelishd.me"
                 val formData = mapOf(
                     "action" to "seasons",
                     "id" to seriesId,
                     "season" to seasonNumber.toString(),
                     "nonce" to nonce,
-                    "order" to "DESC" // O el orden que desees, "ASC" si es necesario
+                    "order" to "DESC"
                 )
 
                 Log.d("VerpelisHD", "load - Obteniendo episodios para Temporada $seasonNumber con AJAX: $ajaxUrl")
-                // Corregido: Usar 'data' para enviar formData en la petición POST
-                val responseJson = app.post(ajaxUrl, data = formData).text
-                val responseDoc = Jsoup.parse(responseJson) // Parsear el HTML JSON de la respuesta
+                val responseJsonText = app.post(ajaxUrl, data = formData).text
 
-                val seasonEpisodes = responseDoc.select("li.lep").mapNotNull { element ->
-                    val epurl = fixUrl(element.selectFirst("a")?.attr("href") ?: "")
-                    val epTitle = element.selectFirst("h3.lep__title")?.text() ?: "" // Título de la serie
-                    val episodeDisplayName = element.selectFirst("span.lep__episode")?.text()?.replace("Episodio", "")?.trim()
-                    val realEpNumber = episodeDisplayName?.toIntOrNull() // Intentar convertir a número
-                    val realSeasonNumber = element.selectFirst("span.lep__season")?.text()?.replace("S", "")?.toIntOrNull()
+                // PARSEAR EL JSON A LA CLASE DE DATOS EpisodeApiResponse
+                val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
 
-                    val realimg = element.selectFirst("div.lep__thumbnail img")?.attr("src")
+                if (episodeApiResponse?.success == true) {
+                    val seasonEpisodes = episodeApiResponse.data.results.mapNotNull { result ->
+                        val epurl = fixUrl(result.permalink)
+                        val epTitle = result.name // Nombre del episodio del JSON
+                        val realEpNumber = result.episode_number
+                        val realSeasonNumber = result.season_number
+                        val realimg = result.episode_image
 
-                    if (epurl.isNotBlank()) {
-                        newEpisode(
-                            EpisodeLoadData(epTitle, epurl, realSeasonNumber, realEpNumber).toJson()
-                        ) {
-                            name = "$epTitle - Episodio $realEpNumber" // Corregido: sin 'this.'
-                            season = realSeasonNumber // Corregido: sin 'this.'
-                            episode = realEpNumber // Corregido: sin 'this.'
-                            posterUrl = realimg // Corregido: sin 'this.'
-                        }
-                    } else null
+                        if (epurl.isNotBlank()) {
+                            newEpisode(
+                                // Usamos EpisodeLoadData para la URL del episodio real para loadLinks
+                                // Aquí pasamos el 'title' del JSON que es el título de la SERIE
+                                EpisodeLoadData(result.title, epurl, realSeasonNumber, realEpNumber).toJson()
+                            ) {
+                                name = "$epTitle" // El nombre del episodio es 'name' del JSON
+                                season = realSeasonNumber
+                                episode = realEpNumber
+                                posterUrl = realimg
+                                this.description = result.overview // Añadir la descripción del episodio
+                            }
+                        } else null
+                    }
+                    episodeList.addAll(seasonEpisodes)
+                } else {
+                    Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber: $responseJsonText")
                 }
-                episodeList.addAll(seasonEpisodes)
             }
-            episodeList.sortedBy { it.episode } // Ordenar los episodios si no vienen ya ordenados
+            episodeList.sortedWith(compareBy({ it.season }, { it.episode })) // Ordenar por temporada y luego por episodio
         } else listOf()
 
         return when (tvType) {
@@ -390,7 +418,7 @@ class VerpelishdProvider : MainAPI() {
                     name = title,
                     url = cleanUrl,
                     type = tvType,
-                    dataUrl = cleanUrl
+                    dataUrl = cleanUrl // dataUrl es apropiado aquí para la MovieLoadResponse
                 ) {
                     this.posterUrl = poster
                     this.backgroundPosterUrl = poster
@@ -447,6 +475,7 @@ class VerpelishdProvider : MainAPI() {
         Log.d("VerpelisHD", "loadLinks - Data de entrada: $data")
 
         var cleanedData = data
+        // La regex para extraer URL si viene como un string directo (para movies, o si EpisodeLoadData falla)
         val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
         val match = regexExtractUrl.find(data)
 
@@ -458,12 +487,13 @@ class VerpelishdProvider : MainAPI() {
         }
 
         val targetUrl: String
+        // Intentar parsear si la 'data' es un JSON de EpisodeLoadData (para cuando un episodio es clickeado)
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
         if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url
+            targetUrl = parsedEpisodeData.url // Si es un JSON, obtenemos la URL del episodio de ahí
             Log.d("VerpelisHD", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            targetUrl = fixUrl(cleanedData)
+            targetUrl = fixUrl(cleanedData) // Si no es JSON, usamos la URL tal cual (para películas, por ejemplo)
             Log.d("VerpelisHD", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
 
