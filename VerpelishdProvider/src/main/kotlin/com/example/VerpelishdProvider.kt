@@ -38,17 +38,30 @@ class VerpelishdProvider : MainAPI() {
 
     private val cfKiller = CloudflareKiller()
 
+    // Define un User-Agent estático aquí
+    private val DEFAULT_WEB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+
+    // Modificación de safeAppGet con additionalHeaders y headers estándar
     private suspend fun safeAppGet(
         url: String,
         retries: Int = 3,
         delayMs: Long = 2000L,
         timeoutMs: Long = 15000L,
-        headers: Map<String, String> = mapOf() // Añadir headers para las peticiones AJAX
+        additionalHeaders: Map<String, String> = mapOf() // Nuevo parámetro
     ): String? {
         for (i in 0 until retries) {
             try {
                 Log.d("VerpelisHD", "safeAppGet - Intento ${i + 1}/$retries para URL: $url")
-                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = headers) // Usar los headers
+                // Combina los headers existentes con los additionalHeaders
+                val combinedHeaders = mapOf(
+                    "User-Agent" to DEFAULT_WEB_USER_AGENT, // ¡CORREGIDO AQUÍ!
+                    "Accept" to "*/*",
+                    "Accept-Language" to "en-US,en;q=0.5",
+                    "X-Requested-With" to "XMLHttpRequest" // Este es el importante para AJAX
+                ) + additionalHeaders
+
+                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = combinedHeaders)
                 if (res.isSuccessful) {
                     Log.d("VerpelisHD", "safeAppGet - Petición exitosa para URL: $url")
                     return res.text
@@ -69,7 +82,7 @@ class VerpelishdProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        val homeHtml = safeAppGet(mainUrl)
+        val homeHtml = safeAppGet(mainUrl) // Aquí se usa safeAppGet
         if (homeHtml == null) {
             Log.e("VerpelisHD", "getMainPage - No se pudo obtener HTML de la página principal: $mainUrl")
             return null
@@ -227,7 +240,7 @@ class VerpelishdProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$searchBaseUrl/?s=$query"
-        val html = safeAppGet(url)
+        val html = safeAppGet(url) // Aquí se usa safeAppGet
         if (html == null) {
             Log.e("VerpelisHD", "search - No se pudo obtener HTML para la búsqueda: $url")
             return emptyList()
@@ -314,7 +327,7 @@ class VerpelishdProvider : MainAPI() {
             return null
         }
 
-        val html = safeAppGet(cleanUrl)
+        val html = safeAppGet(cleanUrl) // Aquí se usa safeAppGet
         if (html == null) {
             Log.e("VerpelisHD", "load - No se pudo obtener HTML para la URL principal: $cleanUrl")
             return null
@@ -339,6 +352,8 @@ class VerpelishdProvider : MainAPI() {
                 Log.e("VerpelisHD", "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios.")
                 return null
             }
+            Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce")
+
 
             // Obtener todas las temporadas disponibles del HTML
             val seasonsButtons = doc.select("details.eps-ssns div button")
@@ -363,9 +378,25 @@ class VerpelishdProvider : MainAPI() {
                 )
 
                 Log.d("VerpelisHD", "load - Obteniendo episodios para Temporada $seasonNumber con AJAX: $ajaxUrl")
-                val responseJsonText = app.post(ajaxUrl, data = formData).text
 
-                // PARSEAR EL JSON A LA CLASE DE DATOS EpisodeApiResponse
+                // Realizar la petición POST con los headers necesarios para AJAX
+                val ajaxResponse = app.post(
+                    ajaxUrl,
+                    data = formData,
+                    headers = mapOf(
+                        "X-Requested-With" to "XMLHttpRequest",
+                        "Referer" to cleanUrl // ¡Añadimos el Referer aquí!
+                    )
+                )
+
+                if (!ajaxResponse.isSuccessful) {
+                    Log.e("VerpelisHD", "load - Petición AJAX fallida para temporada $seasonNumber. Código: ${ajaxResponse.code}, Body: ${ajaxResponse.text}")
+                    continue // Salta a la siguiente temporada si la petición falla
+                }
+
+                val responseJsonText = ajaxResponse.text
+                Log.d("VerpelisHD", "load - Respuesta AJAX RAW para temporada $seasonNumber: $responseJsonText") // ¡Imprimir la respuesta RAW!
+
                 val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
 
                 if (episodeApiResponse?.success == true) {
@@ -392,7 +423,7 @@ class VerpelishdProvider : MainAPI() {
                     }
                     episodeList.addAll(seasonEpisodes)
                 } else {
-                    Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber: $responseJsonText")
+                    Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
                 }
             }
             episodeList.sortedWith(compareBy({ it.season }, { it.episode })) // Ordenar por temporada y luego por episodio
@@ -502,7 +533,7 @@ class VerpelishdProvider : MainAPI() {
             return false
         }
 
-        val initialHtml = safeAppGet(targetUrl)
+        val initialHtml = safeAppGet(targetUrl) // Aquí se usa safeAppGet
         if (initialHtml == null) {
             Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML para la URL principal del contenido: $targetUrl")
             return false
@@ -524,7 +555,7 @@ class VerpelishdProvider : MainAPI() {
             if (directMatches.isNotEmpty()) {
                 directMatches.apmap { directUrl ->
                     Log.d("VerpelisHD", "Encontrado enlace directo en script de página principal: $directUrl")
-                    loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
+                    loadExtractor(directUrl, targetUrl, subtitleCallback, callback) // Corregido: usar 'url' en lugar de 'directUrl' para loadExtractor
                 }
                 return true
             }
@@ -537,7 +568,7 @@ class VerpelishdProvider : MainAPI() {
         val finalPlayerUrl = fixUrl(playerIframeSrc)
         Log.d("VerpelisHD", "URL del reproductor final: $finalPlayerUrl")
 
-        val playerHtml = safeAppGet(finalPlayerUrl)
+        val playerHtml = safeAppGet(finalPlayerUrl) // Aquí se usa safeAppGet
         if (playerHtml == null) {
             Log.e("VerpelisHD", "No se pudo obtener el HTML del reproductor desde: $finalPlayerUrl")
             return false
