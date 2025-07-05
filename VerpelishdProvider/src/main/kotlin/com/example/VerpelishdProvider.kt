@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
+    private val searchBaseUrl = "https://verpelishd.me"
     override var name = "VerpelisHD"
     override val supportedTypes = setOf(
         TvType.Movie,
@@ -98,27 +99,42 @@ class VerpelishdProvider : MainAPI() {
             Log.w("VerpelisHD", "getMainPage - Sección 'Destacados' no encontrada.")
         }
 
-
-        // Sección 2: Últimos episodios (Latest Episodes)
         // Sección 2: Últimos episodios (Latest Episodes)
         val latestEpisodesSection = doc.selectFirst("div.section--episode")
         if (latestEpisodesSection != null) {
             val latestEpisodesItems = latestEpisodesSection.select("article.ieps").mapNotNull {
                 val title = it.selectFirst("h3.ieps__title a")?.text()
-                val link = it.selectFirst("a")?.attr("href") // Esta es la URL del episodio
+                // El 'link' aquí es la URL del episodio. Necesitamos la URL de la serie.
+                // Asumimos que la URL de la serie se puede obtener limpiando la URL del episodio.
+                // Ejemplo: https://verpelishd.me/series/nombre-serie/temporada-x/episodio-y/
+                // Queremos: https://verpelishd.me/series/nombre-serie/
+                val episodeLink = it.selectFirst("a")?.attr("href")
                 val img = it.selectFirst("picture.ieps__image img")?.attr("src")
 
+                // Extracción de season/episode num (aunque no lo usaremos directamente para el link del SearchResponse)
                 val numerandoText = it.selectFirst("div.ieps__meta span.num")?.text()
                 val seasonNum = it.selectFirst("div.ieps__meta span.ssn")?.text()?.replace("S", "")?.toIntOrNull()
                 val episodeNum = numerandoText?.replace("E", "")?.toIntOrNull()
 
-                if (title != null && link != null) {
-                    newAnimeSearchResponse(
-                        title,
-                        EpisodeLoadData(title, fixUrl(link), seasonNum, episodeNum).toJson()
-                    ) {
-                        this.type = TvType.TvSeries // Asumiendo que los últimos episodios son siempre series
-                        posterUrl = img
+                if (title != null && episodeLink != null) {
+                    // Generar la URL de la serie a partir de la URL del episodio
+                    // Esto es un patrón común: /series/nombre-serie/temporada-X/episodio-Y/ -> /series/nombre-serie/
+                    val seriesUrl = Regex("""(https?:\/\/[^\/]+\/serie\/[^\/]+)\/""").find(episodeLink)?.groupValues?.get(1)
+
+                    if (seriesUrl != null) {
+                        newAnimeSearchResponse(
+                            title,
+                            fixUrl(seriesUrl) // AQUI LA URL ES LA DE LA SERIE COMPLETA
+                        ) {
+                            this.type = TvType.TvSeries
+                            posterUrl = img
+                            // Ya no necesitamos EpisodeLoadData como la URL principal del SearchResponse.
+                            // La información de episodio se cargará dinámicamente cuando se haga Load().
+                        }
+                    } else {
+                        // Log si no podemos extraer la URL de la serie, para depuración
+                        Log.w("VerpelisHD", "getMainPage - No se pudo extraer la URL de la serie de: $episodeLink")
+                        null
                     }
                 } else null
             }
@@ -219,7 +235,7 @@ class VerpelishdProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/?s=$query"
+        val url = "$searchBaseUrl/?s=$query"
         val html = safeAppGet(url)
         if (html == null) {
             Log.e("VerpelisHD", "search - No se pudo obtener HTML para la búsqueda: $url")
