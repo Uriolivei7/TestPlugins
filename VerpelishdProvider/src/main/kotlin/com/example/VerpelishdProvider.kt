@@ -19,16 +19,11 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody // Probablemente también necesites esta para el RequestBody, aunque puede que ya esté implícitamente
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.nio.charset.StandardCharsets.UTF_8
-
-data class ServerResponse( // Esta es la respuesta JSON completa
-    val success: Boolean,
-    val data: List<LinkEntry>? // Aquí ServerResponse contiene una lista de LinkEntry
-)
 data class LinkEntry(
-    val url: String? = null, // Puede ser 'url'
-    val link: String? = null, // O puede ser 'link'
-    val type: String,
-    val servername: String? = null // Incluye servername si lo retorna el API, lo necesitarás para los logs
+    val url: String? = null, // 'url' es el campo real aquí
+    val name: String? = null, // 'name' es el nombre del servidor
+    val lang: String? = null, // 'lang' es el idioma
+    val type: String // 'type' es "embed"
 )
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
@@ -597,7 +592,7 @@ class VerpelishdProvider : MainAPI() {
         val jsonResponse = appPost(
             url = ajaxUrl,
             data = postData,
-            referer = targetUrl // Mantén el referer para la legitimidad de la petición
+            referer = targetUrl
         )
 
         if (jsonResponse == null) {
@@ -607,28 +602,31 @@ class VerpelishdProvider : MainAPI() {
 
         Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponse")
 
-        // --- PARSEAR LA RESPUESTA JSON ---
-        val serverResponse = tryParseJson<ServerResponse>(jsonResponse)
-        if (serverResponse?.success == true && !serverResponse.data.isNullOrEmpty()) {
+        // --- NUEVO PARSEO DE LA RESPUESTA JSON ---
+        val serverEntries = tryParseJson<List<LinkEntry>>(jsonResponse) // Parsear directamente como List<LinkEntry>
+
+        if (!serverEntries.isNullOrEmpty()) {
             var foundLinks = false
-            serverResponse.data.apmap { entry ->
-                // Usa 'url' o 'link' según cuál esté presente en la respuesta JSON
-                val rawLink = entry.url ?: entry.link
-                if (!rawLink.isNullOrBlank() && entry.type == "video") {
-                    val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY)
+            serverEntries.apmap { entry ->
+                val rawLink = entry.url // Usa directamente entry.url
+                if (!rawLink.isNullOrBlank() && entry.type == "embed") { // <-- ¡CAMBIAR 'video' a 'embed'!
+                    val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY) // Asume que este link está cifrado
                     if (!decryptedLink.isNullOrBlank()) {
-                        Log.d("VerpelisHD", "loadLinks - Enlace descifrado del servidor: $decryptedLink (Tipo: ${entry.type}, Servidor: ${entry.servername ?: "N/A"})")
+                        Log.d("VerpelisHD", "loadLinks - Enlace descifrado del servidor: $decryptedLink (Tipo: ${entry.type}, Servidor: ${entry.name ?: "N/A"})")
                         loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
                         foundLinks = true
                     } else {
                         Log.w("VerpelisHD", "loadLinks - Fallo al descifrar enlace: $rawLink")
                     }
+                } else {
+                    Log.w("VerpelisHD", "loadLinks - Enlace no válido (nulo/vacío o tipo no 'embed'): $rawLink (Tipo: ${entry.type})")
                 }
             }
             if (foundLinks) return true
         } else {
-            Log.w("VerpelisHD", "loadLinks - Respuesta de servidores JSON vacía, fallida o sin enlaces de video válidos.")
+            Log.w("VerpelisHD", "loadLinks - Lista de servidores JSON vacía o fallida al parsear.")
         }
+
 
         // Si llegamos hasta aquí, es porque no se encontraron enlaces funcionales.
         Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: ${targetUrl}")
