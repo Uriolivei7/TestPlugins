@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import kotlinx.serialization.Serializable // <--- CAMBIO AQUÍ
 import kotlinx.serialization.SerialName   // <--- CAMBIO AQUÍ
 import okhttp3.FormBody
+import org.jsoup.nodes.Document
 
 data class LinkEntry(
     val url: String? = null, // 'url' es el campo real aquí
@@ -582,6 +583,7 @@ class VerpelishdProvider : MainAPI() {
             null
         }
     }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -591,12 +593,11 @@ class VerpelishdProvider : MainAPI() {
         Log.d("VerpelisHD", "loadLinks - Data de entrada: $data")
 
         val targetUrl: String
-        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data) // Asegúrate de que EpisodeLoadData tiene 'url'
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
         if (parsedEpisodeData != null) {
             targetUrl = parsedEpisodeData.url
             Log.d("VerpelisHD", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            // Este bloque podría simplificarse si siempre esperas un JSON con la URL
             val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
             val match = regexExtractUrl.find(data)
             targetUrl = fixUrl(match?.groupValues?.get(1) ?: data)
@@ -608,104 +609,134 @@ class VerpelishdProvider : MainAPI() {
             return false
         }
 
-        val initialHtml = safeAppGet(targetUrl)
-        if (initialHtml == null) {
-            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML para: $targetUrl")
+        // --- CORRECCIÓN 1: safeAppGet ya devuelve String? directamente ---
+        val initialHtmlString = safeAppGet(targetUrl) // ¡Directamente el String? HTML!
+
+        if (initialHtmlString.isNullOrBlank()) {
+            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML (o estaba vacío) para: $targetUrl")
+            return false
+        }
+        // Ahora initialHtmlString es un String no nulo, perfecto para Jsoup.parse()
+        val initialHtml: Document = Jsoup.parse(initialHtmlString)
+
+        // --- NUEVA LÓGICA DE DETECCIÓN DE IFRAME EXTERNO ---
+        val mainIframeSrc = initialHtml.selectFirst("div.player iframe")?.attr("src")
+            ?: initialHtml.selectFirst("#player iframe")?.attr("src")
+
+        if (!mainIframeSrc.isNullOrBlank()) {
+            Log.d("VerpelisHD", "loadLinks - Se encontró un iframe externo principal: $mainIframeSrc. Intentando cargar.")
+            val extractedFromIframe = loadExtractor(mainIframeSrc, targetUrl, subtitleCallback, callback)
+            if (extractedFromIframe) {
+                Log.d("VerpelisHD", "loadLinks - Enlaces extraídos exitosamente del iframe externo.")
+                return true
+            } else {
+                Log.w("VerpelisHD", "loadLinks - No se pudieron extraer enlaces del iframe externo: $mainIframeSrc. Intentando lógica interna de VerpelisHD.")
+            }
+        }
+
+
+        // --- LÓGICA EXISTENTE PARA LA API INTERNA DE VERPELISHD (corvus_get_servers) ---
+        val playerElement = initialHtml.selectFirst("div[data-id][data-nonce]")
+            ?: initialHtml.selectFirst("#to--expand")
+            ?: initialHtml.selectFirst(".fke-player")
+
+        val postId = playerElement?.attr("data-id") ?: ""
+        val nonce = playerElement?.attr("data-nonce") ?: ""
+
+        if (postId.isBlank() || nonce.isBlank()) {
+            Log.w("VerpelisHD", "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor. Esto puede ser normal si el iframe externo funcionó.")
+            Log.w("VerpelisHD", "loadLinks - No se encontraron los datos necesarios para la API interna. Fallo de extracción.")
             return false
         }
 
-        val doc = Jsoup.parse(initialHtml)
-
-        val playerElement = doc.selectFirst("div[data-id][data-nonce]") // Busca un div con ambos atributos
-            ?: doc.selectFirst("#to--expand") // Si no se encuentra directamente, intenta el contenedor
-            ?: doc.selectFirst(".fke-player") // O el fake player mismo
-
-        val postId = playerElement?.attr("data-id")
-        val nonce = playerElement?.attr("data-nonce")
-
-        if (postId.isNullOrBlank() || nonce.isNullOrBlank()) {
-            Log.w("VerpelisHD", "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor.")
-
-            return false
-        }
-
-        val scriptContentInitial = doc.select("script").map { it.html() }.joinToString("\n")
+        val scriptContentInitial = initialHtml.select("script").map { it.html() }.joinToString("\n")
         val corvutilsAjaxUrlRegex = Regex("""corvutils\.ajaxurl\s*:\s*['"]([^'"]+)['"]""")
         val corvutilsAjaxUrlMatch = corvutilsAjaxUrlRegex.find(scriptContentInitial)
         val baseUrlCorvutils = corvutilsAjaxUrlMatch?.groupValues?.get(1)?.trimEnd('/')
         val ajaxUrl = if (!baseUrlCorvutils.isNullOrBlank()) {
             "$baseUrlCorvutils/admin-ajax.php"
         } else {
-            // Fallback si no se encuentra la URL de corvutils.ajaxurl
             "https://verpelishd.me/wp-admin/admin-ajax.php"
         }
 
-        Log.d("VerpelisHD", "loadLinks - post_id: $postId, nonce: $nonce, ajaxUrl: $ajaxUrl")
+        Log.d("VerpelisHD", "loadLinks - post_id: $postId, nonce: $nonce, ajaxUrl: $ajaxUrl. Intentando API interna.")
 
-        // --- REALIZAR LA PETICIÓN AJAX para corvus_get_servers ---
         val postData = mapOf(
-            "action" to "corvus_get_servers", // Este es el action exacto del JS
+            "action" to "corvus_get_servers",
             "nonce" to nonce,
             "post_id" to postId
         )
 
         val postHeaders = mapOf(
-            "User-Agent" to VERPELISHD_USER_AGENT, // Usamos la constante definida arriba
+            "User-Agent" to VERPELISHD_USER_AGENT,
             "Accept" to "*/*",
-            "Accept-Encoding" to "gzip, deflate, br, zstd", // Añade si no funciona sin ella
+            "Accept-Encoding" to "gzip, deflate, br, zstd",
             "Accept-Language" to "es-ES,es;q=0.7",
             "Origin" to "https://verpelishd.me",
             "Priority" to "u=1, i",
-            "Referer" to targetUrl, // Ya lo tenías, pero explícito aquí.
-            "sec-ch-ua" to "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\"", // Asegúrate de que las comillas dobles sean escapadas (con \) si es necesario
+            "Referer" to targetUrl,
+            "sec-ch-ua" to "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\"",
             "sec-ch-ua-mobile" to "?0",
-            "sec-ch-ua-platform" to "\"Windows\"", // Asegúrate de que las comillas dobles sean escapadas (con \) si es necesario
+            "sec-ch-ua-platform" to "\"Windows\"",
             "sec-fetch-dest" to "empty",
             "sec-fetch-mode" to "cors",
             "sec-fetch-site" to "same-origin",
             "sec-gpc" to "1",
-            "X-Requested-With" to "XMLHttpRequest" // Esta ya la tenías, la mantenemos.
+            "X-Requested-With" to "XMLHttpRequest"
         )
 
-        val jsonResponse = appPost(
+        // --- CORRECCIÓN 2: appPost ya devuelve String? directamente ---
+        val jsonResponseRaw = appPost( // ¡Directamente el String? JSON!
             url = ajaxUrl,
-            data = postData, // Esto enviará "action", "nonce", "post_id" como form-urlencoded por defecto
-            headers = postHeaders, // Usamos el mapa de cabeceras completo
-            referer = targetUrl // Mantén el referer aquí también, aunque ya esté en headers, por si acaso appPost lo usa de forma especial
+            data = postData,
+            headers = postHeaders,
+            referer = targetUrl
         )
 
-        if (jsonResponse == null) {
-            Log.e("VerpelisHD", "loadLinks - Falló la petición AJAX para obtener los servidores.")
+        if (jsonResponseRaw.isNullOrBlank()) {
+            Log.e("VerpelisHD", "loadLinks - Falló la petición AJAX para obtener los servidores o la respuesta estaba vacía.")
             return false
         }
 
-        Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponse")
+        Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw")
 
-        val serverEntries = tryParseJson<List<LinkEntry>>(jsonResponse) // Parsear directamente como List<LinkEntry>
+        // --- PARSEO DE LA RESPUESTA JSON DE corvus_get_servers ---
+        // Ahora jsonResponseRaw es un String? (no Any), por lo que el type mismatch se resuelve.
+        val serversResponse = tryParseJson<ServersResponse>(jsonResponseRaw)
 
-        if (!serverEntries.isNullOrEmpty()) {
+        if (serversResponse?.success == true && !serversResponse.players.isNullOrEmpty()) {
+            Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${serversResponse.players.size} reproductores.")
             var foundLinks = false
-            serverEntries.apmap { entry ->
-                val rawLink = entry.url // Usa directamente entry.url
-                if (!rawLink.isNullOrBlank() && entry.type == "embed") {
-                    Log.d("VerpelisHD", "loadLinks - Enlace encontrado: $rawLink (Tipo: ${entry.type}, Servidor: ${entry.name ?: "N/A"})")
-                    loadExtractor(rawLink, targetUrl, subtitleCallback, callback) // <-- ¡Pasa rawLink directamente!
+            serversResponse.players.apmap { player -> // Si 'apmap' da error, cámbialo por 'forEach'
+                val rawLink = player.url
+                if (!rawLink.isNullOrBlank() && (player.type == "iframe" || player.type == "direct")) {
+                    Log.d("VerpelisHD", "loadLinks - Enlace de servidor interno: $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})")
+                    loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
                     foundLinks = true
                 } else {
-                    Log.w("VerpelisHD", "loadLinks - Enlace no válido (nulo/vacío o tipo no 'embed'): $rawLink (Tipo: ${entry.type})")
+                    Log.w("VerpelisHD", "loadLinks - Enlace de servidor interno no válido (nulo/vacío o tipo no reconocido): $rawLink (Tipo: ${player.type})")
                 }
-                
             }
             if (foundLinks) return true
         } else {
-            Log.w("VerpelisHD", "loadLinks - Lista de servidores JSON vacía o fallida al parsear.")
+            Log.w("VerpelisHD", "loadLinks - La API interna devolvió éxito=false o la lista de reproductores está vacía.")
         }
 
-
-        // Si llegamos hasta aquí, es porque no se encontraron enlaces funcionales.
-        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: ${targetUrl}")
+        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video funcionales para: $targetUrl")
         return false
     }
 
+    @Serializable
+    data class ServersResponse(
+        val success: Boolean,
+        val players: List<PlayerOption>
+    )
+
+    @Serializable
+    data class PlayerOption(
+        val name: String?,
+        val url: String?,
+        val type: String? // "iframe" o "direct"
+    )
 }
 //Yeji
