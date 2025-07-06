@@ -668,7 +668,7 @@ class VerpelishdProvider : MainAPI() {
         val postHeaders = mapOf(
             "User-Agent" to VERPELISHD_USER_AGENT,
             "Accept" to "*/*",
-            "Accept-Encoding" to "gzip, deflate, br, zstd",
+            //"Accept-Encoding" to "gzip, deflate, br, zstd",
             "Accept-Language" to "es-ES,es;q=0.7",
             "Origin" to "https://verpelishd.me",
             "Priority" to "u=1, i",
