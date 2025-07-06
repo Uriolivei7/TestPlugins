@@ -695,7 +695,6 @@ class VerpelishdProvider : MainAPI() {
             "X-Requested-With" to "XMLHttpRequest"
         )
 
-        // --- CORRECCIÓN 2: appPost ya devuelve String? directamente ---
         val jsonResponseRaw = appPost(
             url = ajaxUrl,
             data = postData,
@@ -710,20 +709,22 @@ class VerpelishdProvider : MainAPI() {
 
         Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw")
 
-// ¡CAMBIO AQUÍ! Parseamos a ServersResponse
-        val serversResponse = tryParseJson<ServersResponse>(jsonResponseRaw)
+// *** ¡CAMBIO CLAVE AQUÍ! ***
+// Parsear directamente como una lista de PlayerOption
+        val playersList = tryParseJson<List<PlayerOption>>(jsonResponseRaw) // <--- CAMBIO DE ServersResponse A List<PlayerOption>
 
-// Declaramos foundLinks antes de cualquier bloque condicional para que sea accesible
         var foundLinks = false
 
-// Primero verificamos si la respuesta completa es válida y exitosa
-        if (serversResponse != null && serversResponse.success) {
-            val playersList = serversResponse.players // Obtenemos la lista de PlayerOption
+// Ahora, la comprobación se hace directamente sobre playersList
+        if (!playersList.isNullOrEmpty()) { // playersList ya es List<PlayerOption>?, así que no necesitamos serversResponse.players
             Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores.")
 
-            playersList.apmap { player -> // 'player' ahora es de tipo PlayerOption
+            // Si 'apmap' da el error de "nullable receiver", usa 'playersList.let { nonNullableList -> ... }'
+            // Como playersList ya se está comprobando con !isNullOrEmpty(), Kotlin debería hacer el smart cast.
+            // Si no lo hace, entonces sí, usa el 'let' como opción B que te di antes.
+            playersList.apmap { player -> // 'player' es de tipo PlayerOption
                 val rawLink = player.url
-                // Mantén la condición de tipo "iframe", "direct", "embed"
+                // Mantenemos la condición de tipo "iframe", "direct", "embed"
                 if (!rawLink.isNullOrBlank() && (player.type == "iframe" || player.type == "direct" || player.type == "embed")) {
                     Log.d("VerpelisHD", "loadLinks - Enlace de servidor interno (PLUSTREAM/otro tipo compatible): $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})")
                     val extracted = loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
@@ -739,8 +740,8 @@ class VerpelishdProvider : MainAPI() {
 
             if (foundLinks) return true
         } else {
-            // Si serversResponse es null O serversResponse.success es false
-            Log.w("VerpelisHD", "loadLinks - La API interna devolvió éxito=false o no se pudo parsear la respuesta completa de servidores. Respuesta: ${jsonResponseRaw}")
+            // Este log ahora es más preciso
+            Log.w("VerpelisHD", "loadLinks - La API interna devolvió una lista de reproductores vacía o no se pudo parsear a una lista de PlayerOption. Respuesta: ${jsonResponseRaw}")
         }
 
         Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video funcionales para: $targetUrl")
