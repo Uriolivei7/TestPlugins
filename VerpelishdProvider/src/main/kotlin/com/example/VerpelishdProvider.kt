@@ -330,85 +330,119 @@ class VerpelishdProvider : MainAPI() {
 
         val episodes = if (tvType == TvType.TvSeries) {
             val episodeList = ArrayList<Episode>()
-            val seriesId = doc.selectFirst("div.eps[data-tmdb-id]")?.attr("data-tmdb-id")
-            val ajaxUrlBase = doc.selectFirst("div.eps[data-ajaxurl]")?.attr("data-ajaxurl")
-            val nonce = doc.selectFirst("div.eps[data-nonce]")?.attr("data-nonce")
+            val epsDiv = doc.selectFirst("div.eps[data-tmdb-id]")
+            val seriesId = epsDiv?.attr("data-tmdb-id")
+            val ajaxUrlBase = epsDiv?.attr("data-ajaxurl")
+            val nonce = epsDiv?.attr("data-nonce")
+            val defaultResults = epsDiv?.attr("data-results") ?: "1000"
 
             if (seriesId.isNullOrBlank() || ajaxUrlBase.isNullOrBlank() || nonce.isNullOrBlank()) {
                 Log.e("VerpelisHD", "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios.")
                 return null
             }
-            Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce")
+            Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce, defaultResults: $defaultResults")
+
 
             val seasonsButtons = doc.select("details.eps-ssns div button")
             val allSeasons = if (seasonsButtons.isNotEmpty()) {
-                seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sortedDescending()
+                seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sorted()
             } else {
-                Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada 1.")
-                listOf(1)
+                val initialSeasonFromDiv = epsDiv?.attr("data-season-number")?.toIntOrNull()
+                if (initialSeasonFromDiv != null) {
+                    Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada ${initialSeasonFromDiv} de data-season-number.")
+                    listOf(initialSeasonFromDiv)
+                } else {
+                    Log.d("VerpelisHD", "load - No se encontraron botones de temporadas ni data-season-number, asumiendo temporada 1.")
+                    listOf(1)
+                }
             }
+            Log.d("VerpelisHD", "load - Temporadas a procesar: $allSeasons")
+
 
             for (seasonNumber in allSeasons) {
-                val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php"
+                var currentOffset = 0
+                var hasMore = true
 
-                val formData = mapOf(
-                    "action" to "corvus_get_episodes",
-                    "post_id" to seriesId,
-                    "season" to seasonNumber.toString(),
-                    "nonce" to nonce,
-                    "results" to "1000",
-                    "offset" to "0",
-                    "order" to "DESC"
-                )
+                while (hasMore) {
+                    val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php"
 
-                Log.d("VerpelisHD", "load - Pidiendo AJAX para temporada $seasonNumber con URL: $ajaxUrl y formData: $formData")
-
-                val ajaxResponse = app.post(
-                    ajaxUrl,
-                    data = formData,
-                    headers = mapOf(
-                        "X-Requested-With" to "XMLHttpRequest",
-                        "Referer" to cleanUrl
+                    val formData = mapOf(
+                        "action" to "corvus_get_episodes",
+                        "post_id" to seriesId,
+                        "season" to seasonNumber.toString(),
+                        "nonce" to nonce,
+                        "results" to defaultResults,
+                        "offset" to currentOffset.toString(),
+                        "order" to "DESC"
                     )
-                )
 
-                if (!ajaxResponse.isSuccessful) {
-                    Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}")
-                    continue
-                }
+                    Log.d("VerpelisHD", "load - Pidiendo AJAX para Temporada $seasonNumber, Offset $currentOffset con URL: $ajaxUrl y formData: $formData")
 
-                val responseJsonText = ajaxResponse.text
-                Log.d("VerpelisHD", "load - Respuesta AJAX RAW para temporada $seasonNumber: $responseJsonText")
+                    val ajaxResponse = app.post(
+                        ajaxUrl,
+                        data = formData,
+                        headers = mapOf(
+                            "X-Requested-With" to "XMLHttpRequest",
+                            "Referer" to cleanUrl
+                        )
+                    )
 
-                val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
-
-                if (episodeApiResponse?.success == true) {
-                    Log.d("VerpelisHD", "load - JSON de episodios parseado exitosamente para temporada $seasonNumber. Cantidad de resultados: ${episodeApiResponse.data.results.size}")
-                    val seasonEpisodes = episodeApiResponse.data.results.mapNotNull { result ->
-                        val epurl = fixUrl(result.permalink)
-                        val epTitle = result.name
-                        val realEpNumber = result.episode_number
-                        val realSeasonNumber = result.season_number
-                        val realimg = result.episode_image
-
-                        if (epurl.isNotBlank()) {
-                            newEpisode(
-                                EpisodeLoadData(result.title, epurl, realSeasonNumber, realEpNumber).toJson()
-                            ) {
-                                name = "$epTitle"
-                                season = realSeasonNumber
-                                episode = realEpNumber
-                                posterUrl = realimg
-                                this.description = result.overview
-                            }
-                        } else {
-                            Log.w("VerpelisHD", "load - URL de episodio vacía para S${result.season_number}E${result.episode_number} de ${result.title}")
-                            null
-                        }
+                    if (!ajaxResponse.isSuccessful) {
+                        Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}")
+                        break
                     }
-                    episodeList.addAll(seasonEpisodes)
-                } else {
-                    Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
+
+                    val responseJsonText = ajaxResponse.text
+                    Log.d("VerpelisHD", "load - Respuesta AJAX RAW para temporada $seasonNumber, offset $currentOffset: $responseJsonText")
+
+                    val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
+
+                    // Declarar newEpisodes aquí para que sea accesible fuera del if/else
+                    var newEpisodesThisIteration: List<Episode> = emptyList()
+
+                    if (episodeApiResponse?.success == true) {
+                        newEpisodesThisIteration = episodeApiResponse.data.results.mapNotNull { result ->
+                            val epurl = fixUrl(result.permalink)
+                            val epTitle = result.name
+                            val realEpNumber = result.episode_number
+                            val realSeasonNumber = result.season_number
+                            val realimg = result.episode_image
+
+                            if (epurl.isNotBlank()) {
+                                newEpisode(
+                                    EpisodeLoadData(result.title, epurl, realSeasonNumber, realEpNumber).toJson()
+                                ) {
+                                    name = "$epTitle"
+                                    season = realSeasonNumber
+                                    episode = realEpNumber
+                                    posterUrl = realimg
+                                    this.description = result.overview
+                                }
+                            } else {
+                                Log.w("VerpelisHD", "load - URL de episodio vacía para S${result.season_number}E${result.episode_number} de ${result.title}")
+                                null
+                            }
+                        }
+                        episodeList.addAll(newEpisodesThisIteration)
+
+                        if (episodeApiResponse.data.hasMore) {
+                            currentOffset += newEpisodesThisIteration.size // Usa la variable declarada fuera
+                            Log.d("VerpelisHD", "load - Más episodios disponibles para Temporada $seasonNumber. Nuevo offset: $currentOffset")
+                        } else {
+                            hasMore = false
+                            Log.d("VerpelisHD", "load - No hay más episodios para Temporada $seasonNumber.")
+                        }
+
+                    } else {
+                        Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber, offset $currentOffset. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
+                        hasMore = false
+                    }
+
+                    // Ahora newEpisodesThisIteration es accesible aquí
+                    if (newEpisodesThisIteration.isEmpty() && currentOffset > 0 && hasMore) {
+                        Log.w("VerpelisHD", "load - No se obtuvieron nuevos episodios pero 'hasMore' es true. Deteniendo bucle para evitar infinito.")
+                        hasMore = false
+                    }
                 }
             }
             Log.d("VerpelisHD", "load - Total de episodios encontrados: ${episodeList.size}")
@@ -424,7 +458,7 @@ class VerpelishdProvider : MainAPI() {
                     episodes = episodes,
                 ) {
                     this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
+                    this.backgroundPosterUrl = backgroundPoster
                     this.plot = description
                     this.tags = tags
                 }
@@ -438,7 +472,7 @@ class VerpelishdProvider : MainAPI() {
                     dataUrl = cleanUrl
                 ) {
                     this.posterUrl = poster
-                    this.backgroundPosterUrl = poster
+                    this.backgroundPosterUrl = backgroundPoster
                     this.plot = description
                     this.tags = tags
                 }
