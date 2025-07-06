@@ -20,6 +20,16 @@ import okhttp3.RequestBody // Probablemente también necesites esta para el Requ
 import com.fasterxml.jackson.annotation.JsonProperty
 import java.nio.charset.StandardCharsets.UTF_8
 
+data class ServerResponse( // Esta es la respuesta JSON completa
+    val success: Boolean,
+    val data: List<LinkEntry>? // Aquí ServerResponse contiene una lista de LinkEntry
+)
+data class LinkEntry(
+    val url: String? = null, // Puede ser 'url'
+    val link: String? = null, // O puede ser 'link'
+    val type: String,
+    val servername: String? = null // Incluye servername si lo retorna el API, lo necesitarás para los logs
+)
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
     private val searchBaseUrl = "https://verpelishd.me"
@@ -518,167 +528,110 @@ class VerpelishdProvider : MainAPI() {
     ): Boolean {
         Log.d("VerpelisHD", "loadLinks - Data de entrada: $data")
 
-        // Determina la URL objetivo para la carga inicial de la página
         val targetUrl: String
-        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data) // Asegúrate de que EpisodeLoadData tiene 'url'
         if (parsedEpisodeData != null) {
             targetUrl = parsedEpisodeData.url
             Log.d("VerpelisHD", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            // Reserva para datos no JSON (por ejemplo, URL de película directa)
+            // Este bloque podría simplificarse si siempre esperas un JSON con la URL
             val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
             val match = regexExtractUrl.find(data)
-            targetUrl = fixUrl(match?.groupValues?.get(1) ?: data) // Usa la URL encontrada o los datos originales
+            targetUrl = fixUrl(match?.groupValues?.get(1) ?: data)
             Log.d("VerpelisHD", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
 
         if (targetUrl.isBlank()) {
-            Log.e("VerpelisHD", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
+            Log.e("VerpelisHD", "loadLinks - ERROR: URL objetivo está en blanco.")
             return false
         }
 
         val initialHtml = safeAppGet(targetUrl)
         if (initialHtml == null) {
-            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML para la URL principal del contenido: $targetUrl")
+            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML para: $targetUrl")
             return false
         }
 
         val doc = Jsoup.parse(initialHtml)
 
-        // --- NUEVA LÓGICA PARA LA CARGA DEL REPRODUCTOR AJAX ---
-        var playerHtml: String? = null
-        var finalPlayerUrl: String? = null
+        // --- EXTRACCIÓN DE data-id y data-nonce DEL HTML INICIAL ---
+        // Encuentra el elemento que tiene los atributos data-id y data-nonce.
+        // Basado en tu HTML del "fake player", podría ser el div con id "to--expand"
+        // o el div con clase "fke-player". Vamos a buscar ambos.
+        val playerElement = doc.selectFirst("div[data-id][data-nonce]") // Busca un div con ambos atributos
+            ?: doc.selectFirst("#to--expand") // Si no se encuentra directamente, intenta el contenedor
+            ?: doc.selectFirst(".fke-player") // O el fake player mismo
 
-        // Intenta extraer datos AJAX de las etiquetas script para el reproductor
-        val scriptContentInitial = doc.select("script").map { it.html() }.joinToString("\n")
+        val postId = playerElement?.attr("data-id")
+        val nonce = playerElement?.attr("data-nonce")
 
-        val ajaxPostDataRegex = Regex("""player_data\s*=\s*\{([^}]+)\}""")
-        val ajaxPostDataMatch = ajaxPostDataRegex.find(scriptContentInitial)
-
-        if (ajaxPostDataMatch != null) {
-            Log.d("VerpelisHD", "loadLinks - Posible player_data AJAX encontrado en script.")
-            val keyValuePairs = ajaxPostDataMatch.groupValues[1]
-                .split(",")
-                .mapNotNull {
-                    val parts = it.split(":", limit = 2)
-                    if (parts.size == 2) {
-                        val key = parts[0].trim().removeSurrounding("'","\"")
-                        val value = parts[1].trim().removeSurrounding("'","\"")
-                        key to value
-                    } else null
-                }.toMap()
-
-            val ajaxUrlRegex = Regex("""Dooplay\.ajaxurl\s*=\s*['"]([^'"]+)['"]""")
-            val ajaxUrlMatch = ajaxUrlRegex.find(scriptContentInitial)
-            val ajaxUrl = ajaxUrlMatch?.groupValues?.get(1) ?: "https://verpelishd.me/wp-admin/admin-ajax.php" // Reserva si no se encuentra
-
-            if (keyValuePairs.isNotEmpty()) {
-                Log.d("VerpelisHD", "loadLinks - Realizando petición AJAX para cargar el reproductor...")
-                playerHtml = appPost(
-                    url = ajaxUrl,
-                    data = keyValuePairs,
-                    referer = targetUrl // Establece el referer para la solicitud AJAX
-                )
-                if (playerHtml != null) {
-                    Log.d("VerpelisHD", "loadLinks - HTML del reproductor obtenido via AJAX.")
-                    // Ahora, parsea la respuesta AJAX como si fuera el HTML inicial
-                    val playerDocFromAjax = Jsoup.parse(playerHtml)
-                    finalPlayerUrl = playerDocFromAjax.selectFirst("iframe")?.attr("src")
-                    // Si la respuesta AJAX contiene directamente el iframe, usa su src como la URL final del reproductor
-                    if (finalPlayerUrl.isNullOrBlank()) {
-                        // A veces la respuesta AJAX es solo el HTML del iframe, no es necesario extraer src de nuevo
-                        finalPlayerUrl = "" // Marca como manejado si playerHtml contiene el reproductor real
-                    }
-                } else {
-                    Log.e("VerpelisHD", "loadLinks - Falló la petición AJAX para obtener el HTML del reproductor.")
-                }
-            }
-        }
-
-        // Reserva para el análisis directo del iframe si la carga del reproductor AJAX no se usó o falló en producir un iframe
-        if (playerHtml == null) {
-            val playerIframeSrc = doc.selectFirst("iframe[src*=\"plusstream.xyz\"]")?.attr("src")
-                ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
-                ?: doc.selectFirst("iframe[src*=\"/reproductor/\"]")?.attr("src")
-
-            if (!playerIframeSrc.isNullOrBlank()) {
-                Log.d("VerpelisHD", "loadLinks - Iframe del reproductor principal encontrado directamente en HTML: $playerIframeSrc")
-                finalPlayerUrl = fixUrl(playerIframeSrc)
-                playerHtml = safeAppGet(finalPlayerUrl) // Obtén HTML del src del iframe
-            } else {
-                Log.d("VerpelisHD", "loadLinks - No se encontró iframe del reproductor principal en HTML inicial. Intentando buscar enlaces directos en scripts.")
-                val directRegexInitial = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
-                val directMatchesInitial = directRegexInitial.findAll(scriptContentInitial).map { it.groupValues[1] }.toList()
-                if (directMatchesInitial.isNotEmpty()) {
-                    Log.d("VerpelisHD", "loadLinks - Encontrados ${directMatchesInitial.size} enlaces directos en scripts de la página inicial.")
-                    directMatchesInitial.apmap { directUrl ->
-                        loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
-                    }
-                    return true
-                }
-                Log.w("VerpelisHD", "loadLinks - No se encontraron iframes del reproductor ni enlaces directos en la página inicial.")
-                return false
-            }
-        }
-
-        if (playerHtml == null) {
-            Log.e("VerpelisHD", "loadLinks - No se pudo obtener el HTML del reproductor por ningún método.")
+        if (postId.isNullOrBlank() || nonce.isNullOrBlank()) {
+            Log.w("VerpelisHD", "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor.")
+            // Aquí puedes intentar tu lógica de fallback anterior si tienes otras formas de encontrar enlaces
+            // O simplemente retornar false si este es el único método esperado para VerpelisHD
             return false
         }
 
-        val playerDoc = Jsoup.parse(playerHtml)
-        val scriptContentPlayer = playerDoc.select("script").map { it.html() }.joinToString("\n")
+        // --- EXTRACCIÓN DE corvutils.ajaxurl ---
+        val scriptContentInitial = doc.select("script").map { it.html() }.joinToString("\n")
+        val corvutilsAjaxUrlRegex = Regex("""corvutils\.ajaxurl\s*:\s*['"]([^'"]+)['"]""")
+        val corvutilsAjaxUrlMatch = corvutilsAjaxUrlRegex.find(scriptContentInitial)
+        // Asegúrate de que la URL base termina en '/', y luego añade "admin-ajax.php"
+        val baseUrlCorvutils = corvutilsAjaxUrlMatch?.groupValues?.get(1)?.trimEnd('/')
+        val ajaxUrl = if (!baseUrlCorvutils.isNullOrBlank()) {
+            "$baseUrlCorvutils/admin-ajax.php"
+        } else {
+            // Fallback si no se encuentra la URL de corvutils.ajaxurl
+            "https://verpelishd.me/wp-admin/admin-ajax.php"
+        }
 
-        val dataLinkRegex = Regex("""const\s+dataLink\s*=\s*(\[.+?\]);""", RegexOption.DOT_MATCHES_ALL)
-        val dataLinkMatchResult = dataLinkRegex.find(scriptContentPlayer)
+        Log.d("VerpelisHD", "loadLinks - post_id: $postId, nonce: $nonce, ajaxUrl: $ajaxUrl")
 
-        if (dataLinkMatchResult != null && dataLinkMatchResult.groupValues.size >= 2) {
-            val dataLinkJsonString = dataLinkMatchResult.groupValues[1]
-            Log.d("VerpelisHD", "loadLinks - dataLink JSON String encontrado: $dataLinkJsonString")
-            val dataLinkEntries = tryParseJson<List<PlusStreamDataLinkEntry>>(dataLinkJsonString)
-            if (dataLinkEntries.isNullOrEmpty()) {
-                Log.e("VerpelisHD", "loadLinks - No se pudo parsear 'dataLink' o está vacío después del parseo JSON.")
-            } else {
-                var foundPlusStreamLinks = false
-                dataLinkEntries.apmap { entry ->
-                    entry.sortedEmbeds.apmap { embed ->
-                        if (embed.type == "video") {
-                            val decryptedLink = decryptLink(embed.link, PLUSSTREAM_DECRYPT_KEY)
-                            if (!decryptedLink.isNullOrBlank()) {
-                                Log.d("VerpelisHD", "loadLinks - Enlace PlusStream descifrado: $decryptedLink (Servidor: ${embed.servername})")
-                                loadExtractor(decryptedLink, finalPlayerUrl ?: targetUrl, subtitleCallback, callback)
-                                foundPlusStreamLinks = true
-                            } else {
-                                Log.w("VerpelisHD", "loadLinks - Fallo al descifrar enlace PlusStream para: ${embed.link}")
-                            }
-                        }
+        // --- REALIZAR LA PETICIÓN AJAX para corvus_get_servers ---
+        val postData = mapOf(
+            "action" to "corvus_get_servers", // Este es el action exacto del JS
+            "nonce" to nonce,
+            "post_id" to postId
+        )
+
+        val jsonResponse = appPost(
+            url = ajaxUrl,
+            data = postData,
+            referer = targetUrl // Mantén el referer para la legitimidad de la petición
+        )
+
+        if (jsonResponse == null) {
+            Log.e("VerpelisHD", "loadLinks - Falló la petición AJAX para obtener los servidores.")
+            return false
+        }
+
+        Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponse")
+
+        // --- PARSEAR LA RESPUESTA JSON ---
+        val serverResponse = tryParseJson<ServerResponse>(jsonResponse)
+        if (serverResponse?.success == true && !serverResponse.data.isNullOrEmpty()) {
+            var foundLinks = false
+            serverResponse.data.apmap { entry ->
+                // Usa 'url' o 'link' según cuál esté presente en la respuesta JSON
+                val rawLink = entry.url ?: entry.link
+                if (!rawLink.isNullOrBlank() && entry.type == "video") {
+                    val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY)
+                    if (!decryptedLink.isNullOrBlank()) {
+                        Log.d("VerpelisHD", "loadLinks - Enlace descifrado del servidor: $decryptedLink (Tipo: ${entry.type}, Servidor: ${entry.servername ?: "N/A"})")
+                        loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
+                        foundLinks = true
+                    } else {
+                        Log.w("VerpelisHD", "loadLinks - Fallo al descifrar enlace: $rawLink")
                     }
                 }
-                if (foundPlusStreamLinks) return true
             }
+            if (foundLinks) return true
         } else {
-            Log.w("VerpelisHD", "loadLinks - No se encontró la constante 'dataLink' en el script del reproductor o no tiene el formato esperado. Intentando otros métodos.")
+            Log.w("VerpelisHD", "loadLinks - Respuesta de servidores JSON vacía, fallida o sin enlaces de video válidos.")
         }
 
-        val videoUrlRegex = """(https?:\/\/(?:www\.)?(?:fembed\.com|streamlare\.com|ok\.ru|mp4upload\.com|your_other_extractor\.com)[^\s"']+)""".toRegex()
-        val videoUrls = videoUrlRegex.findAll(scriptContentPlayer).map { it.groupValues[1] }.toList()
-
-        if (videoUrls.isNotEmpty()) {
-            Log.d("VerpelisHD", "loadLinks - Encontrados ${videoUrls.size} URLs de video directas en el script del reproductor.")
-            videoUrls.apmap { url ->
-                loadExtractor(url, finalPlayerUrl ?: targetUrl, subtitleCallback, callback)
-            }
-            return true
-        }
-
-        val nestedIframe = playerDoc.selectFirst("iframe")?.attr("src")
-        if (!nestedIframe.isNullOrBlank()) {
-            Log.d("VerpelisHD", "loadLinks - Encontrado iframe anidado en el reproductor: $nestedIframe")
-            loadExtractor(fixUrl(nestedIframe), finalPlayerUrl ?: targetUrl, subtitleCallback, callback)
-            return true
-        }
-
-        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: ${finalPlayerUrl ?: "N/A"}")
+        // Si llegamos hasta aquí, es porque no se encontraron enlaces funcionales.
+        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: ${targetUrl}")
         return false
     }
 }
