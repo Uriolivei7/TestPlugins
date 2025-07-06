@@ -609,18 +609,16 @@ class VerpelishdProvider : MainAPI() {
             var foundLinks = false
             serverEntries.apmap { entry ->
                 val rawLink = entry.url // Usa directamente entry.url
-                if (!rawLink.isNullOrBlank() && entry.type == "embed") { // <-- ¡CAMBIAR 'video' a 'embed'!
-                    val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY) // Asume que este link está cifrado
-                    if (!decryptedLink.isNullOrBlank()) {
-                        Log.d("VerpelisHD", "loadLinks - Enlace descifrado del servidor: $decryptedLink (Tipo: ${entry.type}, Servidor: ${entry.name ?: "N/A"})")
-                        loadExtractor(decryptedLink, targetUrl, subtitleCallback, callback)
-                        foundLinks = true
-                    } else {
-                        Log.w("VerpelisHD", "loadLinks - Fallo al descifrar enlace: $rawLink")
-                    }
+                if (!rawLink.isNullOrBlank() && entry.type == "embed") {
+                    // ANTES: val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY)
+                    // AHORA: Si crees que no está cifrado, pasa rawLink directamente
+                    Log.d("VerpelisHD", "loadLinks - Enlace encontrado: $rawLink (Tipo: ${entry.type}, Servidor: ${entry.name ?: "N/A"})")
+                    loadExtractor(rawLink, targetUrl, subtitleCallback, callback) // <-- ¡Pasa rawLink directamente!
+                    foundLinks = true
                 } else {
                     Log.w("VerpelisHD", "loadLinks - Enlace no válido (nulo/vacío o tipo no 'embed'): $rawLink (Tipo: ${entry.type})")
                 }
+                
             }
             if (foundLinks) return true
         } else {
