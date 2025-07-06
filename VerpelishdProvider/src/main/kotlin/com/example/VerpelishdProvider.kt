@@ -19,7 +19,7 @@ import kotlin.text.RegexOption // <-- Importación necesaria para RegexOption
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class VerpelishdProvider : MainAPI() {
+class VerpelisHDProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
     private val searchBaseUrl = "https://verpelishd.me"
     override var name = "VerpelisHD"

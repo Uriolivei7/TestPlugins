@@ -8,6 +8,6 @@ import com.lagradost.cloudstream3.plugins.Plugin // Importa la clase base Plugin
 class VerpelishdPlugin : Plugin() {
 
     override fun load(context: Context) {
-        registerMainAPI(VerpelishdProvider())
+        registerMainAPI(VerpelisHDProvider())
     }
 }
