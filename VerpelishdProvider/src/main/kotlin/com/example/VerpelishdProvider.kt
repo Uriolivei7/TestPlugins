@@ -16,8 +16,8 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
 import kotlin.text.RegexOption // <-- Importación necesaria para RegexOption si DOT_MATCHES_ALL se usa
-
-
+import okhttp3.MultipartBody
+import okhttp3.RequestBody // Probablemente también necesites esta para el RequestBody, aunque puede que ya esté implícitamente
 import com.fasterxml.jackson.annotation.JsonProperty
 
 class VerpelishdProvider : MainAPI() {
@@ -328,6 +328,8 @@ class VerpelishdProvider : MainAPI() {
         val description = doc.selectFirst("p.hero__overview")?.text() ?: doc.selectFirst("div.wp-content")?.text() ?: ""
         val tags = doc.select("div.hero__genres ul li a").map { it.text() }
 
+        val seriesPageUrl = cleanUrl // Esta es la URL de la serie, guárdala para el Referer
+
         val episodes = if (tvType == TvType.TvSeries) {
             val episodeList = ArrayList<Episode>()
             val epsDiv = doc.selectFirst("div.eps[data-tmdb-id]")
@@ -378,17 +380,25 @@ class VerpelishdProvider : MainAPI() {
 
                     Log.d("VerpelisHD", "load - Pidiendo AJAX para Temporada $seasonNumber, Offset $currentOffset con URL: $ajaxUrl y formData: $formData")
 
+                    // Importar si no lo tienes: import okhttp3.MultipartBody
+                    // Necesitas tener la dependencia de okhttp3 en tu build.gradle si no la tienes ya.
+                    val requestBodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
+                    for ((key, value) in formData) {
+                        requestBodyBuilder.addFormDataPart(key, value)
+                    }
+                    val requestBody = requestBodyBuilder.build()
+
                     val ajaxResponse = app.post(
                         ajaxUrl,
-                        data = formData,
+                        requestBody = requestBody, // <-- Este es el parámetro correcto para RequestBody
                         headers = mapOf(
                             "X-Requested-With" to "XMLHttpRequest",
-                            "Referer" to cleanUrl
+                            "Referer" to seriesPageUrl
                         )
                     )
 
                     if (!ajaxResponse.isSuccessful) {
-                        Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}")
+                        Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}. Respuesta RAW: ${ajaxResponse.text}")
                         break
                     }
 
@@ -397,7 +407,6 @@ class VerpelishdProvider : MainAPI() {
 
                     val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
 
-                    // Declarar newEpisodes aquí para que sea accesible fuera del if/else
                     var newEpisodesThisIteration: List<Episode> = emptyList()
 
                     if (episodeApiResponse?.success == true) {
@@ -426,7 +435,7 @@ class VerpelishdProvider : MainAPI() {
                         episodeList.addAll(newEpisodesThisIteration)
 
                         if (episodeApiResponse.data.hasMore) {
-                            currentOffset += newEpisodesThisIteration.size // Usa la variable declarada fuera
+                            currentOffset += newEpisodesThisIteration.size
                             Log.d("VerpelisHD", "load - Más episodios disponibles para Temporada $seasonNumber. Nuevo offset: $currentOffset")
                         } else {
                             hasMore = false
@@ -438,7 +447,6 @@ class VerpelishdProvider : MainAPI() {
                         hasMore = false
                     }
 
-                    // Ahora newEpisodesThisIteration es accesible aquí
                     if (newEpisodesThisIteration.isEmpty() && currentOffset > 0 && hasMore) {
                         Log.w("VerpelisHD", "load - No se obtuvieron nuevos episodios pero 'hasMore' es true. Deteniendo bucle para evitar infinito.")
                         hasMore = false
