@@ -15,11 +15,12 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 import kotlinx.coroutines.delay
-import kotlin.text.RegexOption // <-- Importación necesaria para RegexOption
+import kotlin.text.RegexOption // <-- Importación necesaria para RegexOption si DOT_MATCHES_ALL se usa
+
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class VerpelisHDProvider : MainAPI() {
+class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
     private val searchBaseUrl = "https://verpelishd.me"
     override var name = "VerpelisHD"
@@ -40,6 +41,7 @@ class VerpelisHDProvider : MainAPI() {
 
     private val DEFAULT_WEB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+    // Clave de descifrado para PlusStream, mantenida como la tenías
     private val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
 
     private suspend fun safeAppGet(
@@ -51,6 +53,7 @@ class VerpelisHDProvider : MainAPI() {
     ): String? {
         for (i in 0 until retries) {
             try {
+                Log.d("VerpelisHD", "safeAppGet - Intento ${i + 1}/$retries para URL: $url")
                 val combinedHeaders = mapOf(
                     "User-Agent" to DEFAULT_WEB_USER_AGENT,
                     "Accept" to "*/*",
@@ -60,12 +63,16 @@ class VerpelisHDProvider : MainAPI() {
 
                 val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = combinedHeaders)
                 if (res.isSuccessful) {
+                    Log.d("VerpelisHD", "safeAppGet - Petición exitosa para URL: $url")
                     return res.text
+                } else {
+                    Log.w("VerpelisHD", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
                 }
             } catch (e: Exception) {
                 Log.e("VerpelisHD", "safeAppGet - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}", e)
             }
             if (i < retries - 1) {
+                Log.d("VerpelisHD", "safeAppGet - Reintentando en ${delayMs / 1000.0} segundos...")
                 delay(delayMs)
             }
         }
@@ -76,7 +83,10 @@ class VerpelisHDProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val homeHtml = safeAppGet(mainUrl)
-        if (homeHtml == null) return null
+        if (homeHtml == null) {
+            Log.e("VerpelisHD", "getMainPage - No se pudo obtener HTML de la página principal: $mainUrl")
+            return null
+        }
         val doc = Jsoup.parse(homeHtml)
 
         val featuredSection = doc.selectFirst("div.section--featured")
@@ -88,13 +98,20 @@ class VerpelisHDProvider : MainAPI() {
 
                 if (title != null && link != null) {
                     val type = if (link.contains("/serie/")) TvType.TvSeries else TvType.Movie
-                    newAnimeSearchResponse(title, fixUrl(link)) {
+                    newAnimeSearchResponse(
+                        title,
+                        fixUrl(link)
+                    ) {
                         this.type = type
                         posterUrl = img
                     }
                 } else null
             }
-            if (featuredItems.isNotEmpty()) items.add(HomePageList("Destacados", featuredItems))
+            if (featuredItems.isNotEmpty()) {
+                items.add(HomePageList("Destacados", featuredItems))
+            }
+        } else {
+            Log.w("VerpelisHD", "getMainPage - Sección 'Destacados' no encontrada.")
         }
 
         val latestEpisodesSection = doc.selectFirst("div.section--episode")
@@ -110,14 +127,24 @@ class VerpelisHDProvider : MainAPI() {
 
                     if (seriesSlug != null) {
                         val seriesUrl = "$searchBaseUrl/serie/${seriesSlug}/"
-                        newAnimeSearchResponse(title, fixUrl(seriesUrl)) {
+                        newAnimeSearchResponse(
+                            title,
+                            fixUrl(seriesUrl)
+                        ) {
                             this.type = TvType.TvSeries
                             posterUrl = img
                         }
-                    } else null
+                    } else {
+                        Log.w("VerpelisHD", "getMainPage - No se pudo extraer la URL de la serie de: $episodeLink")
+                        null
+                    }
                 } else null
             }
-            if (latestEpisodesItems.isNotEmpty()) items.add(HomePageList("Últimos episodios", latestEpisodesItems))
+            if (latestEpisodesItems.isNotEmpty()) {
+                items.add(HomePageList("Últimos episodios", latestEpisodesItems))
+            }
+        } else {
+            Log.w("VerpelisHD", "getMainPage - Sección 'Últimos episodios' no encontrada.")
         }
 
         val recentMoviesSection = doc.selectFirst("div#tab-peliculas")
@@ -128,13 +155,20 @@ class VerpelisHDProvider : MainAPI() {
                 val img = it.selectFirst("figure.ipst__image a img")?.attr("src")
 
                 if (title != null && link != null) {
-                    newAnimeSearchResponse(title, fixUrl(link)) {
+                    newAnimeSearchResponse(
+                        title,
+                        fixUrl(link)
+                    ) {
                         this.type = TvType.Movie
                         posterUrl = img
                     }
                 } else null
             }
-            if (recentMoviesItems.isNotEmpty()) items.add(HomePageList("Películas Recientemente Agregadas", recentMoviesItems))
+            if (recentMoviesItems.isNotEmpty()) {
+                items.add(HomePageList("Películas Recientemente Agregadas", recentMoviesItems))
+            }
+        } else {
+            Log.w("VerpelisHD", "getMainPage - Sección 'Películas Recientemente Agregadas' no encontrada.")
         }
 
         val recentSeriesSection = doc.selectFirst("div#tab-series")
@@ -145,13 +179,20 @@ class VerpelisHDProvider : MainAPI() {
                 val img = it.selectFirst("figure.ipst__image a img")?.attr("src")
 
                 if (title != null && link != null) {
-                    newAnimeSearchResponse(title, fixUrl(link)) {
+                    newAnimeSearchResponse(
+                        title,
+                        fixUrl(link)
+                    ) {
                         this.type = TvType.TvSeries
                         posterUrl = img
                     }
                 } else null
             }
-            if (recentSeriesItems.isNotEmpty()) items.add(HomePageList("Series Recientemente Agregadas", recentSeriesItems))
+            if (recentSeriesItems.isNotEmpty()) {
+                items.add(HomePageList("Series Recientemente Agregadas", recentSeriesItems))
+            }
+        } else {
+            Log.w("VerpelisHD", "getMainPage - Sección 'Series Recientemente Agregadas' no encontrada.")
         }
 
         val popularNowSection = doc.selectFirst("div.section--popular")
@@ -168,15 +209,23 @@ class VerpelisHDProvider : MainAPI() {
                         typeString?.contains("Series", ignoreCase = true) == true -> TvType.TvSeries
                         else -> null
                     }
+
                     if (type != null) {
-                        newAnimeSearchResponse(title, fixUrl(link)) {
+                        newAnimeSearchResponse(
+                            title,
+                            fixUrl(link)
+                        ) {
                             this.type = type
                             posterUrl = img
                         }
                     } else null
                 } else null
             }
-            if (popularNowItems.isNotEmpty()) items.add(HomePageList("Popular ahora", popularNowItems))
+            if (popularNowItems.isNotEmpty()) {
+                items.add(HomePageList("Popular ahora", popularNowItems))
+            }
+        } else {
+            Log.w("VerpelisHD", "getMainPage - Sección 'Popular ahora' no encontrada.")
         }
 
         return newHomePageResponse(items, false)
@@ -185,7 +234,10 @@ class VerpelisHDProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$searchBaseUrl/?s=$query"
         val html = safeAppGet(url)
-        if (html == null) return emptyList()
+        if (html == null) {
+            Log.e("VerpelisHD", "search - No se pudo obtener HTML para la búsqueda: $url")
+            return emptyList()
+        }
         val doc = Jsoup.parse(html)
         return doc.select("div.items article.ipst").mapNotNull {
             val title = it.selectFirst("h3.ipst__title a")?.text()
@@ -194,7 +246,10 @@ class VerpelisHDProvider : MainAPI() {
 
             if (title != null && link != null) {
                 val type = if (link.contains("/serie/")) TvType.TvSeries else TvType.Movie
-                newAnimeSearchResponse(title, fixUrl(link)) {
+                newAnimeSearchResponse(
+                    title,
+                    fixUrl(link)
+                ) {
                     this.type = type
                     posterUrl = img
                 }
@@ -233,29 +288,43 @@ class VerpelisHDProvider : MainAPI() {
     )
 
     override suspend fun load(url: String): LoadResponse? {
+        Log.d("VerpelisHD", "load - URL de entrada: $url")
+
         var cleanUrl = url
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanUrl)
         if (parsedEpisodeData != null) {
             cleanUrl = parsedEpisodeData.url
+            Log.d("VerpelisHD", "load - URL limpia de EpisodeLoadData: $cleanUrl")
         } else {
             val urlJsonMatch = Regex("""\{"url":"(https?:\/\/[^"]+)"\}""").find(url)
             if (urlJsonMatch != null) {
                 cleanUrl = urlJsonMatch.groupValues[1]
+                Log.d("VerpelisHD", "load - URL limpia por JSON Regex: $cleanUrl")
             } else {
                 if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
                     cleanUrl = "https://" + cleanUrl.removePrefix("//")
+                    Log.d("VerpelisHD", "load - URL limpiada con HTTPS: $cleanUrl")
                 }
+                Log.d("VerpelisHD", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
             }
         }
 
-        if (cleanUrl.isBlank()) return null
+        if (cleanUrl.isBlank()) {
+            Log.e("VerpelisHD", "load - ERROR: URL limpia está en blanco.")
+            return null
+        }
+
         val html = safeAppGet(cleanUrl)
-        if (html == null) return null
+        if (html == null) {
+            Log.e("VerpelisHD", "load - No se pudo obtener HTML para la URL principal: $cleanUrl")
+            return null
+        }
         val doc = Jsoup.parse(html)
 
         val tvType = if (cleanUrl.contains("/pelicula/")) TvType.Movie else TvType.TvSeries
         val title = doc.selectFirst("article.hero h2")?.text() ?: doc.selectFirst("div.data h1")?.text() ?: ""
         val poster = doc.selectFirst("div.hero__poster img")?.attr("src") ?: doc.selectFirst("div.poster img")?.attr("src") ?: ""
+        val backgroundPoster = doc.selectFirst("figure.hero__backdrop img")?.attr("src") ?: poster
         val description = doc.selectFirst("p.hero__overview")?.text() ?: doc.selectFirst("div.wp-content")?.text() ?: ""
         val tags = doc.select("div.hero__genres ul li a").map { it.text() }
 
@@ -265,17 +334,23 @@ class VerpelisHDProvider : MainAPI() {
             val ajaxUrlBase = doc.selectFirst("div.eps[data-ajaxurl]")?.attr("data-ajaxurl")
             val nonce = doc.selectFirst("div.eps[data-nonce]")?.attr("data-nonce")
 
-            if (seriesId.isNullOrBlank() || ajaxUrlBase.isNullOrBlank() || nonce.isNullOrBlank()) return null
+            if (seriesId.isNullOrBlank() || ajaxUrlBase.isNullOrBlank() || nonce.isNullOrBlank()) {
+                Log.e("VerpelisHD", "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios.")
+                return null
+            }
+            Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce")
 
             val seasonsButtons = doc.select("details.eps-ssns div button")
             val allSeasons = if (seasonsButtons.isNotEmpty()) {
                 seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sortedDescending()
             } else {
+                Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada 1.")
                 listOf(1)
             }
 
             for (seasonNumber in allSeasons) {
                 val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php"
+
                 val formData = mapOf(
                     "action" to "corvus_get_episodes",
                     "post_id" to seriesId,
@@ -286,6 +361,8 @@ class VerpelisHDProvider : MainAPI() {
                     "order" to "DESC"
                 )
 
+                Log.d("VerpelisHD", "load - Pidiendo AJAX para temporada $seasonNumber con URL: $ajaxUrl y formData: $formData")
+
                 val ajaxResponse = app.post(
                     ajaxUrl,
                     data = formData,
@@ -295,28 +372,46 @@ class VerpelisHDProvider : MainAPI() {
                     )
                 )
 
-                if (!ajaxResponse.isSuccessful) continue
+                if (!ajaxResponse.isSuccessful) {
+                    Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}")
+                    continue
+                }
+
                 val responseJsonText = ajaxResponse.text
+                Log.d("VerpelisHD", "load - Respuesta AJAX RAW para temporada $seasonNumber: $responseJsonText")
+
                 val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
 
                 if (episodeApiResponse?.success == true) {
+                    Log.d("VerpelisHD", "load - JSON de episodios parseado exitosamente para temporada $seasonNumber. Cantidad de resultados: ${episodeApiResponse.data.results.size}")
                     val seasonEpisodes = episodeApiResponse.data.results.mapNotNull { result ->
                         val epurl = fixUrl(result.permalink)
+                        val epTitle = result.name
+                        val realEpNumber = result.episode_number
+                        val realSeasonNumber = result.season_number
+                        val realimg = result.episode_image
+
                         if (epurl.isNotBlank()) {
                             newEpisode(
-                                EpisodeLoadData(result.title, epurl, result.season_number, result.episode_number).toJson()
+                                EpisodeLoadData(result.title, epurl, realSeasonNumber, realEpNumber).toJson()
                             ) {
-                                name = result.name
-                                season = result.season_number
-                                episode = result.episode_number
-                                posterUrl = result.episode_image
+                                name = "$epTitle"
+                                season = realSeasonNumber
+                                episode = realEpNumber
+                                posterUrl = realimg
                                 this.description = result.overview
                             }
-                        } else null
+                        } else {
+                            Log.w("VerpelisHD", "load - URL de episodio vacía para S${result.season_number}E${result.episode_number} de ${result.title}")
+                            null
+                        }
                     }
                     episodeList.addAll(seasonEpisodes)
+                } else {
+                    Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
                 }
             }
+            Log.d("VerpelisHD", "load - Total de episodios encontrados: ${episodeList.size}")
             episodeList.sortedWith(compareBy({ it.season }, { it.episode }))
         } else listOf()
 
@@ -334,6 +429,7 @@ class VerpelisHDProvider : MainAPI() {
                     this.tags = tags
                 }
             }
+
             TvType.Movie -> {
                 newMovieLoadResponse(
                     name = title,
@@ -347,18 +443,20 @@ class VerpelisHDProvider : MainAPI() {
                     this.tags = tags
                 }
             }
+
             else -> null
         }
     }
 
-    data class PlusStreamEmbed(
+    // Data classes para el JSON de PlusStream
+    data class PlusStreamEmbed( // Cambiado de SortedEmbed a PlusStreamEmbed para claridad
         @JsonProperty("servername") val servername: String,
         @JsonProperty("link") val link: String,
         @JsonProperty("type") val type: String
     )
 
-    data class PlusStreamDataLinkEntry(
-        @JsonProperty("file_id") val file_id: Int,
+    data class PlusStreamDataLinkEntry( // Cambiado de DataLinkEntry a PlusStreamDataLinkEntry
+        @JsonProperty("file_id") val file_id: String, // Asumo que es String por el ejemplo anterior, si es Int cámbialo
         @JsonProperty("video_language") val video_language: String,
         @JsonProperty("sortedEmbeds") val sortedEmbeds: List<PlusStreamEmbed>
     )
@@ -366,13 +464,19 @@ class VerpelisHDProvider : MainAPI() {
     private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
         try {
             val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
+
             val ivBytes = encryptedBytes.copyOfRange(0, 16)
             val ivSpec = IvParameterSpec(ivBytes)
+
             val cipherTextBytes = encryptedBytes.copyOfRange(16, encryptedBytes.size)
+
             val keySpec = SecretKeySpec(secretKey.toByteArray(UTF_8), "AES")
+
             val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
             cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+
             val decryptedBytes = cipher.doFinal(cipherTextBytes)
+
             return String(decryptedBytes, UTF_8)
         } catch (e: Exception) {
             Log.e("VerpelisHD", "Error al descifrar link: ${e.message}", e)
@@ -386,86 +490,141 @@ class VerpelisHDProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        Log.d("VerpelisHD", "loadLinks - Data de entrada: $data")
+
         var cleanedData = data
+        // La regex para extraer URL si viene como un string directo (para movies, o si EpisodeLoadData falla)
         val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
         val match = regexExtractUrl.find(data)
 
         if (match != null) {
             cleanedData = match.groupValues[1]
+            Log.d("VerpelisHD", "loadLinks - Data limpia por Regex (primer intento): $cleanedData")
+        } else {
+            Log.d("VerpelisHD", "loadLinks - Regex inicial no encontró coincidencia. Usando data original: $cleanedData")
         }
 
         val targetUrl: String
+        // Intentar parsear si la 'data' es un JSON de EpisodeLoadData (para cuando un episodio es clickeado)
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(cleanedData)
         if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url
+            targetUrl = parsedEpisodeData.url // Si es un JSON, obtenemos la URL del episodio de ahí
+            Log.d("VerpelisHD", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
-            targetUrl = fixUrl(cleanedData)
+            targetUrl = fixUrl(cleanedData) // Si no es JSON, usamos la URL tal cual (para películas, por ejemplo)
+            Log.d("VerpelisHD", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
         }
 
-        if (targetUrl.isBlank()) return false
+        if (targetUrl.isBlank()) {
+            Log.e("VerpelisHD", "loadLinks - ERROR: URL objetivo está en blanco después de procesar 'data'.")
+            return false
+        }
+
         val initialHtml = safeAppGet(targetUrl)
-        if (initialHtml == null) return false
+        if (initialHtml == null) {
+            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML para la URL principal del contenido: $targetUrl")
+            return false
+        }
         val doc = Jsoup.parse(initialHtml)
 
-        // Ajustar el selector del iframe principal para PlusStream
+        // Ajustar el selector del iframe principal para PlusStream o el reproductor general
+        // Intenta encontrar iframes que contengan "plusstream.xyz" o que sean del tipo dooplay_player_response
         val playerIframeSrc = doc.selectFirst("iframe[src*=\"plusstream.xyz\"]")?.attr("src")
             ?: doc.selectFirst("div[id*=\"dooplay_player_response\"] iframe")?.attr("src")
+            ?: doc.selectFirst("iframe[src*=\"/reproductor/\"]")?.attr("src") // Tu selector anterior
 
 
         if (playerIframeSrc.isNullOrBlank()) {
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
-            val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
-            val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
-            if (directMatches.isNotEmpty()) {
-                directMatches.apmap { directUrl ->
+            Log.d("VerpelisHD", "loadLinks - No se encontró iframe del reproductor principal. Intentando buscar enlaces directos en scripts de la página inicial.")
+
+            val scriptContentInitial = doc.select("script").map { it.html() }.joinToString("\n")
+            val directRegexInitial = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
+            val directMatchesInitial = directRegexInitial.findAll(scriptContentInitial).map { it.groupValues[1] }.toList()
+
+            if (directMatchesInitial.isNotEmpty()) {
+                Log.d("VerpelisHD", "loadLinks - Encontrados ${directMatchesInitial.size} enlaces directos en scripts de la página inicial.")
+                directMatchesInitial.apmap { directUrl ->
                     loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
                 }
                 return true
             }
+            Log.w("VerpelisHD", "loadLinks - No se encontraron iframes del reproductor ni enlaces directos en la página inicial.")
             return false
         }
+
+        Log.d("VerpelisHD", "loadLinks - Iframe del reproductor principal encontrado: $playerIframeSrc")
 
         val finalPlayerUrl = fixUrl(playerIframeSrc)
+        Log.d("VerpelisHD", "loadLinks - URL del reproductor final: $finalPlayerUrl")
+
         val playerHtml = safeAppGet(finalPlayerUrl)
-        if (playerHtml == null) return false
+        if (playerHtml == null) {
+            Log.e("VerpelisHD", "loadLinks - No se pudo obtener el HTML del reproductor desde: $finalPlayerUrl")
+            return false
+        }
         val playerDoc = Jsoup.parse(playerHtml)
 
-        val scriptContent = playerDoc.select("script").map { it.html() }.joinToString("\n")
-        // Corrección: Usar DOT_MATCHES_ALL en lugar de DOT_ALL
+        val scriptContentPlayer = playerDoc.select("script").map { it.html() }.joinToString("\n")
+
+        // === LÓGICA DE PLUSSTREAM (REINCORPORADA) ===
         val dataLinkRegex = Regex("""const\s+dataLink\s*=\s*(\[.+?\]);""", RegexOption.DOT_MATCHES_ALL)
-        val dataLinkMatchResult = dataLinkRegex.find(scriptContent) // Corrección: Renombrar para smart cast
+        val dataLinkMatchResult = dataLinkRegex.find(scriptContentPlayer)
 
-        // Corrección: Acceder a groupValues de forma segura después de la verificación de nulidad
-        if (dataLinkMatchResult == null || dataLinkMatchResult.groupValues.size < 2) {
-            Log.e("VerpelisHD", "loadLinks - No se encontró la constante 'dataLink' o no tiene el formato esperado.")
-            return false
-        }
+        if (dataLinkMatchResult != null && dataLinkMatchResult.groupValues.size >= 2) {
+            val dataLinkJsonString = dataLinkMatchResult.groupValues[1]
+            Log.d("VerpelisHD", "loadLinks - dataLink JSON String encontrado: $dataLinkJsonString")
 
-        val dataLinkJsonString = dataLinkMatchResult.groupValues[1] // Accede al primer grupo de captura
-        val dataLinkEntries = tryParseJson<List<PlusStreamDataLinkEntry>>(dataLinkJsonString)
+            val dataLinkEntries = tryParseJson<List<PlusStreamDataLinkEntry>>(dataLinkJsonString)
 
-        if (dataLinkEntries.isNullOrEmpty()) {
-            Log.e("VerpelisHD", "loadLinks - No se pudo parsear 'dataLink' o está vacío.")
-            return false
-        }
-
-        val primaryEmbeds = dataLinkEntries.firstOrNull()?.sortedEmbeds
-        if (primaryEmbeds.isNullOrEmpty()) {
-            Log.w("VerpelisHD", "loadLinks - No se encontraron embeds en la entrada principal de dataLink.")
-            return false
-        }
-
-        var foundLinks = false
-        primaryEmbeds.apmap { embed ->
-            if (embed.type == "video") {
-                val decryptedLink = decryptLink(embed.link, PLUSSTREAM_DECRYPT_KEY)
-                if (!decryptedLink.isNullOrBlank()) {
-                    loadExtractor(decryptedLink, finalPlayerUrl, subtitleCallback, callback)
-                    foundLinks = true
+            if (dataLinkEntries.isNullOrEmpty()) {
+                Log.e("VerpelisHD", "loadLinks - No se pudo parsear 'dataLink' o está vacío después del parseo JSON.")
+            } else {
+                var foundPlusStreamLinks = false
+                dataLinkEntries.apmap { entry ->
+                    entry.sortedEmbeds.apmap { embed ->
+                        if (embed.type == "video") {
+                            val decryptedLink = decryptLink(embed.link, PLUSSTREAM_DECRYPT_KEY)
+                            if (!decryptedLink.isNullOrBlank()) {
+                                Log.d("VerpelisHD", "loadLinks - Enlace PlusStream descifrado: $decryptedLink (Servidor: ${embed.servername})")
+                                loadExtractor(decryptedLink, finalPlayerUrl, subtitleCallback, callback)
+                                foundPlusStreamLinks = true
+                            } else {
+                                Log.w("VerpelisHD", "loadLinks - Fallo al descifrar enlace PlusStream para: ${embed.link}")
+                            }
+                        }
+                    }
                 }
+                if (foundPlusStreamLinks) return true
             }
+        } else {
+            Log.w("VerpelisHD", "loadLinks - No se encontró la constante 'dataLink' en el script del reproductor o no tiene el formato esperado. Intentando otros métodos.")
+        }
+        // === FIN LÓGICA DE PLUSSTREAM ===
+
+
+        // === LÓGICA ALTERNATIVA (SI PLUSSTREAM NO FUNCIONA O NO ESTÁ PRESENTE) ===
+        // Intenta encontrar enlaces de video directamente en el HTML del reproductor
+        val videoUrlRegex = """(https?:\/\/(?:www\.)?(?:fembed\.com|streamlare\.com|ok\.ru|mp4upload\.com|your_other_extractor\.com)[^\s"']+)""".toRegex()
+        val videoUrls = videoUrlRegex.findAll(scriptContentPlayer).map { it.groupValues[1] }.toList()
+
+        if (videoUrls.isNotEmpty()) {
+            Log.d("VerpelisHD", "loadLinks - Encontrados ${videoUrls.size} URLs de video directas en el script del reproductor.")
+            videoUrls.apmap { url ->
+                loadExtractor(url, targetUrl, subtitleCallback, callback)
+            }
+            return true
         }
 
-        return foundLinks
+        // Si no se encuentran URLs de video directas, busca iframes anidados.
+        val nestedIframe = playerDoc.selectFirst("iframe")?.attr("src")
+        if (!nestedIframe.isNullOrBlank()) {
+            Log.d("VerpelisHD", "loadLinks - Encontrado iframe anidado en el reproductor: $nestedIframe")
+            // Recursivamente llamamos a loadExtractor con el nuevo iframe URL
+            loadExtractor(fixUrl(nestedIframe), targetUrl, subtitleCallback, callback)
+            return true
+        }
+
+        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: $finalPlayerUrl")
+        return false
     }
 }
