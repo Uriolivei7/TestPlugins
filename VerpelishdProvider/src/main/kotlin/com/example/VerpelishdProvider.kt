@@ -18,13 +18,78 @@ import kotlin.text.RegexOption // <-- Importación necesaria para RegexOption si
 import okhttp3.MultipartBody
 import okhttp3.RequestBody // Probablemente también necesites esta para el RequestBody, aunque puede que ya esté implícitamente
 import com.fasterxml.jackson.annotation.JsonProperty
-import java.nio.charset.StandardCharsets.UTF_8
+import kotlinx.serialization.Serializable // <--- CAMBIO AQUÍ
+import kotlinx.serialization.SerialName   // <--- CAMBIO AQUÍ
+import okhttp3.FormBody
+
 data class LinkEntry(
     val url: String? = null, // 'url' es el campo real aquí
     val name: String? = null, // 'name' es el nombre del servidor
     val lang: String? = null, // 'lang' es el idioma
     val type: String // 'type' es "embed"
 )
+
+private const val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+
+@Serializable // Asegúrate de tener la anotación de serialización (Kotlinx Serialization)
+data class EpisodeLoadData(
+    val title: String? = null,
+    val url: String, // Esta es la URL del episodio en verpelishd.me
+    val season: Int? = null,
+    val episode: Int? = null
+)
+
+// Necesitas una clase para parsear la respuesta JSON de la primera llamada AJAX (corvus_get_servers)
+@Serializable
+data class ServerEntry(
+    val url: String?, // La URL a la página intermedia (ej. plustream.xyz/f/...)
+    val name: String?,
+    val lang: String?,
+    val type: String?
+)
+@Serializable
+data class InnerEmbed(
+    val servername: String?,
+    val link: String?, // ¡Este es el enlace cifrado!
+    val type: String?
+)
+
+// Clase para el 'file_id' en el JSON de dataLink (si hay múltiples idiomas/calidades)
+@Serializable
+data class DataLinkFile(
+    @SerialName("file_id") val fileId: Int,
+    @SerialName("video_language") val videoLanguage: String?,
+    @SerialName("sortedEmbeds") val sortedEmbeds: List<InnerEmbed>
+)
+
+
+private fun decryptLink(encryptedBase64: String, key: String): String {
+    try {
+        val cipherBytes = Base64.decode(encryptedBase64, Base64.DEFAULT)
+
+        if (cipherBytes.size < 16 || !cipherBytes.sliceArray(0..7).contentEquals("Salted__".toByteArray(Charsets.UTF_8))) {
+            Log.e("VerpelisHD", "decryptLink - Prefijo 'Salted__' no encontrado o datos demasiado cortos. Es posible que el link no esté cifrado de esta forma o esté corrupto.")
+            return "" // O lanza una excepción, o devuelve el original
+        }
+
+        val salt = cipherBytes.sliceArray(8..15) // Los 8 bytes después de "Salted__"
+        val encryptedData = cipherBytes.sliceArray(16 until cipherBytes.size)
+        val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "AES")
+        val iv = ByteArray(16) { 0 } // Intenta con IV de ceros (o puedes intentar un IV basado en el salt si el JS lo indica)
+        val ivSpec = IvParameterSpec(iv)
+
+        val cipher = Cipher.getInstance("AES/CBC/PKCS7Padding") // O "AES/CBC/PKCS5Padding" si no funciona PKCS7Padding
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivSpec)
+
+        val decryptedBytes = cipher.doFinal(encryptedData) // Usamos encryptedData, no cipherBytes completo
+        return String(decryptedBytes, Charsets.UTF_8)
+    } catch (e: Exception) {
+        Log.e("VerpelisHD", "Error al descifrar link (PlusStream): $e")
+        Log.e("VerpelisHD", "Datos cifrados Base64 de entrada: $encryptedBase64")
+        return ""
+    }
+}
+
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
     private val searchBaseUrl = "https://verpelishd.me"
@@ -42,7 +107,7 @@ class VerpelishdProvider : MainAPI() {
     override val hasDownloadSupport = true
     private val cfKiller = CloudflareKiller()
     private val DEFAULT_WEB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    private val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+    //private val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
     private suspend fun safeAppGet(
         url: String,
         retries: Int = 3,
@@ -630,5 +695,6 @@ class VerpelishdProvider : MainAPI() {
         Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video (PlusStream, directos, ni iframes anidados) en el reproductor: ${targetUrl}")
         return false
     }
+
 }
 //Yeji
