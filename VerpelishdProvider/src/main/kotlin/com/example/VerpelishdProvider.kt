@@ -614,10 +614,6 @@ class VerpelishdProvider : MainAPI() {
 
         val doc = Jsoup.parse(initialHtml)
 
-        // --- EXTRACCIÓN DE data-id y data-nonce DEL HTML INICIAL ---
-        // Encuentra el elemento que tiene los atributos data-id y data-nonce.
-        // Basado en tu HTML del "fake player", podría ser el div con id "to--expand"
-        // o el div con clase "fke-player". Vamos a buscar ambos.
         val playerElement = doc.selectFirst("div[data-id][data-nonce]") // Busca un div con ambos atributos
             ?: doc.selectFirst("#to--expand") // Si no se encuentra directamente, intenta el contenedor
             ?: doc.selectFirst(".fke-player") // O el fake player mismo
@@ -627,16 +623,13 @@ class VerpelishdProvider : MainAPI() {
 
         if (postId.isNullOrBlank() || nonce.isNullOrBlank()) {
             Log.w("VerpelisHD", "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor.")
-            // Aquí puedes intentar tu lógica de fallback anterior si tienes otras formas de encontrar enlaces
-            // O simplemente retornar false si este es el único método esperado para VerpelisHD
+
             return false
         }
 
-        // --- EXTRACCIÓN DE corvutils.ajaxurl ---
         val scriptContentInitial = doc.select("script").map { it.html() }.joinToString("\n")
         val corvutilsAjaxUrlRegex = Regex("""corvutils\.ajaxurl\s*:\s*['"]([^'"]+)['"]""")
         val corvutilsAjaxUrlMatch = corvutilsAjaxUrlRegex.find(scriptContentInitial)
-        // Asegúrate de que la URL base termina en '/', y luego añade "admin-ajax.php"
         val baseUrlCorvutils = corvutilsAjaxUrlMatch?.groupValues?.get(1)?.trimEnd('/')
         val ajaxUrl = if (!baseUrlCorvutils.isNullOrBlank()) {
             "$baseUrlCorvutils/admin-ajax.php"
@@ -657,7 +650,8 @@ class VerpelishdProvider : MainAPI() {
         val jsonResponse = appPost(
             url = ajaxUrl,
             data = postData,
-            referer = targetUrl
+            referer = targetUrl,
+            headers = mapOf("X-Requested-With" to "XMLHttpRequest") // <-- ¡AÑADE ESTA LÍNEA!
         )
 
         if (jsonResponse == null) {
@@ -667,7 +661,6 @@ class VerpelishdProvider : MainAPI() {
 
         Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponse")
 
-        // --- NUEVO PARSEO DE LA RESPUESTA JSON ---
         val serverEntries = tryParseJson<List<LinkEntry>>(jsonResponse) // Parsear directamente como List<LinkEntry>
 
         if (!serverEntries.isNullOrEmpty()) {
@@ -675,8 +668,6 @@ class VerpelishdProvider : MainAPI() {
             serverEntries.apmap { entry ->
                 val rawLink = entry.url // Usa directamente entry.url
                 if (!rawLink.isNullOrBlank() && entry.type == "embed") {
-                    // ANTES: val decryptedLink = decryptLink(rawLink, PLUSSTREAM_DECRYPT_KEY)
-                    // AHORA: Si crees que no está cifrado, pasa rawLink directamente
                     Log.d("VerpelisHD", "loadLinks - Enlace encontrado: $rawLink (Tipo: ${entry.type}, Servidor: ${entry.name ?: "N/A"})")
                     loadExtractor(rawLink, targetUrl, subtitleCallback, callback) // <-- ¡Pasa rawLink directamente!
                     foundLinks = true
