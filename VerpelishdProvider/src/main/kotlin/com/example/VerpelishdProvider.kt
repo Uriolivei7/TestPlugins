@@ -328,15 +328,21 @@ class VerpelishdProvider : MainAPI() {
         val description = doc.selectFirst("p.hero__overview")?.text() ?: doc.selectFirst("div.wp-content")?.text() ?: ""
         val tags = doc.select("div.hero__genres ul li a").map { it.text() }
 
-        val seriesPageUrl = cleanUrl // Esta es la URL de la serie, guárdala para el Referer
+        val seriesPageUrl = cleanUrl
 
         val episodes = if (tvType == TvType.TvSeries) {
             val episodeList = ArrayList<Episode>()
             val epsDiv = doc.selectFirst("div.eps[data-tmdb-id]")
-            val seriesId = epsDiv?.attr("data-tmdb-id")
-            val ajaxUrlBase = epsDiv?.attr("data-ajaxurl")
-            val nonce = epsDiv?.attr("data-nonce")
-            val defaultResults = epsDiv?.attr("data-results") ?: "1000"
+
+            if (epsDiv == null) {
+                Log.e("VerpelisHD", "load - No se encontró el div.eps para la serie. No se pueden cargar episodios.")
+                return null // O manejar de otra forma si no hay div.eps
+            }
+
+            val seriesId = epsDiv.attr("data-tmdb-id")
+            val ajaxUrlBase = epsDiv.attr("data-ajaxurl")
+            val nonce = epsDiv.attr("data-nonce")
+            val defaultResults = epsDiv.attr("data-results") ?: "1000"
 
             if (seriesId.isNullOrBlank() || ajaxUrlBase.isNullOrBlank() || nonce.isNullOrBlank()) {
                 Log.e("VerpelisHD", "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios.")
@@ -344,12 +350,40 @@ class VerpelishdProvider : MainAPI() {
             }
             Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce, defaultResults: $defaultResults")
 
+            // PASO 1: PARSEAR EPISODIOS DEL HTML INICIAL
+            val initialEpisodes = epsDiv.select("li.lep").mapNotNull { li ->
+                val epurl = fixUrl(li.selectFirst("a")?.attr("href") ?: "")
+                val epTitle = li.selectFirst("h3.lep__title")?.text() ?: ""
+                val realSeasonNumber = li.attr("data-season").toIntOrNull()
+                val realEpNumber = li.attr("data-episode").toIntOrNull()
+                val realimg = li.selectFirst("img")?.attr("src")
+
+                // La descripción no está directamente en li.lep, si es necesaria se debería obtener del endpoint del episodio.
+                // Por ahora, la dejamos vacía o nula.
+
+                if (epurl.isNotBlank() && realSeasonNumber != null && realEpNumber != null) {
+                    newEpisode(
+                        EpisodeLoadData(epTitle, epurl, realSeasonNumber, realEpNumber).toJson()
+                    ) {
+                        name = "$epTitle"
+                        season = realSeasonNumber
+                        episode = realEpNumber
+                        posterUrl = realimg
+                        // description = "..." // No disponible en este nivel
+                    }
+                } else {
+                    Log.w("VerpelisHD", "load - Datos incompletos para episodio HTML: $epurl, S$realSeasonNumber E$realEpNumber")
+                    null
+                }
+            }
+            episodeList.addAll(initialEpisodes)
+            Log.d("VerpelisHD", "load - Episodios iniciales del HTML: ${initialEpisodes.size}")
 
             val seasonsButtons = doc.select("details.eps-ssns div button")
             val allSeasons = if (seasonsButtons.isNotEmpty()) {
                 seasonsButtons.mapNotNull { it.attr("data-season").toIntOrNull() }.sorted()
             } else {
-                val initialSeasonFromDiv = epsDiv?.attr("data-season-number")?.toIntOrNull()
+                val initialSeasonFromDiv = epsDiv.attr("data-season-number")?.toIntOrNull()
                 if (initialSeasonFromDiv != null) {
                     Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada ${initialSeasonFromDiv} de data-season-number.")
                     listOf(initialSeasonFromDiv)
@@ -361,9 +395,24 @@ class VerpelishdProvider : MainAPI() {
             Log.d("VerpelisHD", "load - Temporadas a procesar: $allSeasons")
 
 
+            // Determinar si es necesario hacer llamadas AJAX adicionales
+            // Si el botón "Cargar más" está deshabilitado, no intentamos AJAX para esta temporada/serie
+            val loadMoreButtonDisabled = epsDiv.selectFirst("#load-eps")?.hasAttr("disabled") == true
+            Log.d("VerpelisHD", "load - Botón 'Cargar más' deshabilitado: $loadMoreButtonDisabled")
+
             for (seasonNumber in allSeasons) {
-                var currentOffset = 0
-                var hasMore = true
+                // Solo hacemos llamadas AJAX si hay potencial de "cargar más"
+                // Y si es la primera temporada, ajustamos el offset inicial para no recargar los que ya tenemos
+                var currentOffset = if (seasonNumber == allSeasons.firstOrNull()) episodeList.size else 0 // Empezar desde el tamaño actual de la lista para la primera temporada
+
+                var hasMore = !loadMoreButtonDisabled // Si el botón está deshabilitado, asumimos que no hay más por AJAX.
+
+                // Si ya tenemos episodios y el botón de cargar más está deshabilitado, no necesitamos este bucle
+                if (loadMoreButtonDisabled && currentOffset > 0) {
+                    Log.d("VerpelisHD", "load - No se intentará cargar más episodios por AJAX para Temporada $seasonNumber porque el botón 'Cargar más' está deshabilitado y ya tenemos episodios iniciales.")
+                    hasMore = false // Asegurarse de que el bucle no se ejecute
+                }
+
 
                 while (hasMore) {
                     val ajaxUrl = "${searchBaseUrl}/wp-admin/admin-ajax.php"
@@ -380,8 +429,6 @@ class VerpelishdProvider : MainAPI() {
 
                     Log.d("VerpelisHD", "load - Pidiendo AJAX para Temporada $seasonNumber, Offset $currentOffset con URL: $ajaxUrl y formData: $formData")
 
-                    // Importar si no lo tienes: import okhttp3.MultipartBody
-                    // Necesitas tener la dependencia de okhttp3 en tu build.gradle si no la tienes ya.
                     val requestBodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
                     for ((key, value) in formData) {
                         requestBodyBuilder.addFormDataPart(key, value)
@@ -390,7 +437,7 @@ class VerpelishdProvider : MainAPI() {
 
                     val ajaxResponse = app.post(
                         ajaxUrl,
-                        requestBody = requestBody, // <-- Este es el parámetro correcto para RequestBody
+                        requestBody = requestBody,
                         headers = mapOf(
                             "X-Requested-With" to "XMLHttpRequest",
                             "Referer" to seriesPageUrl
@@ -434,19 +481,21 @@ class VerpelishdProvider : MainAPI() {
                         }
                         episodeList.addAll(newEpisodesThisIteration)
 
+                        // IMPORTANTE: el 'hasMore' de la respuesta AJAX es el que controla el bucle
                         if (episodeApiResponse.data.hasMore) {
                             currentOffset += newEpisodesThisIteration.size
                             Log.d("VerpelisHD", "load - Más episodios disponibles para Temporada $seasonNumber. Nuevo offset: $currentOffset")
                         } else {
                             hasMore = false
-                            Log.d("VerpelisHD", "load - No hay más episodios para Temporada $seasonNumber.")
+                            Log.d("VerpelisHD", "load - No hay más episodios para Temporada $seasonNumber (según respuesta AJAX).")
                         }
 
                     } else {
                         Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber, offset $currentOffset. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
-                        hasMore = false
+                        hasMore = false // Detener el bucle si hay error o success:false
                     }
 
+                    // Esta condición ahora es más robusta, aunque la anterior lógica de hasMore ya suele detenerlo.
                     if (newEpisodesThisIteration.isEmpty() && currentOffset > 0 && hasMore) {
                         Log.w("VerpelisHD", "load - No se obtuvieron nuevos episodios pero 'hasMore' es true. Deteniendo bucle para evitar infinito.")
                         hasMore = false
