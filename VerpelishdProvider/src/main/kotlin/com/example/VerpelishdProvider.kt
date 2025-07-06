@@ -714,7 +714,7 @@ class VerpelishdProvider : MainAPI() {
         val playersList = tryParseJson<List<PlayerOption>>(jsonResponseRaw) // <--- CAMBIO DE ServersResponse A List<PlayerOption>
 
         var foundLinks = false
-
+//Yeji
 // Ahora, la comprobación se hace directamente sobre playersList
         if (!playersList.isNullOrEmpty()) { // playersList ya es List<PlayerOption>?, así que no necesitamos serversResponse.players
             Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores.")
