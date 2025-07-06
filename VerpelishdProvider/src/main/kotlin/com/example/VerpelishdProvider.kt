@@ -633,8 +633,6 @@ class VerpelishdProvider : MainAPI() {
                 Log.w("VerpelisHD", "loadLinks - No se pudieron extraer enlaces del iframe externo: $mainIframeSrc. Intentando lógica interna de VerpelisHD.")
             }
         }
-
-
         // --- LÓGICA EXISTENTE PARA LA API INTERNA DE VERPELISHD (corvus_get_servers) ---
         val playerElement = initialHtml.selectFirst("div[data-id][data-nonce]")
             ?: initialHtml.selectFirst("#to--expand")
@@ -700,8 +698,6 @@ class VerpelishdProvider : MainAPI() {
 
         Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw")
 
-        // --- PARSEO DE LA RESPUESTA JSON DE corvus_get_servers ---
-        // Ahora jsonResponseRaw es un String? (no Any), por lo que el type mismatch se resuelve.
         val serversResponse = tryParseJson<ServersResponse>(jsonResponseRaw)
 
         if (serversResponse?.success == true && !serversResponse.players.isNullOrEmpty()) {
