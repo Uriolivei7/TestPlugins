@@ -30,6 +30,8 @@ data class LinkEntry(
 )
 
 private const val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+// Asegúrate de que esta constante esté accesible, quizás junto a PLUSSTREAM_DECRYPT_KEY
+private const val VERPELISHD_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 @Serializable // Asegúrate de tener la anotación de serialización (Kotlinx Serialization)
 data class EpisodeLoadData(
@@ -647,11 +649,29 @@ class VerpelishdProvider : MainAPI() {
             "post_id" to postId
         )
 
+        val postHeaders = mapOf(
+            "User-Agent" to VERPELISHD_USER_AGENT, // Usamos la constante definida arriba
+            "Accept" to "*/*",
+            "Accept-Encoding" to "gzip, deflate, br, zstd", // Añade si no funciona sin ella
+            "Accept-Language" to "es-ES,es;q=0.7",
+            "Origin" to "https://verpelishd.me",
+            "Priority" to "u=1, i",
+            "Referer" to targetUrl, // Ya lo tenías, pero explícito aquí.
+            "sec-ch-ua" to "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\"", // Asegúrate de que las comillas dobles sean escapadas (con \) si es necesario
+            "sec-ch-ua-mobile" to "?0",
+            "sec-ch-ua-platform" to "\"Windows\"", // Asegúrate de que las comillas dobles sean escapadas (con \) si es necesario
+            "sec-fetch-dest" to "empty",
+            "sec-fetch-mode" to "cors",
+            "sec-fetch-site" to "same-origin",
+            "sec-gpc" to "1",
+            "X-Requested-With" to "XMLHttpRequest" // Esta ya la tenías, la mantenemos.
+        )
+
         val jsonResponse = appPost(
             url = ajaxUrl,
-            data = postData,
-            referer = targetUrl,
-            headers = mapOf("X-Requested-With" to "XMLHttpRequest") // <-- ¡AÑADE ESTA LÍNEA!
+            data = postData, // Esto enviará "action", "nonce", "post_id" como form-urlencoded por defecto
+            headers = postHeaders, // Usamos el mapa de cabeceras completo
+            referer = targetUrl // Mantén el referer aquí también, aunque ya esté en headers, por si acaso appPost lo usa de forma especial
         )
 
         if (jsonResponse == null) {
