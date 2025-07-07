@@ -655,32 +655,6 @@ class VerpelishdProvider : MainAPI() {
         }
     }
 
-    private fun parseEpisode(element: Document, seasonNum: Int): Episode? {
-        val linkElement = element.selectFirst("a") ?: return null
-        val title = linkElement.attr("title")
-        val episodeUrl = linkElement.attr("href")
-        val episodeNum = linkElement.selectFirst(".num")?.text()?.toIntOrNull()
-        val poster = element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src")
-
-        if (episodeUrl.isNullOrBlank() || episodeNum == null) return null
-
-        return newEpisode(
-            data = (EpisodeLoadData(
-                title = title ?: "",
-                url = episodeUrl,
-                season = seasonNum,
-                episode = episodeNum
-            ) as Any?)?.toJson() ?: "" // <-- Añade "(...) as Any?).toJson()"
-        ) {
-            this.name = title
-            this.season = seasonNum
-            this.episode = episodeNum
-            this.posterUrl = poster
-            this.description = null
-            this.rating = null
-        }
-    }
-
     data class PlusStreamEmbed( // Cambiado de SortedEmbed a PlusStreamEmbed para claridad
         @JsonProperty("servername") val servername: String,
         @JsonProperty("link") val link: String,
@@ -1057,12 +1031,6 @@ class VerpelishdProvider : MainAPI() {
     }
 
     @Serializable
-    data class EpisodeAjaxResponse(
-        val success: Boolean,
-        val data: EpisodeAjaxData
-    )
-
-    @Serializable
     data class EpisodeAjaxData(
         val results: List<AjaxEpisodeResult>,
         val hasMore: Boolean
@@ -1087,12 +1055,6 @@ class VerpelishdProvider : MainAPI() {
         @SerialName("file_id") val fileId: Int, // Usar @SerialName para mapear 'file_id' a 'fileId'
         @SerialName("video_language") val videoLanguage: String,
         val sortedEmbeds: List<PlusStreamEmbed>
-    )
-
-    @Serializable
-    data class ServersResponse(
-        val success: Boolean,
-        val players: List<PlayerOption>
     )
 
     @Serializable
