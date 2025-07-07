@@ -103,7 +103,8 @@ class PlushdProvider :MainAPI() {
         val title: String? = null,
         val image: String? = null,
         val season: Int? = null,
-        val episode: Int? = null
+        val episode: Int? = null,
+        val description: String? = null // ¡Añadido este campo para la descripción del episodio!
     )
     override suspend fun load(url: String): LoadResponse? {
         Log.d("PlushdProvider", "DEBUG: Iniciando load para URL: $url")
@@ -168,9 +169,10 @@ class PlushdProvider :MainAPI() {
                                     val seasonNum = info.season
                                     val epNum = info.episode
                                     val img = info.image
+                                    val epDescription = info.description // ¡Obteniendo la descripción del episodio!
                                     val realimg = if (img.isNullOrEmpty()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
                                     val epurl = "$url/season/$seasonNum/episode/$epNum"
-                                    Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg")
+                                    Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg, Descripción: ${epDescription?.take(50)}")
                                     epi.add(
                                         Episode(
                                             epurl,
@@ -178,6 +180,8 @@ class PlushdProvider :MainAPI() {
                                             seasonNum,
                                             epNum,
                                             realimg,
+                                            null, // <-- ¡Solución aquí! Pasamos 'null' para el parámetro 'Int?' (probablemente 'rating')
+                                            epDescription // <-- Ahora la descripción se pasa al parámetro correcto
                                         ))
                                 }
                             }
