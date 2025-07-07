@@ -27,10 +27,13 @@ class SoloLatinoProvider : MainAPI() {
         TvType.Anime,
         TvType.Cartoon,
     )
+
     override var lang = "es"
+
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
+
     private val cfKiller = CloudflareKiller()
 
     private suspend fun safeAppGet(
@@ -129,6 +132,7 @@ class SoloLatinoProvider : MainAPI() {
             } else null
         }
     }
+
     data class EpisodeLoadData(
         val title: String,
         val url: String
@@ -194,10 +198,12 @@ class SoloLatinoProvider : MainAPI() {
             }
         } else listOf()
 
-        val recommendations = doc.select("div#single_relacionados div.owl-item article").mapNotNull {
-            val recTitle = it.selectFirst("a h3")?.text() // Selector actualizado
+        // --- INICIO: Lógica para "Títulos similares" (CORREGIDA) ---
+        val recommendations = doc.select("div#single_relacionados article").mapNotNull {
             val recLink = it.selectFirst("a")?.attr("href")
-            val recImg = it.selectFirst("a img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: it.selectFirst("a img")?.attr("src")
+            val recImgElement = it.selectFirst("a img.lazyload") ?: it.selectFirst("a img")
+            val recImg = recImgElement?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: recImgElement?.attr("src")
+            val recTitle = recImgElement?.attr("alt") // Usamos el atributo 'alt' de la imagen como título
 
             if (recTitle != null && recLink != null) {
                 newAnimeSearchResponse(
@@ -205,12 +211,14 @@ class SoloLatinoProvider : MainAPI() {
                     fixUrl(recLink)
                 ) {
                     this.posterUrl = recImg
-                    this.type = TvType.TvSeries // Ajusta si puedes determinar si es película/serie desde el enlace
+                    // Podrías inferir el tipo basándote en la URL (si contiene "series" o "peliculas")
+                    this.type = if (recLink.contains("/peliculas/")) TvType.Movie else TvType.TvSeries
                 }
             } else {
                 null
             }
         }
+        // --- FIN: Lógica para "Títulos similares" (CORREGIDA) ---
 
         return when (tvType) {
             TvType.TvSeries -> {
