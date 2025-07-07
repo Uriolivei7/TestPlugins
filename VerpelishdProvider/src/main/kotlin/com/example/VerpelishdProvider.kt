@@ -22,11 +22,8 @@ import kotlinx.serialization.Serializable // <--- CAMBIO AQUÍ
 import kotlinx.serialization.SerialName   // <--- CAMBIO AQUÍ
 import okhttp3.FormBody
 import org.jsoup.nodes.Document
-//import com.lagradost.cloudstream3.utils.loadExtractor
-//import com.lagradost.cloudstream3.utils.ExtractorLink
-//import com.lagradost.cloudstream3.utils.AppUtils
-//import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.extractors.helper.CryptoJS
+import com.lagradost.cloudstream3.utils.AppUtils.toJson
 
 data class LinkEntry(
     val url: String? = null, // 'url' es el campo real aquí
@@ -126,7 +123,9 @@ class VerpelishdProvider : MainAPI() {
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
     private val cfKiller = CloudflareKiller()
-    private val DEFAULT_WEB_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    private val DEFAULT_WEB_USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
     //private val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
     private suspend fun safeAppGet(
         url: String,
@@ -144,15 +143,27 @@ class VerpelishdProvider : MainAPI() {
                     "Accept-Language" to "en-US,en;q=0.5",
                     "X-Requested-With" to "XMLHttpRequest"
                 ) + additionalHeaders
-                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = combinedHeaders)
+                val res = app.get(
+                    url,
+                    interceptor = cfKiller,
+                    timeout = timeoutMs,
+                    headers = combinedHeaders
+                )
                 if (res.isSuccessful) {
                     Log.d("VerpelisHD", "safeAppGet - Petición exitosa para URL: $url")
                     return res.text
                 } else {
-                    Log.w("VerpelisHD", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
+                    Log.w(
+                        "VerpelisHD",
+                        "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP."
+                    )
                 }
             } catch (e: Exception) {
-                Log.e("VerpelisHD", "safeAppGet - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}", e)
+                Log.e(
+                    "VerpelisHD",
+                    "safeAppGet - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}",
+                    e
+                )
             }
             if (i < retries - 1) {
                 Log.d("VerpelisHD", "safeAppGet - Reintentando en ${delayMs / 1000.0} segundos...")
@@ -162,11 +173,15 @@ class VerpelishdProvider : MainAPI() {
         Log.e("VerpelisHD", "safeAppGet - Fallaron todos los intentos para URL: $url")
         return null
     }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val homeHtml = safeAppGet(mainUrl)
         if (homeHtml == null) {
-            Log.e("VerpelisHD", "getMainPage - No se pudo obtener HTML de la página principal: $mainUrl")
+            Log.e(
+                "VerpelisHD",
+                "getMainPage - No se pudo obtener HTML de la página principal: $mainUrl"
+            )
             return null
         }
         val doc = Jsoup.parse(homeHtml)
@@ -200,7 +215,8 @@ class VerpelishdProvider : MainAPI() {
                 val episodeLink = it.selectFirst("a")?.attr("href")
                 val img = it.selectFirst("picture.ieps__image img")?.attr("src")
                 if (title != null && episodeLink != null) {
-                    val seriesSlugMatch = Regex("""\/episodios\/([^\/]+?)-s\d+x\d+\/""").find(episodeLink)
+                    val seriesSlugMatch =
+                        Regex("""\/episodios\/([^\/]+?)-s\d+x\d+\/""").find(episodeLink)
                     val seriesSlug = seriesSlugMatch?.groupValues?.get(1)
                     if (seriesSlug != null) {
                         val seriesUrl = "$searchBaseUrl/serie/${seriesSlug}/"
@@ -212,7 +228,10 @@ class VerpelishdProvider : MainAPI() {
                             posterUrl = img
                         }
                     } else {
-                        Log.w("VerpelisHD", "getMainPage - No se pudo extraer la URL de la serie de: $episodeLink")
+                        Log.w(
+                            "VerpelisHD",
+                            "getMainPage - No se pudo extraer la URL de la serie de: $episodeLink"
+                        )
                         null
                     }
                 } else null
@@ -244,7 +263,10 @@ class VerpelishdProvider : MainAPI() {
                 items.add(HomePageList("Películas Recientemente Agregadas", recentMoviesItems))
             }
         } else {
-            Log.w("VerpelisHD", "getMainPage - Sección 'Películas Recientemente Agregadas' no encontrada.")
+            Log.w(
+                "VerpelisHD",
+                "getMainPage - Sección 'Películas Recientemente Agregadas' no encontrada."
+            )
         }
 
         val recentSeriesSection = doc.selectFirst("div#tab-series")
@@ -267,7 +289,10 @@ class VerpelishdProvider : MainAPI() {
                 items.add(HomePageList("Series Recientemente Agregadas", recentSeriesItems))
             }
         } else {
-            Log.w("VerpelisHD", "getMainPage - Sección 'Series Recientemente Agregadas' no encontrada.")
+            Log.w(
+                "VerpelisHD",
+                "getMainPage - Sección 'Series Recientemente Agregadas' no encontrada."
+            )
         }
         val popularNowSection = doc.selectFirst("div.section--popular")
         if (popularNowSection != null) {
@@ -301,6 +326,7 @@ class VerpelishdProvider : MainAPI() {
         }
         return newHomePageResponse(items, false)
     }
+
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$searchBaseUrl/?s=$query"
         val html = safeAppGet(url)
@@ -326,6 +352,7 @@ class VerpelishdProvider : MainAPI() {
             } else null
         }
     }
+
     @Serializable
     data class EpisodeLoadData(
         val title: String,
@@ -333,14 +360,17 @@ class VerpelishdProvider : MainAPI() {
         val season: Int?,
         val episode: Int?
     )
+
     data class EpisodeApiResponse(
         @JsonProperty("success") val success: Boolean,
         @JsonProperty("data") val data: EpisodeApiData
     )
+
     data class EpisodeApiData(
         @JsonProperty("results") val results: List<EpisodeApiResult>,
         @JsonProperty("hasMore") val hasMore: Boolean
     )
+
     data class EpisodeApiResult(
         @JsonProperty("permalink") val permalink: String,
         @JsonProperty("title") val title: String,
@@ -353,6 +383,7 @@ class VerpelishdProvider : MainAPI() {
         @JsonProperty("series_id") val series_id: String,
         @JsonProperty("episode_image") val episode_image: String?
     )
+
     override suspend fun load(url: String): LoadResponse? {
         Log.d("VerpelisHD", "load - URL de entrada: $url")
         var cleanUrl = url
@@ -370,7 +401,10 @@ class VerpelishdProvider : MainAPI() {
                     cleanUrl = "https://" + cleanUrl.removePrefix("//")
                     Log.d("VerpelisHD", "load - URL limpiada con HTTPS: $cleanUrl")
                 }
-                Log.d("VerpelisHD", "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl")
+                Log.d(
+                    "VerpelisHD",
+                    "load - URL no necesitaba limpieza JSON Regex, usando original/ajustada: $cleanUrl"
+                )
             }
         }
         if (cleanUrl.isBlank()) {
@@ -384,17 +418,25 @@ class VerpelishdProvider : MainAPI() {
         }
         val doc = Jsoup.parse(html)
         val tvType = if (cleanUrl.contains("/pelicula/")) TvType.Movie else TvType.TvSeries
-        val title = doc.selectFirst("article.hero h2")?.text() ?: doc.selectFirst("div.data h1")?.text() ?: ""
-        val poster = doc.selectFirst("div.hero__poster img")?.attr("src") ?: doc.selectFirst("div.poster img")?.attr("src") ?: ""
+        val title =
+            doc.selectFirst("article.hero h2")?.text() ?: doc.selectFirst("div.data h1")?.text()
+            ?: ""
+        val poster = doc.selectFirst("div.hero__poster img")?.attr("src")
+            ?: doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val backgroundPoster = doc.selectFirst("figure.hero__backdrop img")?.attr("src") ?: poster
-        val description = doc.selectFirst("p.hero__overview")?.text() ?: doc.selectFirst("div.wp-content")?.text() ?: ""
+        val description =
+            doc.selectFirst("p.hero__overview")?.text() ?: doc.selectFirst("div.wp-content")?.text()
+            ?: ""
         val tags = doc.select("div.hero__genres ul li a").map { it.text() }
         val seriesPageUrl = cleanUrl
         val episodes = if (tvType == TvType.TvSeries) {
             val episodeList = ArrayList<Episode>()
             val epsDiv = doc.selectFirst("div.eps[data-tmdb-id]")
             if (epsDiv == null) {
-                Log.e("VerpelisHD", "load - No se encontró el div.eps para la serie. No se pueden cargar episodios.")
+                Log.e(
+                    "VerpelisHD",
+                    "load - No se encontró el div.eps para la serie. No se pueden cargar episodios."
+                )
                 return null // O manejar de otra forma si no hay div.eps
             }
             val seriesId = epsDiv.attr("data-tmdb-id")
@@ -402,10 +444,16 @@ class VerpelishdProvider : MainAPI() {
             val nonce = epsDiv.attr("data-nonce")
             val defaultResults = epsDiv.attr("data-results") ?: "1000"
             if (seriesId.isNullOrBlank() || ajaxUrlBase.isNullOrBlank() || nonce.isNullOrBlank()) {
-                Log.e("VerpelisHD", "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios.")
+                Log.e(
+                    "VerpelisHD",
+                    "load - No se pudieron obtener seriesId, ajaxUrlBase o nonce para cargar episodios."
+                )
                 return null
             }
-            Log.d("VerpelisHD", "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce, defaultResults: $defaultResults")
+            Log.d(
+                "VerpelisHD",
+                "load - seriesId: $seriesId, ajaxUrlBase: $ajaxUrlBase, nonce: $nonce, defaultResults: $defaultResults"
+            )
             val initialEpisodes = epsDiv.select("li.lep").mapNotNull { li ->
                 val epurl = fixUrl(li.selectFirst("a")?.attr("href") ?: "")
                 val epTitle = li.selectFirst("h3.lep__title")?.text() ?: ""
@@ -422,7 +470,10 @@ class VerpelishdProvider : MainAPI() {
                         posterUrl = realimg
                     }
                 } else {
-                    Log.w("VerpelisHD", "load - Datos incompletos para episodio HTML: $epurl, S$realSeasonNumber E$realEpNumber")
+                    Log.w(
+                        "VerpelisHD",
+                        "load - Datos incompletos para episodio HTML: $epurl, S$realSeasonNumber E$realEpNumber"
+                    )
                     null
                 }
             }
@@ -434,21 +485,33 @@ class VerpelishdProvider : MainAPI() {
             } else {
                 val initialSeasonFromDiv = epsDiv.attr("data-season-number")?.toIntOrNull()
                 if (initialSeasonFromDiv != null) {
-                    Log.d("VerpelisHD", "load - No se encontraron botones de temporadas, asumiendo temporada ${initialSeasonFromDiv} de data-season-number.")
+                    Log.d(
+                        "VerpelisHD",
+                        "load - No se encontraron botones de temporadas, asumiendo temporada ${initialSeasonFromDiv} de data-season-number."
+                    )
                     listOf(initialSeasonFromDiv)
                 } else {
-                    Log.d("VerpelisHD", "load - No se encontraron botones de temporadas ni data-season-number, asumiendo temporada 1.")
+                    Log.d(
+                        "VerpelisHD",
+                        "load - No se encontraron botones de temporadas ni data-season-number, asumiendo temporada 1."
+                    )
                     listOf(1)
                 }
             }
             Log.d("VerpelisHD", "load - Temporadas a procesar: $allSeasons")
-            val loadMoreButtonDisabled = epsDiv.selectFirst("#load-eps")?.hasAttr("disabled") == true
+            val loadMoreButtonDisabled =
+                epsDiv.selectFirst("#load-eps")?.hasAttr("disabled") == true
             Log.d("VerpelisHD", "load - Botón 'Cargar más' deshabilitado: $loadMoreButtonDisabled")
             for (seasonNumber in allSeasons) {
-                var currentOffset = if (seasonNumber == allSeasons.firstOrNull()) episodeList.size else 0 // Empezar desde el tamaño actual de la lista para la primera temporada
-                var hasMore = !loadMoreButtonDisabled // Si el botón está deshabilitado, asumimos que no hay más por AJAX.
+                var currentOffset =
+                    if (seasonNumber == allSeasons.firstOrNull()) episodeList.size else 0 // Empezar desde el tamaño actual de la lista para la primera temporada
+                var hasMore =
+                    !loadMoreButtonDisabled // Si el botón está deshabilitado, asumimos que no hay más por AJAX.
                 if (loadMoreButtonDisabled && currentOffset > 0) {
-                    Log.d("VerpelisHD", "load - No se intentará cargar más episodios por AJAX para Temporada $seasonNumber porque el botón 'Cargar más' está deshabilitado y ya tenemos episodios iniciales.")
+                    Log.d(
+                        "VerpelisHD",
+                        "load - No se intentará cargar más episodios por AJAX para Temporada $seasonNumber porque el botón 'Cargar más' está deshabilitado y ya tenemos episodios iniciales."
+                    )
                     hasMore = false // Asegurarse de que el bucle no se ejecute
                 }
                 while (hasMore) {
@@ -462,7 +525,10 @@ class VerpelishdProvider : MainAPI() {
                         "offset" to currentOffset.toString(),
                         "order" to "DESC"
                     )
-                    Log.d("VerpelisHD", "load - Pidiendo AJAX para Temporada $seasonNumber, Offset $currentOffset con URL: $ajaxUrl y formData: $formData")
+                    Log.d(
+                        "VerpelisHD",
+                        "load - Pidiendo AJAX para Temporada $seasonNumber, Offset $currentOffset con URL: $ajaxUrl y formData: $formData"
+                    )
                     val requestBodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
                     for ((key, value) in formData) {
                         requestBodyBuilder.addFormDataPart(key, value)
@@ -477,49 +543,76 @@ class VerpelishdProvider : MainAPI() {
                         )
                     )
                     if (!ajaxResponse.isSuccessful) {
-                        Log.e("VerpelisHD", "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}. Respuesta RAW: ${ajaxResponse.text}")
+                        Log.e(
+                            "VerpelisHD",
+                            "load - Error al obtener respuesta AJAX para temporada $seasonNumber (URL: ${ajaxResponse.url}): Código ${ajaxResponse.code}. Respuesta RAW: ${ajaxResponse.text}"
+                        )
                         break
                     }
                     val responseJsonText = ajaxResponse.text
-                    Log.d("VerpelisHD", "load - Respuesta AJAX RAW para temporada $seasonNumber, offset $currentOffset: $responseJsonText")
+                    Log.d(
+                        "VerpelisHD",
+                        "load - Respuesta AJAX RAW para temporada $seasonNumber, offset $currentOffset: $responseJsonText"
+                    )
                     val episodeApiResponse = tryParseJson<EpisodeApiResponse>(responseJsonText)
                     var newEpisodesThisIteration: List<Episode> = emptyList()
                     if (episodeApiResponse?.success == true) {
-                        newEpisodesThisIteration = episodeApiResponse.data.results.mapNotNull { result ->
-                            val epurl = fixUrl(result.permalink)
-                            val epTitle = result.name
-                            val realEpNumber = result.episode_number
-                            val realSeasonNumber = result.season_number
-                            val realimg = result.episode_image
-                            if (epurl.isNotBlank()) {
-                                newEpisode(
-                                    EpisodeLoadData(result.title, epurl, realSeasonNumber, realEpNumber).toJson()
-                                ) {
-                                    name = "$epTitle"
-                                    season = realSeasonNumber
-                                    episode = realEpNumber
-                                    posterUrl = realimg
-                                    this.description = result.overview
+                        newEpisodesThisIteration =
+                            episodeApiResponse.data.results.mapNotNull { result ->
+                                val epurl = fixUrl(result.permalink)
+                                val epTitle = result.name
+                                val realEpNumber = result.episode_number
+                                val realSeasonNumber = result.season_number
+                                val realimg = result.episode_image
+                                if (epurl.isNotBlank()) {
+                                    newEpisode(
+                                        EpisodeLoadData(
+                                            result.title,
+                                            epurl,
+                                            realSeasonNumber,
+                                            realEpNumber
+                                        ).toJson()
+                                    ) {
+                                        name = "$epTitle"
+                                        season = realSeasonNumber
+                                        episode = realEpNumber
+                                        posterUrl = realimg
+                                        this.description = result.overview
+                                    }
+                                } else {
+                                    Log.w(
+                                        "VerpelisHD",
+                                        "load - URL de episodio vacía para S${result.season_number}E${result.episode_number} de ${result.title}"
+                                    )
+                                    null
                                 }
-                            } else {
-                                Log.w("VerpelisHD", "load - URL de episodio vacía para S${result.season_number}E${result.episode_number} de ${result.title}")
-                                null
                             }
-                        }
                         episodeList.addAll(newEpisodesThisIteration)
                         if (episodeApiResponse.data.hasMore) {
                             currentOffset += newEpisodesThisIteration.size
-                            Log.d("VerpelisHD", "load - Más episodios disponibles para Temporada $seasonNumber. Nuevo offset: $currentOffset")
+                            Log.d(
+                                "VerpelisHD",
+                                "load - Más episodios disponibles para Temporada $seasonNumber. Nuevo offset: $currentOffset"
+                            )
                         } else {
                             hasMore = false
-                            Log.d("VerpelisHD", "load - No hay más episodios para Temporada $seasonNumber (según respuesta AJAX).")
+                            Log.d(
+                                "VerpelisHD",
+                                "load - No hay más episodios para Temporada $seasonNumber (según respuesta AJAX)."
+                            )
                         }
                     } else {
-                        Log.e("VerpelisHD", "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber, offset $currentOffset. JSON inválido o 'success' es false. Respuesta: $responseJsonText")
+                        Log.e(
+                            "VerpelisHD",
+                            "load - Error o éxito falso en la respuesta AJAX para temporada $seasonNumber, offset $currentOffset. JSON inválido o 'success' es false. Respuesta: $responseJsonText"
+                        )
                         hasMore = false // Detener el bucle si hay error o success:false
                     }
                     if (newEpisodesThisIteration.isEmpty() && currentOffset > 0 && hasMore) {
-                        Log.w("VerpelisHD", "load - No se obtuvieron nuevos episodios pero 'hasMore' es true. Deteniendo bucle para evitar infinito.")
+                        Log.w(
+                            "VerpelisHD",
+                            "load - No se obtuvieron nuevos episodios pero 'hasMore' es true. Deteniendo bucle para evitar infinito."
+                        )
                         hasMore = false
                     }
                 }
@@ -541,6 +634,7 @@ class VerpelishdProvider : MainAPI() {
                     this.tags = tags
                 }
             }
+
             TvType.Movie -> {
                 newMovieLoadResponse(
                     name = title,
@@ -554,19 +648,49 @@ class VerpelishdProvider : MainAPI() {
                     this.tags = tags
                 }
             }
+
             else -> null
         }
     }
+
+    private fun parseEpisode(element: Document, seasonNum: Int): Episode? {
+        val linkElement = element.selectFirst("a") ?: return null
+        val title = linkElement.attr("title")
+        val episodeUrl = linkElement.attr("href")
+        val episodeNum = linkElement.selectFirst(".num")?.text()?.toIntOrNull()
+        val poster = element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src")
+
+        if (episodeUrl.isNullOrBlank() || episodeNum == null) return null
+
+        return newEpisode(
+            data = (EpisodeLoadData(
+                title = title ?: "",
+                url = episodeUrl,
+                season = seasonNum,
+                episode = episodeNum
+            ) as Any?)?.toJson() ?: "" // <-- Añade "(...) as Any?).toJson()"
+        ) {
+            this.name = title
+            this.season = seasonNum
+            this.episode = episodeNum
+            this.posterUrl = poster
+            this.description = null
+            this.rating = null
+        }
+    }
+
     data class PlusStreamEmbed( // Cambiado de SortedEmbed a PlusStreamEmbed para claridad
         @JsonProperty("servername") val servername: String,
         @JsonProperty("link") val link: String,
         @JsonProperty("type") val type: String
     )
+
     data class PlusStreamDataLinkEntry( // Cambiado de DataLinkEntry a PlusStreamDataLinkEntry
         @JsonProperty("file_id") val file_id: String, // Asumo que es String por el ejemplo anterior, si es Int cámbialo
         @JsonProperty("video_language") val video_language: String,
         @JsonProperty("sortedEmbeds") val sortedEmbeds: List<PlusStreamEmbed>
     )
+
     private fun decryptLink(encryptedLinkBase64: String, secretKey: String): String? {
         try {
             val encryptedBytes = Base64.decode(encryptedLinkBase64, Base64.DEFAULT)
@@ -583,6 +707,11 @@ class VerpelishdProvider : MainAPI() {
             return null
         }
     }
+
+    private fun fixUrl(url: String): String {
+        return url.replace(" ", "%20").replace("amp;", "")
+    }
+
     private suspend fun appPost(
         url: String,
         data: Map<String, String>,
@@ -619,7 +748,10 @@ class VerpelishdProvider : MainAPI() {
             val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
             val match = regexExtractUrl.find(data)
             targetUrl = fixUrl(match?.groupValues?.get(1) ?: data)
-            Log.d("VerpelisHD", "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl")
+            Log.d(
+                "VerpelisHD",
+                "loadLinks - URL final de película (directa o ya limpia y fixUrl-ed): $targetUrl"
+            )
         }
 
         if (targetUrl.isBlank()) {
@@ -628,34 +760,45 @@ class VerpelishdProvider : MainAPI() {
         }
 
         val initialHtmlString = try {
-            app.get(targetUrl).text // app.get().text devuelve String
+            app.get(targetUrl).text
         } catch (e: Exception) {
             Log.e("VerpelisHD", "loadLinks - Error al obtener HTML inicial para: $targetUrl", e)
-            null // Devolver null en caso de error
+            null
         }
 
         if (initialHtmlString.isNullOrBlank()) {
-            Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML (o estaba vacío) para: $targetUrl")
+            Log.e(
+                "VerpelisHD",
+                "loadLinks - No se pudo obtener HTML (o estaba vacío) para: $targetUrl"
+            )
             return false
         }
         val initialHtml: Document = Jsoup.parse(initialHtmlString)
 
-        // --- LÓGICA DE DETECCIÓN DE IFRAME EXTERNO (original) ---
         val mainIframeSrc = initialHtml.selectFirst("div.player iframe")?.attr("src")
             ?: initialHtml.selectFirst("#player iframe")?.attr("src")
 
         if (!mainIframeSrc.isNullOrBlank()) {
-            Log.d("VerpelisHD", "loadLinks - Se encontró un iframe externo principal: $mainIframeSrc. Intentando cargar.")
-            val extractedFromIframe = loadExtractor(mainIframeSrc, targetUrl, subtitleCallback, callback)
+            Log.d(
+                "VerpelisHD",
+                "loadLinks - Se encontró un iframe externo principal: $mainIframeSrc. Intentando cargar."
+            )
+            val extractedFromIframe =
+                loadExtractor(mainIframeSrc, targetUrl, subtitleCallback, callback)
             if (extractedFromIframe) {
-                Log.d("VerpelisHD", "loadLinks - Enlaces extraídos exitosamente del iframe externo.")
+                Log.d(
+                    "VerpelisHD",
+                    "loadLinks - Enlaces extraídos exitosamente del iframe externo."
+                )
                 return true
             } else {
-                Log.w("VerpelisHD", "loadLinks - No se pudieron extraer enlaces del iframe externo: $mainIframeSrc. Intentando lógica interna de VerpelisHD.")
+                Log.w(
+                    "VerpelisHD",
+                    "loadLinks - No se pudieron extraer enlaces del iframe externo: $mainIframeSrc. Intentando lógica interna de VerpelisHD."
+                )
             }
         }
 
-        // --- LÓGICA EXISTENTE PARA LA API INTERNA DE VERPELISHD (corvus_get_servers) ---
         val playerElement = initialHtml.selectFirst("div[data-id][data-nonce]")
             ?: initialHtml.selectFirst("#to--expand")
             ?: initialHtml.selectFirst(".fke-player")
@@ -664,8 +807,14 @@ class VerpelishdProvider : MainAPI() {
         val nonce = playerElement?.attr("data-nonce") ?: ""
 
         if (postId.isBlank() || nonce.isBlank()) {
-            Log.w("VerpelisHD", "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor. Esto puede ser normal si el iframe externo funcionó.")
-            Log.w("VerpelisHD", "loadLinks - No se encontraron los datos necesarios para la API interna. Fallo de extracción.")
+            Log.w(
+                "VerpelisHD",
+                "loadLinks - No se pudieron encontrar 'data-id' o 'data-nonce' en el HTML inicial para el reproductor. Esto puede ser normal si el iframe externo funcionó."
+            )
+            Log.w(
+                "VerpelisHD",
+                "loadLinks - No se encontraron los datos necesarios para la API interna. Fallo de extracción."
+            )
             return false
         }
 
@@ -679,7 +828,10 @@ class VerpelishdProvider : MainAPI() {
             "https://verpelishd.me/wp-admin/admin-ajax.php"
         }
 
-        Log.d("VerpelisHD", "loadLinks - post_id: $postId, nonce: $nonce, ajaxUrl: $ajaxUrl. Intentando API interna.")
+        Log.d(
+            "VerpelisHD",
+            "loadLinks - post_id: $postId, nonce: $nonce, ajaxUrl: $ajaxUrl. Intentando API interna."
+        )
 
         val postData = mapOf(
             "action" to "corvus_get_servers",
@@ -712,110 +864,228 @@ class VerpelishdProvider : MainAPI() {
         )
 
         if (jsonResponseRaw.isNullOrBlank()) {
-            Log.e("VerpelisHD", "loadLinks - Falló la petición AJAX para obtener los servidores o la respuesta estaba vacía.")
+            Log.e(
+                "VerpelisHD",
+                "loadLinks - Falló la petición AJAX para obtener los servidores o la respuesta estaba vacía."
+            )
             return false
         }
 
-        Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw")
+        Log.d(
+            "VerpelisHD",
+            "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw"
+        )
 
         val playersList = tryParseJson<List<PlayerOption>>(jsonResponseRaw)
 
         var foundLinks = false
 
         if (!playersList.isNullOrEmpty()) {
-            Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores.")
+            Log.d(
+                "VerpelisHD",
+                "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores."
+            )
             playersList.apmap { player ->
                 val rawLink = player.url
                 if (!rawLink.isNullOrBlank() && (player.type == "iframe" || player.type == "direct" || player.type == "embed")) {
-                    Log.d("VerpelisHD", "loadLinks - Procesando enlace de servidor: $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})")
+                    Log.d(
+                        "VerpelisHD",
+                        "loadLinks - Procesando enlace de servidor: $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})"
+                    )
 
                     // <--- INICIO: Lógica para PlusStream.xyz --->
                     if (rawLink.contains("plustream.xyz/f/")) {
-                        Log.d("VerpelisHD", "loadLinks - Detectado enlace de PlusStream.xyz, intentando extracción de sub-enlaces.")
+                        Log.d(
+                            "VerpelisHD",
+                            "loadLinks - Detectado enlace de PlusStream.xyz, intentando extracción de sub-enlaces."
+                        )
                         try {
                             val plusStreamPageHtml = app.get(
                                 url = rawLink,
-                                headers = mapOf("Referer" to targetUrl, "User-Agent" to VERPELISHD_USER_AGENT) // Asegurar User-Agent
+                                headers = mapOf(
+                                    "Referer" to targetUrl,
+                                    "User-Agent" to VERPELISHD_USER_AGENT
+                                )
                             ).text
 
                             if (plusStreamPageHtml.isNullOrBlank()) {
-                                Log.w("VerpelisHD", "loadLinks - No se pudo obtener el HTML de PlusStream para: $rawLink")
-                                return@apmap // Continuar con el siguiente reproductor
+                                Log.w(
+                                    "VerpelisHD",
+                                    "loadLinks - No se pudo obtener el HTML de PlusStream para: $rawLink"
+                                )
+                                return@apmap
                             }
                             val plusStreamDocument = Jsoup.parse(plusStreamPageHtml)
 
                             val scriptContent = plusStreamDocument.select("script").html()
-                            val dataLinkRegex = Regex("""const dataLink = (\[.*?\]);""", RegexOption.DOT_MATCHES_ALL)
+                            val dataLinkRegex = Regex(
+                                """const dataLink = (\[.*?\]);""",
+                                RegexOption.DOT_MATCHES_ALL
+                            )
                             val dataLinkMatch = dataLinkRegex.find(scriptContent)
 
                             if (dataLinkMatch != null) {
                                 val jsonEncryptedLinks = dataLinkMatch.groupValues[1]
-                                Log.d("VerpelisHD", "loadLinks - dataLink JSON encontrado en PlusStream: $jsonEncryptedLinks")
+                                Log.d(
+                                    "VerpelisHD",
+                                    "loadLinks - PlusStream: JSON de dataLink encontrado: $jsonEncryptedLinks"
+                                )
+                                Log.d(
+                                    "VerpelisHD",
+                                    "loadLinks - PlusStream: Tipo de jsonEncryptedLinks: ${jsonEncryptedLinks::class.simpleName}, Longitud: ${jsonEncryptedLinks.length}"
+                                )
 
-                                val plusStreamData = tryParseJson<List<PlusStreamLangData>>(jsonEncryptedLinks)
+
+                                val plusStreamData: List<PlusStreamLangData>? = try {
+                                    // ¡Importante: NO LIMPIES EL JSON SI EL LOG YA LO MUESTRA BIEN FORMADO!
+                                    // El JSON de PlusStream parece venir bien, el problema está en el parseo o dependencias.
+                                    tryParseJson(jsonEncryptedLinks)
+                                } catch (e: Exception) {
+                                    Log.e(
+                                        "VerpelisHD",
+                                        "loadLinks - PlusStream: ERROR FATAL al parsear JSON con tryParseJson: ${e.message}. JSON RAW: '$jsonEncryptedLinks'",
+                                        e
+                                    )
+                                    null
+                                }
 
                                 if (plusStreamData != null && plusStreamData.isNotEmpty()) {
+                                    Log.d(
+                                        "VerpelisHD",
+                                        "loadLinks - PlusStream: JSON parseado exitosamente. Cantidad de lenguajes: ${plusStreamData.size}"
+                                    )
                                     plusStreamData.apmap { langData ->
+                                        Log.d(
+                                            "VerpelisHD",
+                                            "loadLinks - PlusStream: Procesando lenguaje: ${langData.videoLanguage}, con ${langData.sortedEmbeds.size} embeds."
+                                        )
                                         langData.sortedEmbeds.apmap { embed ->
                                             try {
-                                                // ¡Usar CryptoJS.decrypt de la importación correcta!
-                                                val decryptedLink = decryptPlusStreamLink(embed.link)
-                                                Log.d("VerpelisHD", "loadLinks - PlusStream: Enlace desencriptado para ${embed.servername}: $decryptedLink")
+                                                val decryptedLink =
+                                                    decryptPlusStreamLink(embed.link)
+                                                Log.d(
+                                                    "VerpelisHD",
+                                                    "loadLinks - PlusStream: Enlace desencriptado para ${embed.servername}: $decryptedLink"
+                                                )
 
                                                 val extracted = loadExtractor(
                                                     url = decryptedLink,
-                                                    referer = rawLink, // El referer es la URL original de PlusStream
+                                                    referer = rawLink,
                                                     subtitleCallback = subtitleCallback,
                                                     callback = callback
                                                 )
                                                 if (extracted) {
                                                     foundLinks = true
-                                                    Log.d("VerpelisHD", "loadLinks - PlusStream: Extracción exitosa para ${embed.servername} ($decryptedLink)")
+                                                    Log.d(
+                                                        "VerpelisHD",
+                                                        "loadLinks - PlusStream: Extracción exitosa para ${embed.servername} ($decryptedLink)"
+                                                    )
                                                 } else {
-                                                    Log.w("VerpelisHD", "loadLinks - PlusStream: loadExtractor falló para ${embed.servername} ($decryptedLink)")
+                                                    Log.w(
+                                                        "VerpelisHD",
+                                                        "loadLinks - PlusStream: loadExtractor falló para ${embed.servername} ($decryptedLink)"
+                                                    )
                                                 }
                                             } catch (e: Exception) {
-                                                Log.e("VerpelisHD", "loadLinks - PlusStream: Error al desencriptar o procesar enlace de ${embed.servername}: ${e.message}", e)
+                                                Log.e(
+                                                    "VerpelisHD",
+                                                    "loadLinks - PlusStream: Error al desencriptar o procesar enlace de ${embed.servername}: ${e.message}",
+                                                    e
+                                                )
                                             }
                                         }
                                     }
                                 } else {
-                                    Log.w("VerpelisHD", "loadLinks - PlusStream: No se pudo parsear dataLink o está vacío.")
+                                    Log.w(
+                                        "VerpelisHD",
+                                        "loadLinks - PlusStream: El resultado de parseo fue nulo o la lista está vacía. Esto es un fallo de deserialización. JSON RAW: $jsonEncryptedLinks"
+                                    )
                                 }
 
                             } else {
-                                Log.w("VerpelisHD", "loadLinks - PlusStream: No se encontró la variable dataLink en los scripts de la página.")
+                                Log.w(
+                                    "VerpelisHD",
+                                    "loadLinks - PlusStream: No se encontró la variable dataLink en los scripts de la página."
+                                )
                             }
 
                         } catch (e: Exception) {
-                            Log.e("VerpelisHD", "loadLinks - Error general en extracción de PlusStream: ${e.message}", e)
+                            Log.e(
+                                "VerpelisHD",
+                                "loadLinks - Error general en extracción de PlusStream: ${e.message}",
+                                e
+                            )
                         }
                     } else {
-                        // <--- Lógica original si NO es un enlace de PlusStream.xyz (otros iframes/direct/embed) --->
-                        Log.d("VerpelisHD", "loadLinks - Intentando loadExtractor genérico para enlace no-PlusStream: $rawLink")
-                        val extracted = loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
+                        Log.d(
+                            "VerpelisHD",
+                            "loadLinks - Intentando loadExtractor genérico para enlace no-PlusStream: $rawLink"
+                        )
+                        val extracted =
+                            loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
                         if (extracted) {
                             foundLinks = true
-                            Log.d("VerpelisHD", "loadLinks - Extractor de CloudStream EXTRACCIÓN EXITOSA para $rawLink")
+                            Log.d(
+                                "VerpelisHD",
+                                "loadLinks - Extractor de CloudStream EXTRACCIÓN EXITOSA para $rawLink"
+                            )
                         } else {
-                            Log.w("VerpelisHD", "loadLinks - loadExtractor de CloudStream falló al procesar el enlace: $rawLink")
+                            Log.w(
+                                "VerpelisHD",
+                                "loadLinks - loadExtractor de CloudStream falló al procesar el enlace: $rawLink"
+                            )
                         }
                     }
                     // <--- FIN: Lógica para PlusStream.xyz --->
 
                 } else {
-                    Log.w("VerpelisHD", "loadLinks - Enlace de servidor interno descartado (nulo/vacío o tipo no reconocido): $rawLink (Tipo: ${player.type})")
+                    Log.w(
+                        "VerpelisHD",
+                        "loadLinks - Enlace de servidor interno descartado (nulo/vacío o tipo no reconocido): $rawLink (Tipo: ${player.type})"
+                    )
                 }
             }
 
             if (foundLinks) return true
         } else {
-            Log.w("VerpelisHD", "loadLinks - La API interna devolvió una lista de reproductores vacía o no se pudo parsear a una lista de PlayerOption. Respuesta: ${jsonResponseRaw}")
+            Log.w(
+                "VerpelisHD",
+                "loadLinks - La API interna devolvió una lista de reproductores vacía o no se pudo parsear a una lista de PlayerOption. Respuesta: ${jsonResponseRaw}"
+            )
         }
 
-        Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video funcionales para: $targetUrl")
+        Log.w(
+            "VerpelisHD",
+            "loadLinks - No se encontraron enlaces de video funcionales para: $targetUrl"
+        )
         return false
     }
+
+    @Serializable
+    data class EpisodeAjaxResponse(
+        val success: Boolean,
+        val data: EpisodeAjaxData
+    )
+
+    @Serializable
+    data class EpisodeAjaxData(
+        val results: List<AjaxEpisodeResult>,
+        val hasMore: Boolean
+    )
+
+    @Serializable
+    data class AjaxEpisodeResult(
+        val permalink: String,
+        val title: String,
+        val name: String,
+        val overview: String,
+        val release_date: String,
+        val season_number: Int,
+        val episode_number: Int,
+        val runtime: String,
+        val series_id: String,
+        val episode_image: String
+    )
 
     @Serializable
     data class PlusStreamLangData(
