@@ -24,6 +24,7 @@ import okhttp3.FormBody
 import org.jsoup.nodes.Document
 import com.lagradost.cloudstream3.extractors.helper.CryptoJS
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
+import kotlinx.serialization.json.Json
 
 data class LinkEntry(
     val url: String? = null, // 'url' es el campo real aquí
@@ -109,6 +110,7 @@ private fun decryptLink(encryptedBase64: String, key: String): String {
 
 class VerpelishdProvider : MainAPI() {
     override var mainUrl = "https://verpelishd.me/portal"
+    private val json = Json { ignoreUnknownKeys = true }
     private val searchBaseUrl = "https://verpelishd.me"
     override var name = "VerpelisHD"
     override val supportedTypes = setOf(
@@ -935,17 +937,10 @@ class VerpelishdProvider : MainAPI() {
                                     "loadLinks - PlusStream: Tipo de jsonEncryptedLinks: ${jsonEncryptedLinks::class.simpleName}, Longitud: ${jsonEncryptedLinks.length}"
                                 )
 
-
                                 val plusStreamData: List<PlusStreamLangData>? = try {
-                                    // ¡Importante: NO LIMPIES EL JSON SI EL LOG YA LO MUESTRA BIEN FORMADO!
-                                    // El JSON de PlusStream parece venir bien, el problema está en el parseo o dependencias.
-                                    tryParseJson(jsonEncryptedLinks)
+                                    json.decodeFromString<List<PlusStreamLangData>>(jsonEncryptedLinks) // <-- ¡Usa json.decodeFromString!
                                 } catch (e: Exception) {
-                                    Log.e(
-                                        "VerpelisHD",
-                                        "loadLinks - PlusStream: ERROR FATAL al parsear JSON con tryParseJson: ${e.message}. JSON RAW: '$jsonEncryptedLinks'",
-                                        e
-                                    )
+                                    Log.e("VerpelisHD", "loadLinks - PlusStream: ERROR FATAL al parsear JSON con decodeFromString: ${e.message}. JSON RAW: '$jsonEncryptedLinks'", e)
                                     null
                                 }
 
