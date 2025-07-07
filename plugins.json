@@ -1,10 +1,11 @@
 [
   {
-    "iconUrl": "https://sololatino.net/wp-content/uploads/2022/11/logo-final.png",
-    "apiVersion": 1,
-    "fileSize": 27000,
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
     "status": 1,
-    "language": "es",
+    "version": 3,
+    "apiVersion": 1,
+    "name": "SoloLatino",
+    "internalName": "SoloLatinoProvider",
     "authors": [
       "Ranita"
     ],
@@ -15,10 +16,9 @@
       "Cartoon",
       "Anime"
     ],
-    "version": 2,
-    "internalName": "SoloLatinoProvider",
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/SoloLatinoProvider.cs3",
-    "name": "SoloLatino"
+    "iconUrl": "https://sololatino.net/wp-content/uploads/2022/11/logo-final.png",
+    "language": "es",
+    "fileSize": 26000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/PelisplusProvider.cs3",

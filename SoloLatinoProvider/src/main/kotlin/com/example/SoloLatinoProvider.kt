@@ -27,13 +27,10 @@ class SoloLatinoProvider : MainAPI() {
         TvType.Anime,
         TvType.Cartoon,
     )
-
     override var lang = "es"
-
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
-
     private val cfKiller = CloudflareKiller()
 
     private suspend fun safeAppGet(
@@ -132,7 +129,6 @@ class SoloLatinoProvider : MainAPI() {
             } else null
         }
     }
-
     data class EpisodeLoadData(
         val title: String,
         val url: String
@@ -198,6 +194,24 @@ class SoloLatinoProvider : MainAPI() {
             }
         } else listOf()
 
+        val recommendations = doc.select("div#single_relacionados div.owl-item article").mapNotNull {
+            val recTitle = it.selectFirst("a h3")?.text() // Selector actualizado
+            val recLink = it.selectFirst("a")?.attr("href")
+            val recImg = it.selectFirst("a img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: it.selectFirst("a img")?.attr("src")
+
+            if (recTitle != null && recLink != null) {
+                newAnimeSearchResponse(
+                    recTitle,
+                    fixUrl(recLink)
+                ) {
+                    this.posterUrl = recImg
+                    this.type = TvType.TvSeries // Ajusta si puedes determinar si es película/serie desde el enlace
+                }
+            } else {
+                null
+            }
+        }
+
         return when (tvType) {
             TvType.TvSeries -> {
                 newTvSeriesLoadResponse(
@@ -210,6 +224,7 @@ class SoloLatinoProvider : MainAPI() {
                     this.backgroundPosterUrl = poster
                     this.plot = description
                     this.tags = tags
+                    this.recommendations = recommendations // Añadir recomendaciones aquí
                 }
             }
 
@@ -224,6 +239,7 @@ class SoloLatinoProvider : MainAPI() {
                     this.backgroundPosterUrl = poster
                     this.plot = description
                     this.tags = tags
+                    this.recommendations = recommendations // Añadir recomendaciones aquí
                 }
             }
 
