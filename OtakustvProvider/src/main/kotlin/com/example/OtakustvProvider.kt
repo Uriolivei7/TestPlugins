@@ -147,16 +147,26 @@ class OtakustvProvider : MainAPI() {
         if (urlJsonMatch != null) cleanUrl = urlJsonMatch.groupValues[1]
         else if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) cleanUrl = "https://" + cleanUrl.removePrefix("//")
 
+        // Asegurarse de que la URL base para la serie termina en '/' si no es un episodio específico.
+        // Esto es crucial para que las URLs relativas de los episodios se construyan correctamente.
         val animeBaseUrlMatch = Regex("""(.+)/episodio-\d+/?$""").find(cleanUrl)
         val finalUrlToFetch = if (animeBaseUrlMatch != null) {
+            // Si la URL es de un episodio, volvemos a la URL base de la serie.
             val base = animeBaseUrlMatch.groupValues[1]
             if (!base.endsWith("/")) "$base/" else base
         } else {
+            // Si ya es la URL base de la serie, asegurarnos de que termina en '/'
             if (!cleanUrl.endsWith("/")) "$cleanUrl/" else cleanUrl
         }
-        if (finalUrlToFetch.isBlank()) return null
+        if (finalUrlToFetch.isBlank()) {
+            Log.e("OtakustvProvider", "URL final para fetch está en blanco: $cleanUrl")
+            return null
+        }
 
-        val html = safeAppGet(finalUrlToFetch) ?: return null
+        val html = safeAppGet(finalUrlToFetch) ?: run {
+            Log.e("OtakustvProvider", "Fallo al obtener HTML para: $finalUrlToFetch")
+            return null
+        }
         val doc = Jsoup.parse(html)
 
         val title = doc.selectFirst("h1[itemprop=\"name\"]")?.text() ?: doc.selectFirst("h1.tit_ocl")?.text() ?: ""
@@ -184,6 +194,7 @@ class OtakustvProvider : MainAPI() {
                 if (pageUrl.isNotBlank()) allEpisodeUrls.add(pageUrl)
             }
         } else {
+            // Si no hay dropdown, significa que todos los episodios están en la página actual.
             allEpisodeUrls.add(finalUrlToFetch)
         }
 
@@ -194,19 +205,24 @@ class OtakustvProvider : MainAPI() {
 
             val episodesOnPage = pageDoc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
                 val epLinkElement = element.selectFirst("a.item-temp")
-                val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
-                val epTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim() ?: "" // Corrected selector for episode title
+                val epUrl = fixUrl(epLinkElement?.attr("href") ?: "") // URL del episodio
+                val epTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim() ?: ""
                 val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: epLinkElement?.selectFirst("img.img-fluid")?.attr("data-src") ?: ""
                 val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
 
                 if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
+                    // **CRÍTICO:** Asegúrate de que la URL que se guarda aquí es la URL *directa* del episodio
+                    // que `loadLinks` usará para obtener los servidores.
                     newEpisode(EpisodeLoadData(epTitle, epUrl).toJson()) {
                         this.name = epTitle
                         this.season = null
                         this.episode = episodeNumber
                         this.posterUrl = epPoster
                     }
-                } else null
+                } else {
+                    Log.w("OtakustvProvider", "Episodio incompleto encontrado: URL='$epUrl', Título='$epTitle'")
+                    null
+                }
             }
             allEpisodes.addAll(episodesOnPage)
         }
@@ -256,11 +272,21 @@ class OtakustvProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        // **CRÍTICO:** Asegurarse de que 'data' se está parseando correctamente a una URL válida.
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
-        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
-        if (targetUrl.isBlank()) return false
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data) // Si no se parseó como JSON, se asume que 'data' es la URL directamente.
 
-        val initialHtml = safeAppGet(targetUrl) ?: return false
+        Log.d("OtakustvProvider", "loadLinks - URL a cargar: $targetUrl") // Log para depuración
+
+        if (targetUrl.isBlank()) {
+            Log.e("OtakustvProvider", "loadLinks - targetUrl está en blanco para data: $data")
+            return false
+        }
+
+        val initialHtml = safeAppGet(targetUrl) ?: run {
+            Log.e("OtakustvProvider", "loadLinks - Fallo al obtener HTML para: $targetUrl")
+            return false
+        }
         val doc = Jsoup.parse(initialHtml)
 
         val encryptedValues = mutableSetOf<String>()
@@ -272,8 +298,14 @@ class OtakustvProvider : MainAPI() {
         }
 
         var linksFound = false
+        if (encryptedValues.isEmpty()) {
+            Log.w("OtakustvProvider", "loadLinks - No se encontraron valores encriptados (server IDs) para $targetUrl")
+        }
+
         encryptedValues.toList().amap { encryptedId: String ->
             val requestUrl = "$mainUrl/play-video?id=$encryptedId"
+            Log.d("OtakustvProvider", "loadLinks - Solicitando iframe para ID encriptado: $encryptedId desde $requestUrl") // Log para depuración
+
             val responseJsonString = try {
                 app.get(
                     requestUrl,
@@ -283,7 +315,10 @@ class OtakustvProvider : MainAPI() {
                     ),
                     interceptor = cfKiller
                 ).text
-            } catch (e: Exception) { null }
+            } catch (e: Exception) {
+                Log.e("OtakustvProvider", "loadLinks - Error al obtener respuesta JSON para $encryptedId: ${e.message}", e)
+                null
+            }
 
             if (!responseJsonString.isNullOrBlank()) {
                 try {
@@ -293,25 +328,38 @@ class OtakustvProvider : MainAPI() {
                         if (!iframeSrc.isNullOrBlank()) {
                             if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
                                 iframeSrc = iframeSrc.replace("/preview", "/edit")
+                                Log.d("OtakustvProvider", "loadLinks - Google Drive URL modificada a: $iframeSrc")
                             }
+                            Log.d("OtakustvProvider", "loadLinks - Extrayendo desde iframe: $iframeSrc") // Log para depuración
                             loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
                             linksFound = true
+                        } else {
+                            Log.w("OtakustvProvider", "loadLinks - Iframe src nulo/vacío en respuesta para ID: $encryptedId")
                         }
+                    } else {
+                        Log.w("OtakustvProvider", "loadLinks - HTML del iframe nulo/vacío en respuesta para ID: $encryptedId")
                     }
-                } catch (e: Exception) { Log.e("OtakustvProvider", "Error parsing iframe HTML for encrypted ID: $encryptedId", e) }
+                } catch (e: Exception) {
+                    Log.e("OtakustvProvider", "loadLinks - Error al parsear HTML del iframe o JSON para ID: $encryptedId: ${e.message}", e)
+                }
             } else {
-                Log.w("OtakustvProvider", "Empty or null response for encrypted ID: $encryptedId")
+                Log.w("OtakustvProvider", "loadLinks - Respuesta JSON nula/vacía para ID: $encryptedId")
             }
         }
 
         if (!linksFound) {
+            // Intento de respaldo si no se encontraron enlaces mediante los valores encriptados
             var playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
             if (!playerIframeSrc.isNullOrBlank()) {
                 if (playerIframeSrc.contains("drive.google.com") && playerIframeSrc.contains("/preview")) {
                     playerIframeSrc = playerIframeSrc.replace("/preview", "/edit")
+                    Log.d("OtakustvProvider", "loadLinks - Respaldo: Google Drive URL modificada a: $playerIframeSrc")
                 }
+                Log.d("OtakustvProvider", "loadLinks - Respaldo: Extrayendo desde iframe principal: $playerIframeSrc")
                 loadExtractor(fixUrl(playerIframeSrc), targetUrl, subtitleCallback, callback)
                 linksFound = true
+            } else {
+                Log.w("OtakustvProvider", "loadLinks - Respaldo: No se encontró iframe principal #ytplayer.")
             }
         }
 
