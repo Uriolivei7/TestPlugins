@@ -137,7 +137,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/LacartoonsProvider.cs3",
     "status": 1,
-    "version": 2,
+    "version": 3,
     "apiVersion": 8,
     "name": "LACartoons",
     "internalName": "LacartoonsProvider",
@@ -150,7 +150,7 @@
     ],
     "iconUrl": "https://img.icons8.com/?size=200&id=tlzsVoeHOw9V&format=png",
     "language": "es",
-    "fileSize": 29000
+    "fileSize": 12000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/Cuevana3Provider.cs3",
