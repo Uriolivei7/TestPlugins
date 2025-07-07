@@ -250,7 +250,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakustvProvider.cs3",
     "status": 1,
-    "version": 2,
+    "version": 3,
     "apiVersion": 14,
     "name": "OtakusTV",
     "internalName": "OtakustvProvider",

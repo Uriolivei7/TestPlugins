@@ -248,11 +248,16 @@ class OtakustvProvider : MainAPI() {
                 // Extracción de la descripción del episodio
                 epDescription = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: ""
 
+                // Si el número de episodio no se encontró en la URL (o fue null al principio),
+                // intentar del texto del título (si el formato es "Episodio X")
                 if (episodeNumber == null) {
                     val titleNumberMatch = Regex("""Episodio (\d+)""").find(epTitle)
                     episodeNumber = titleNumberMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
                 }
 
+                // A modo de último recurso para el título, si aun así no se encontró,
+                // o si el selector de la descripción capturó un título corto por error,
+                // podemos ajustarlo aquí.
                 if (epTitle.isBlank()) {
                     epTitle = element.selectFirst("span.font14.mb-1 a.text-white")?.text()?.trim() ?: ""
                 }
@@ -273,13 +278,13 @@ class OtakustvProvider : MainAPI() {
                     ?: epLinkElement.selectFirst("img.img-fluid")?.attr("data-src") ?: ""
 
                 val episodeData = EpisodeLoadData(epTitle, epUrl)
-                Log.d("OtakustvProvider", "load - Creando episodio con data: ${episodeData.toJson()}")
+                Log.d("OtakustvProvider", "load - Data del episodio antes de crear objeto: Título='$epTitle', Descripción='$epDescription'")
                 newEpisode(episodeData.toJson()) {
-                    this.name = epTitle
+                    this.name = epDescription // Asigna la descripción (Ludo saquea...) al campo 'name' (que tu UI muestra como descripción)
                     this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
-                    this.description = epDescription // ¡Aquí se asigna la descripción!
+                    this.description = epTitle // Asigna el título (La esfera) al campo 'description' (que tu UI muestra como título)
                 }
             }
             allEpisodes.addAll(episodesOnPage)
