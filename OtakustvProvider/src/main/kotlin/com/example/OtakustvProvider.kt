@@ -231,31 +231,42 @@ class OtakustvProvider : MainAPI() {
                     if (it.isBlank()) Log.w("OtakustvProvider", "EpLinkElement href is blank for an episode item: ${element.outerHtml().take(200)}")
                 }
 
-                var epTitle: String = epLinkElement.attr("title")?.trim() ?: "" // Se declara como String y se usa el Elvis operator para el valor por defecto
-
-                // Si el atributo title del <a> está vacío, intentar el <span.font14...
-                if (epTitle.isBlank()) {
-                    epTitle = element.selectFirst("span.font14.mb-1 a.text-white")?.text()?.trim() ?: "" // Se usa Elvis operator
-                    if (epTitle.isBlank()) {
-                        epTitle = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: "" // Se usa Elvis operator
-                    }
-                }
-
-                if (epTitle.isBlank() || epUrl.isBlank()) {
-                    Log.w("OtakustvProvider", "Episodio incompleto encontrado después de intentar varios selectores: URL='$epUrl', Título='$epTitle'")
-                    return@mapNotNull null
-                }
-
+                // --- MOVIDO: EXTRACCIÓN DEL NÚMERO DE EPISODIO ANTES DE USARLO EN EL TÍTULO ---
                 var episodeNumber: Int? = null
                 val episodeUrlMatch = Regex("""episodio-(\d+)""").find(epUrl)
                 episodeNumber = episodeUrlMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
 
+                // --- INICIO DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
+                var epTitle: String = element.selectFirst("p.font-GDSherpa-Bold.font14.mb-1.text-left")?.text()?.trim() ?: ""
+                var epDescription: String = "" // Nueva variable para la descripción
+
+                // Fallback: si el selector anterior no encontró nada para el título, intentar el atributo 'title' del enlace
+                if (epTitle.isBlank()) {
+                    epTitle = epLinkElement.attr("title")?.trim() ?: ""
+                }
+
+                // Extracción de la descripción del episodio
+                epDescription = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: ""
+
                 if (episodeNumber == null) {
-                    val spanText = element.selectFirst("span.font-GDSherpa-Bold.font14.mb-1.text-left a.text-white")?.text()?.trim()
-                    spanText?.let {
-                        val match = Regex("""Episodio (\d+)""").find(it)
-                        episodeNumber = match?.groupValues?.getOrNull(1)?.toIntOrNull()
-                    }
+                    val titleNumberMatch = Regex("""Episodio (\d+)""").find(epTitle)
+                    episodeNumber = titleNumberMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+                }
+
+                if (epTitle.isBlank()) {
+                    epTitle = element.selectFirst("span.font14.mb-1 a.text-white")?.text()?.trim() ?: ""
+                }
+
+                if (epTitle.isBlank() && episodeNumber != null) {
+                    epTitle = "Episodio $episodeNumber"
+                } else if (epTitle.isBlank()) {
+                    epTitle = "Episodio Desconocido" // Fallback final si no hay número
+                }
+                // --- FIN DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
+
+                if (epTitle.isBlank() || epUrl.isBlank()) {
+                    Log.w("OtakustvProvider", "Episodio incompleto encontrado después de intentar varios selectores: URL='$epUrl', Título='$epTitle'")
+                    return@mapNotNull null
                 }
 
                 val epPoster = epLinkElement.selectFirst("img.img-fluid")?.attr("src")
@@ -268,6 +279,7 @@ class OtakustvProvider : MainAPI() {
                     this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
+                    this.description = epDescription // ¡Aquí se asigna la descripción!
                 }
             }
             allEpisodes.addAll(episodesOnPage)
