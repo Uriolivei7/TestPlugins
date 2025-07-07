@@ -195,8 +195,8 @@ class OtakustvProvider : MainAPI() {
             val episodesOnPage = pageDoc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
                 val epLinkElement = element.selectFirst("a.item-temp")
                 val epUrl = fixUrl(epLinkElement?.attr("href") ?: "")
-                val epTitle = element.selectFirst("span.font-GDSherpa-Bold a")?.text()?.trim() ?: ""
-                val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: ""
+                val epTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim() ?: "" // Corrected selector for episode title
+                val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: epLinkElement?.selectFirst("img.img-fluid")?.attr("data-src") ?: ""
                 val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
 
                 if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
@@ -213,6 +213,27 @@ class OtakustvProvider : MainAPI() {
 
         val finalEpisodes = allEpisodes.reversed()
 
+        // --- INICIO: Lógica para "También te puede interesar" ---
+        val recommendations = doc.select("div.pl-lg-4.pr-lg-4.mb20 div.row div[class*=\"col-\"]").mapNotNull { element ->
+            val recTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim()
+            val recLink = element.selectFirst("a.item-temp")?.attr("href")
+            val recImg = element.selectFirst("a.item-temp img.img-fluid")?.attr("src") ?: element.selectFirst("a.item-temp img.img-fluid")?.attr("data-src")
+
+            if (recTitle != null && recLink != null && recImg != null) {
+                newAnimeSearchResponse(
+                    recTitle,
+                    fixUrl(recLink)
+                ) {
+                    this.type = TvType.Anime
+                    this.posterUrl = recImg
+                }
+            } else {
+                null
+            }
+        }
+        // --- FIN: Lógica para "También te puede interesar" ---
+
+
         return newTvSeriesLoadResponse(
             name = title,
             url = finalUrlToFetch,
@@ -225,6 +246,7 @@ class OtakustvProvider : MainAPI() {
             this.tags = tags + additionalTags
             this.year = year
             //this.status = status
+            this.recommendations = recommendations // Añadir las recomendaciones aquí
         }
     }
 
@@ -276,7 +298,9 @@ class OtakustvProvider : MainAPI() {
                             linksFound = true
                         }
                     }
-                } catch (e: Exception) { }
+                } catch (e: Exception) { Log.e("OtakustvProvider", "Error parsing iframe HTML for encrypted ID: $encryptedId", e) }
+            } else {
+                Log.w("OtakustvProvider", "Empty or null response for encrypted ID: $encryptedId")
             }
         }
 
