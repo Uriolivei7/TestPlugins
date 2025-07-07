@@ -268,7 +268,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakuversoProvider.cs3",
     "status": 1,
-    "version": 2,
+    "version": 3,
     "apiVersion": 15,
     "name": "Otakuverso",
     "internalName": "OtakuversoProvider",
@@ -281,6 +281,6 @@
     ],
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
-    "fileSize": 21000
+    "fileSize": 22000
   }
 ]
