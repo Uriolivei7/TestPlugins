@@ -147,15 +147,11 @@ class OtakustvProvider : MainAPI() {
         if (urlJsonMatch != null) cleanUrl = urlJsonMatch.groupValues[1]
         else if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) cleanUrl = "https://" + cleanUrl.removePrefix("//")
 
-        // Asegurarse de que la URL base para la serie termina en '/' si no es un episodio específico.
-        // Esto es crucial para que las URLs relativas de los episodios se construyan correctamente.
         val animeBaseUrlMatch = Regex("""(.+)/episodio-\d+/?$""").find(cleanUrl)
         val finalUrlToFetch = if (animeBaseUrlMatch != null) {
-            // Si la URL es de un episodio, volvemos a la URL base de la serie.
             val base = animeBaseUrlMatch.groupValues[1]
             if (!base.endsWith("/")) "$base/" else base
         } else {
-            // Si ya es la URL base de la serie, asegurarnos de que termina en '/'
             if (!cleanUrl.endsWith("/")) "$cleanUrl/" else cleanUrl
         }
         if (finalUrlToFetch.isBlank()) {
@@ -194,7 +190,6 @@ class OtakustvProvider : MainAPI() {
                 if (pageUrl.isNotBlank()) allEpisodeUrls.add(pageUrl)
             }
         } else {
-            // Si no hay dropdown, significa que todos los episodios están en la página actual.
             allEpisodeUrls.add(finalUrlToFetch)
         }
 
@@ -205,15 +200,40 @@ class OtakustvProvider : MainAPI() {
 
             val episodesOnPage = pageDoc.select("div.row > div[class*=\"col-\"]").mapNotNull { element ->
                 val epLinkElement = element.selectFirst("a.item-temp")
-                val epUrl = fixUrl(epLinkElement?.attr("href") ?: "") // URL del episodio
-                val epTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim() ?: ""
-                val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src") ?: epLinkElement?.selectFirst("img.img-fluid")?.attr("data-src") ?: ""
-                val episodeNumber = epUrl.split("-").lastOrNull()?.toIntOrNull()
+                // Asegúrate de que la URL del episodio se obtenga correctamente
+                val epUrl = fixUrl(epLinkElement?.attr("href") ?: "").also {
+                    if (it.isBlank()) Log.w("OtakustvProvider", "EpLinkElement href is blank for an episode item.")
+                }
+
+                // **CORRECCIÓN CLAVE:** Obtener el título del atributo 'title' de la etiqueta <a>
+                var epTitle = epLinkElement?.attr("title")?.trim() ?: ""
+                // Fallback si el título del atributo 'title' es vacío
+                if (epTitle.isBlank()) {
+                    epTitle = element.selectFirst("p.font14.mb-0.text-white.mt-2 span.bog")?.text()?.trim() ?: "Episodio Desconocido"
+                }
+
+                var episodeNumber: Int? = null
+                if (epUrl.isNotBlank()) {
+                    val episodeUrlMatch = Regex("""episodio-(\d+)""").find(epUrl)
+                    episodeNumber = episodeUrlMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+                }
+
+                if (episodeNumber == null) {
+                    val pTagText = element.selectFirst("p.font14.mb-0.text-white.mt-2 span.bog")?.text()?.trim()
+                    pTagText?.let {
+                        val match = Regex("""Episodio (\d+)""").find(it)
+                        episodeNumber = match?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    }
+                }
+
+                val epPoster = epLinkElement?.selectFirst("img.img-fluid")?.attr("src")
+                    ?: epLinkElement?.selectFirst("img.img-fluid")?.attr("data-src") ?: ""
 
                 if (epUrl.isNotBlank() && epTitle.isNotBlank()) {
-                    // **CRÍTICO:** Asegúrate de que la URL que se guarda aquí es la URL *directa* del episodio
-                    // que `loadLinks` usará para obtener los servidores.
-                    newEpisode(EpisodeLoadData(epTitle, epUrl).toJson()) {
+                    val episodeData = EpisodeLoadData(epTitle, epUrl)
+                    // Log para depuración: Ver el EpisodeLoadData que se está creando
+                    Log.d("OtakustvProvider", "load - Creando episodio con data: ${episodeData.toJson()}")
+                    newEpisode(episodeData.toJson()) {
                         this.name = epTitle
                         this.season = null
                         this.episode = episodeNumber
@@ -229,7 +249,6 @@ class OtakustvProvider : MainAPI() {
 
         val finalEpisodes = allEpisodes.reversed()
 
-        // --- INICIO: Lógica para "También te puede interesar" ---
         val recommendations = doc.select("div.pl-lg-4.pr-lg-4.mb20 div.row div[class*=\"col-\"]").mapNotNull { element ->
             val recTitle = element.selectFirst("h2.font-GDSherpa-Bold")?.text()?.trim()
             val recLink = element.selectFirst("a.item-temp")?.attr("href")
@@ -247,8 +266,6 @@ class OtakustvProvider : MainAPI() {
                 null
             }
         }
-        // --- FIN: Lógica para "También te puede interesar" ---
-
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -262,7 +279,7 @@ class OtakustvProvider : MainAPI() {
             this.tags = tags + additionalTags
             this.year = year
             //this.status = status
-            this.recommendations = recommendations // Añadir las recomendaciones aquí
+            this.recommendations = recommendations
         }
     }
 
@@ -272,11 +289,10 @@ class OtakustvProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        // **CRÍTICO:** Asegurarse de que 'data' se está parseando correctamente a una URL válida.
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
-        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data) // Si no se parseó como JSON, se asume que 'data' es la URL directamente.
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
 
-        Log.d("OtakustvProvider", "loadLinks - URL a cargar: $targetUrl") // Log para depuración
+        Log.d("OtakustvProvider", "loadLinks - URL a cargar: $targetUrl")
 
         if (targetUrl.isBlank()) {
             Log.e("OtakustvProvider", "loadLinks - targetUrl está en blanco para data: $data")
@@ -287,6 +303,9 @@ class OtakustvProvider : MainAPI() {
             Log.e("OtakustvProvider", "loadLinks - Fallo al obtener HTML para: $targetUrl")
             return false
         }
+        // Log para depuración: Primeros 500 caracteres del HTML recibido
+        Log.d("OtakustvProvider", "loadLinks - HTML recibido (primeros 500 chars): ${initialHtml.take(500)}")
+
         val doc = Jsoup.parse(initialHtml)
 
         val encryptedValues = mutableSetOf<String>()
@@ -297,6 +316,9 @@ class OtakustvProvider : MainAPI() {
             link.attr("rel").takeIf { it.isNotBlank() }?.let { encryptedValues.add(it) }
         }
 
+        // Log para depuración: Valores encriptados encontrados
+        Log.d("OtakustvProvider", "loadLinks - Valores encriptados encontrados: $encryptedValues")
+
         var linksFound = false
         if (encryptedValues.isEmpty()) {
             Log.w("OtakustvProvider", "loadLinks - No se encontraron valores encriptados (server IDs) para $targetUrl")
@@ -304,7 +326,7 @@ class OtakustvProvider : MainAPI() {
 
         encryptedValues.toList().amap { encryptedId: String ->
             val requestUrl = "$mainUrl/play-video?id=$encryptedId"
-            Log.d("OtakustvProvider", "loadLinks - Solicitando iframe para ID encriptado: $encryptedId desde $requestUrl") // Log para depuración
+            Log.d("OtakustvProvider", "loadLinks - Solicitando iframe para ID encriptado: $encryptedId desde $requestUrl")
 
             val responseJsonString = try {
                 app.get(
@@ -330,7 +352,7 @@ class OtakustvProvider : MainAPI() {
                                 iframeSrc = iframeSrc.replace("/preview", "/edit")
                                 Log.d("OtakustvProvider", "loadLinks - Google Drive URL modificada a: $iframeSrc")
                             }
-                            Log.d("OtakustvProvider", "loadLinks - Extrayendo desde iframe: $iframeSrc") // Log para depuración
+                            Log.d("OtakustvProvider", "loadLinks - Extrayendo desde iframe: $iframeSrc")
                             loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
@@ -348,7 +370,6 @@ class OtakustvProvider : MainAPI() {
         }
 
         if (!linksFound) {
-            // Intento de respaldo si no se encontraron enlaces mediante los valores encriptados
             var playerIframeSrc = doc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
             if (!playerIframeSrc.isNullOrBlank()) {
                 if (playerIframeSrc.contains("drive.google.com") && playerIframeSrc.contains("/preview")) {
