@@ -22,10 +22,11 @@ import kotlinx.serialization.Serializable // <--- CAMBIO AQUÍ
 import kotlinx.serialization.SerialName   // <--- CAMBIO AQUÍ
 import okhttp3.FormBody
 import org.jsoup.nodes.Document
-import com.lagradost.cloudstream3.utils.loadExtractor
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.AppUtils
-import com.lagradost.cloudstream3.SubtitleFile
+//import com.lagradost.cloudstream3.utils.loadExtractor
+//import com.lagradost.cloudstream3.utils.ExtractorLink
+//import com.lagradost.cloudstream3.utils.AppUtils
+//import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.extractors.helper.CryptoJS
 
 data class LinkEntry(
     val url: String? = null, // 'url' es el campo real aquí
@@ -34,8 +35,6 @@ data class LinkEntry(
     val type: String // 'type' es "embed"
 )
 
-private const val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
-// Asegúrate de que esta constante esté accesible, quizás junto a PLUSSTREAM_DECRYPT_KEY
 private const val VERPELISHD_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
 @Serializable // Asegúrate de tener la anotación de serialización (Kotlinx Serialization)
@@ -75,6 +74,14 @@ data class Player(
     @SerialName("name") val name: String?
 )
 
+private val PLUSSTREAM_DECRYPT_KEY = "Ak7qrvvH4WKYxV2OgaeHAEg2a5eh16vE"
+
+// Función para desencriptar el enlace de PlusStream usando las utilidades de CloudStream
+fun decryptPlusStreamLink(encryptedText: String): String {
+    // La función Crypto.decrypt de CloudStream está diseñada para manejar el formato "Salted__" de CryptoJS
+    // Requiere la cadena cifrada y la clave como String.
+    return CryptoJS.decrypt(encryptedText, PLUSSTREAM_DECRYPT_KEY)
+}
 
 private fun decryptLink(encryptedBase64: String, key: String): String {
     try {
@@ -604,9 +611,9 @@ class VerpelishdProvider : MainAPI() {
         Log.d("VerpelisHD", "loadLinks - Data de entrada: $data")
 
         val targetUrl: String
-        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data) // Aquí se usa
+        val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
         if (parsedEpisodeData != null) {
-            targetUrl = parsedEpisodeData.url // Acceso a parsedEpisodeData.url
+            targetUrl = parsedEpisodeData.url
             Log.d("VerpelisHD", "loadLinks - URL final de episodio (de JSON): $targetUrl")
         } else {
             val regexExtractUrl = Regex("""(https?:\/\/[^"'\s)]+)""")
@@ -620,17 +627,20 @@ class VerpelishdProvider : MainAPI() {
             return false
         }
 
-        // --- CORRECCIÓN 1: safeAppGet ya devuelve String? directamente ---
-        val initialHtmlString = safeAppGet(targetUrl) // ¡Directamente el String? HTML!
+        val initialHtmlString = try {
+            app.get(targetUrl).text // app.get().text devuelve String
+        } catch (e: Exception) {
+            Log.e("VerpelisHD", "loadLinks - Error al obtener HTML inicial para: $targetUrl", e)
+            null // Devolver null en caso de error
+        }
 
         if (initialHtmlString.isNullOrBlank()) {
             Log.e("VerpelisHD", "loadLinks - No se pudo obtener HTML (o estaba vacío) para: $targetUrl")
             return false
         }
-        // Ahora initialHtmlString es un String no nulo, perfecto para Jsoup.parse()
         val initialHtml: Document = Jsoup.parse(initialHtmlString)
 
-        // --- LÓGICA DE DETECCIÓN DE IFRAME EXTERNO ---
+        // --- LÓGICA DE DETECCIÓN DE IFRAME EXTERNO (original) ---
         val mainIframeSrc = initialHtml.selectFirst("div.player iframe")?.attr("src")
             ?: initialHtml.selectFirst("#player iframe")?.attr("src")
 
@@ -680,7 +690,6 @@ class VerpelishdProvider : MainAPI() {
         val postHeaders = mapOf(
             "User-Agent" to VERPELISHD_USER_AGENT,
             "Accept" to "*/*",
-            // "Accept-Encoding" to "gzip, deflate, br, zstd", // Mantener comentado o eliminar si no quieres compresión automática
             "Accept-Language" to "es-ES,es;q=0.7",
             "Origin" to "https://verpelishd.me",
             "Priority" to "u=1, i",
@@ -709,30 +718,91 @@ class VerpelishdProvider : MainAPI() {
 
         Log.d("VerpelisHD", "loadLinks - Respuesta JSON de servidores obtenida (raw): $jsonResponseRaw")
 
-// *** ¡CAMBIO CLAVE AQUÍ! ***
-// Parsear directamente como una lista de PlayerOption
-        val playersList = tryParseJson<List<PlayerOption>>(jsonResponseRaw) // <--- CAMBIO DE ServersResponse A List<PlayerOption>
+        val playersList = tryParseJson<List<PlayerOption>>(jsonResponseRaw)
 
         var foundLinks = false
-//Yeji
-// Ahora, la comprobación se hace directamente sobre playersList
-        if (!playersList.isNullOrEmpty()) { // playersList ya es List<PlayerOption>?, así que no necesitamos serversResponse.players
-            Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores.")
 
-            // Si 'apmap' da el error de "nullable receiver", usa 'playersList.let { nonNullableList -> ... }'
-            // Como playersList ya se está comprobando con !isNullOrEmpty(), Kotlin debería hacer el smart cast.
-            // Si no lo hace, entonces sí, usa el 'let' como opción B que te di antes.
-            playersList.apmap { player -> // 'player' es de tipo PlayerOption
+        if (!playersList.isNullOrEmpty()) {
+            Log.d("VerpelisHD", "loadLinks - Servidores encontrados desde la API interna. Procesando ${playersList.size} reproductores.")
+            playersList.apmap { player ->
                 val rawLink = player.url
-                // Mantenemos la condición de tipo "iframe", "direct", "embed"
                 if (!rawLink.isNullOrBlank() && (player.type == "iframe" || player.type == "direct" || player.type == "embed")) {
-                    Log.d("VerpelisHD", "loadLinks - Enlace de servidor interno (PLUSTREAM/otro tipo compatible): $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})")
-                    val extracted = loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
-                    if (extracted) {
-                        foundLinks = true
+                    Log.d("VerpelisHD", "loadLinks - Procesando enlace de servidor: $rawLink (Tipo: ${player.type}, Nombre: ${player.name ?: "N/A"})")
+
+                    // <--- INICIO: Lógica para PlusStream.xyz --->
+                    if (rawLink.contains("plustream.xyz/f/")) {
+                        Log.d("VerpelisHD", "loadLinks - Detectado enlace de PlusStream.xyz, intentando extracción de sub-enlaces.")
+                        try {
+                            val plusStreamPageHtml = app.get(
+                                url = rawLink,
+                                headers = mapOf("Referer" to targetUrl, "User-Agent" to VERPELISHD_USER_AGENT) // Asegurar User-Agent
+                            ).text
+
+                            if (plusStreamPageHtml.isNullOrBlank()) {
+                                Log.w("VerpelisHD", "loadLinks - No se pudo obtener el HTML de PlusStream para: $rawLink")
+                                return@apmap // Continuar con el siguiente reproductor
+                            }
+                            val plusStreamDocument = Jsoup.parse(plusStreamPageHtml)
+
+                            val scriptContent = plusStreamDocument.select("script").html()
+                            val dataLinkRegex = Regex("""const dataLink = (\[.*?\]);""", RegexOption.DOT_MATCHES_ALL)
+                            val dataLinkMatch = dataLinkRegex.find(scriptContent)
+
+                            if (dataLinkMatch != null) {
+                                val jsonEncryptedLinks = dataLinkMatch.groupValues[1]
+                                Log.d("VerpelisHD", "loadLinks - dataLink JSON encontrado en PlusStream: $jsonEncryptedLinks")
+
+                                val plusStreamData = tryParseJson<List<PlusStreamLangData>>(jsonEncryptedLinks)
+
+                                if (plusStreamData != null && plusStreamData.isNotEmpty()) {
+                                    plusStreamData.apmap { langData ->
+                                        langData.sortedEmbeds.apmap { embed ->
+                                            try {
+                                                // ¡Usar CryptoJS.decrypt de la importación correcta!
+                                                val decryptedLink = decryptPlusStreamLink(embed.link)
+                                                Log.d("VerpelisHD", "loadLinks - PlusStream: Enlace desencriptado para ${embed.servername}: $decryptedLink")
+
+                                                val extracted = loadExtractor(
+                                                    url = decryptedLink,
+                                                    referer = rawLink, // El referer es la URL original de PlusStream
+                                                    subtitleCallback = subtitleCallback,
+                                                    callback = callback
+                                                )
+                                                if (extracted) {
+                                                    foundLinks = true
+                                                    Log.d("VerpelisHD", "loadLinks - PlusStream: Extracción exitosa para ${embed.servername} ($decryptedLink)")
+                                                } else {
+                                                    Log.w("VerpelisHD", "loadLinks - PlusStream: loadExtractor falló para ${embed.servername} ($decryptedLink)")
+                                                }
+                                            } catch (e: Exception) {
+                                                Log.e("VerpelisHD", "loadLinks - PlusStream: Error al desencriptar o procesar enlace de ${embed.servername}: ${e.message}", e)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Log.w("VerpelisHD", "loadLinks - PlusStream: No se pudo parsear dataLink o está vacío.")
+                                }
+
+                            } else {
+                                Log.w("VerpelisHD", "loadLinks - PlusStream: No se encontró la variable dataLink en los scripts de la página.")
+                            }
+
+                        } catch (e: Exception) {
+                            Log.e("VerpelisHD", "loadLinks - Error general en extracción de PlusStream: ${e.message}", e)
+                        }
                     } else {
-                        Log.w("VerpelisHD", "loadLinks - loadExtractor de CloudStream falló al procesar el enlace: $rawLink")
+                        // <--- Lógica original si NO es un enlace de PlusStream.xyz (otros iframes/direct/embed) --->
+                        Log.d("VerpelisHD", "loadLinks - Intentando loadExtractor genérico para enlace no-PlusStream: $rawLink")
+                        val extracted = loadExtractor(rawLink, targetUrl, subtitleCallback, callback)
+                        if (extracted) {
+                            foundLinks = true
+                            Log.d("VerpelisHD", "loadLinks - Extractor de CloudStream EXTRACCIÓN EXITOSA para $rawLink")
+                        } else {
+                            Log.w("VerpelisHD", "loadLinks - loadExtractor de CloudStream falló al procesar el enlace: $rawLink")
+                        }
                     }
+                    // <--- FIN: Lógica para PlusStream.xyz --->
+
                 } else {
                     Log.w("VerpelisHD", "loadLinks - Enlace de servidor interno descartado (nulo/vacío o tipo no reconocido): $rawLink (Tipo: ${player.type})")
                 }
@@ -740,13 +810,19 @@ class VerpelishdProvider : MainAPI() {
 
             if (foundLinks) return true
         } else {
-            // Este log ahora es más preciso
             Log.w("VerpelisHD", "loadLinks - La API interna devolvió una lista de reproductores vacía o no se pudo parsear a una lista de PlayerOption. Respuesta: ${jsonResponseRaw}")
         }
 
         Log.w("VerpelisHD", "loadLinks - No se encontraron enlaces de video funcionales para: $targetUrl")
         return false
     }
+
+    @Serializable
+    data class PlusStreamLangData(
+        @SerialName("file_id") val fileId: Int, // Usar @SerialName para mapear 'file_id' a 'fileId'
+        @SerialName("video_language") val videoLanguage: String,
+        val sortedEmbeds: List<PlusStreamEmbed>
+    )
 
     @Serializable
     data class ServersResponse(
