@@ -263,7 +263,7 @@
     ],
     "iconUrl": "https://www1.otakustv.com/favicon.png",
     "language": "es",
-    "fileSize": 23000
+    "fileSize": 24000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakuversoProvider.cs3",
@@ -281,6 +281,6 @@
     ],
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
-    "fileSize": 22000
+    "fileSize": 21000
   }
 ]

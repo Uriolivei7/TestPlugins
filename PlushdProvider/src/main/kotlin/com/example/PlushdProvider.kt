@@ -103,8 +103,8 @@ class PlushdProvider :MainAPI() {
         val title: String? = null,
         val image: String? = null,
         val season: Int? = null,
-        val episode: Int? = null,
-        val description: String? = null // ¡Añadido este campo para la descripción del episodio!
+        val episode: Int? = null
+        // Eliminado: val description: String? = null, ya que no se extraerá de JSON ni se buscará en páginas individuales
     )
     override suspend fun load(url: String): LoadResponse? {
         Log.d("PlushdProvider", "DEBUG: Iniciando load para URL: $url")
@@ -138,29 +138,21 @@ class PlushdProvider :MainAPI() {
                 if(!script.isNullOrEmpty()){
                     Log.d("PlushdProvider", "DEBUG: Script 'seasonsJson' encontrado.")
 
-                    // *** INICIO DE LA MODIFICACIÓN CLAVE PARA EXTRAER JSON ***
-                    // Regex para capturar el objeto JSON completo después de 'seasonsJson = '
-                    // Busca el "{", luego cualquier cosa que no sea un ";", hasta el "}" final, seguido de ";"
                     val jsonRegex = Regex("seasonsJson\\s*=\\s*(\\{[^;]*\\});")
                     val match = jsonRegex.find(script)
 
                     var jsonscript: String? = null
                     if (match != null) {
-                        jsonscript = match.groupValues[1] // Captura el contenido del grupo 1 (el JSON)
-                        Log.d("PlushdProvider", "DEBUG: JSON de temporadas extraído con Regex (primeros 200 chars): ${jsonscript.take(200)}") // Log más caracteres
+                        jsonscript = match.groupValues[1]
+                        Log.d("PlushdProvider", "DEBUG: JSON de temporadas extraído con Regex (primeros 200 chars): ${jsonscript.take(200)}")
                     } else {
                         Log.w("PlushdProvider", "ADVERTENCIA: Regex 'seasonsJson' no encontró el patrón esperado. Cayendo a substringAfter/Before.")
-                        // Fallback al método antiguo si la regex falla (aunque el antiguo ya fallaba)
                         jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
                         Log.w("PlushdProvider", "ADVERTENCIA: JSON con substringAfter/Before (primeros 200 chars): ${jsonscript.take(200)}")
                     }
 
                     if (!jsonscript.isNullOrEmpty()){
                         try {
-                            // Eliminamos el intento de escapar comillas dobles por ahora.
-                            // Si el problema es una truncación, el escape no ayuda y puede introducir nuevos errores.
-                            // Nos enfocamos en la extracción correcta del JSON completo.
-
                             val json = parseJson<MainTemporada>(jsonscript)
                             Log.d("PlushdProvider", "DEBUG: JSON de temporadas parseado exitosamente.")
                             json.values.map { list ->
@@ -169,10 +161,13 @@ class PlushdProvider :MainAPI() {
                                     val seasonNum = info.season
                                     val epNum = info.episode
                                     val img = info.image
-                                    val epDescription = info.description // ¡Obteniendo la descripción del episodio!
                                     val realimg = if (img.isNullOrEmpty()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
                                     val epurl = "$url/season/$seasonNum/episode/$epNum"
-                                    Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg, Descripción: ${epDescription?.take(50)}")
+
+                                    // Eliminado: La lógica para obtener la descripción del episodio individual
+                                    // val epDescription = null // La descripción ya no se obtiene ni se pasa
+
+                                    Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg")
                                     epi.add(
                                         Episode(
                                             epurl,
@@ -180,15 +175,15 @@ class PlushdProvider :MainAPI() {
                                             seasonNum,
                                             epNum,
                                             realimg,
-                                            null, // <-- ¡Solución aquí! Pasamos 'null' para el parámetro 'Int?' (probablemente 'rating')
-                                            epDescription // <-- Ahora la descripción se pasa al parámetro correcto
+                                            null, // Para el parámetro Int? (rating), si existe
+                                            null // La descripción ahora es null para todos los episodios
                                         ))
                                 }
                             }
                             Log.d("PlushdProvider", "DEBUG: Total de episodios añadidos: ${epi.size}")
                         } catch (e: Exception) {
                             Log.e("PlushdProvider", "ERROR al parsear JSON de temporadas: ${e.message}", e)
-                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript?.take(500)}") // Log el JSON problemático completo
+                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript?.take(500)}")
                         }
                     } else {
                         Log.w("PlushdProvider", "ADVERTENCIA: jsonscript vacío después de la extracción para URL: $url")

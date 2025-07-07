@@ -35,19 +35,21 @@ class OtakustvProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
 
     private fun extractAnimeItem(element: Element): AnimeSearchResponse? {
-        val titleElement = element.selectFirst("h2.font-GDSherpa-Bold a")
-            ?: element.selectFirst("a")
-
-        val title = titleElement?.attr("title") ?: titleElement?.text()?.trim()
-        val link = titleElement?.attr("href")
-
+        val linkElement = element.selectFirst("a")
+        // Intentamos obtener el título del <h2> con las clases específicas
+        val titleTextFromH2 = linkElement?.selectFirst("h2.font-GDSherpa-Bold.font15")?.text()?.trim()
+        // Como fallback, usamos el atributo 'alt' de la imagen
+        val titleTextFromImgAlt = linkElement?.selectFirst("img.lazyload")?.attr("alt")?.trim()
+            ?: linkElement?.selectFirst("img.img-fluid")?.attr("alt")?.trim()
+        // El título final será el de h2, o el de alt de la imagen si h2 no tiene
+        val finalTitle = titleTextFromH2 ?: titleTextFromImgAlt
+        val link = linkElement?.attr("href") // Obtenemos el href del enlace principal
         val posterElement = element.selectFirst("img.lazyload")
             ?: element.selectFirst("img.img-fluid")
         val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
-
-        if (title != null && link != null) {
+        if (finalTitle != null && link != null) {
             return newAnimeSearchResponse(
-                title,
+                finalTitle,
                 fixUrl(link)
             ) {
                 this.type = TvType.Anime
@@ -56,6 +58,7 @@ class OtakustvProvider : MainAPI() {
         }
         return null
     }
+
 
     private suspend fun safeAppGet(
         url: String,

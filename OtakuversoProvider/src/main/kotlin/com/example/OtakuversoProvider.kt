@@ -20,7 +20,7 @@ import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakuversoProvider : MainAPI() {
-    override var mainUrl = "https://otakuverso.net" // Cambiado a la URL base correcta
+    override var mainUrl = "https://otakuverso.net"
     override var name = "Otakuverso"
     override val supportedTypes = setOf(
         TvType.Anime,
@@ -35,19 +35,24 @@ class OtakuversoProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
 
     private fun extractAnimeItem(element: Element): AnimeSearchResponse? {
-        val titleElement = element.selectFirst("h2.font-GDSherpa-Bold a")
-            ?: element.selectFirst("a")
+        val linkElement = element.selectFirst("a")
+        // Intenta obtener el título directamente del <h2>
+        val titleTextFromH2 = linkElement?.selectFirst("h2.font-GDSherpa-Bold.font15")?.text()?.trim()
+        // Como respaldo, usa el atributo 'alt' de la imagen
+        val titleTextFromImgAlt = linkElement?.selectFirst("img.lazyload")?.attr("alt")?.trim()
+            ?: linkElement?.selectFirst("img.img-fluid")?.attr("alt")?.trim()
+        // El título final será el de h2, o el de alt de la imagen si h2 no tiene
+        val finalTitle = titleTextFromH2 ?: titleTextFromImgAlt
 
-        val title = titleElement?.attr("title") ?: titleElement?.text()?.trim()
-        val link = titleElement?.attr("href")
+        val link = linkElement?.attr("href")
 
         val posterElement = element.selectFirst("img.lazyload")
             ?: element.selectFirst("img.img-fluid")
         val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
 
-        if (title != null && link != null) {
+        if (finalTitle != null && link != null) {
             return newAnimeSearchResponse(
-                title,
+                finalTitle,
                 fixUrl(link)
             ) {
                 this.type = TvType.Anime
@@ -77,7 +82,7 @@ class OtakuversoProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        val url = if (page == 1) "$mainUrl/home" else "$mainUrl/home/page/$page/" // Ajuste para la paginación de la página principal
+        val url = if (page == 1) "$mainUrl/home" else "$mainUrl/home/page/$page/"
         val html = safeAppGet(url) ?: return null
         val doc = Jsoup.parse(html)
 
@@ -159,6 +164,8 @@ class OtakuversoProvider : MainAPI() {
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("src")
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src") ?: ""
         val description = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
+
+        // Extraer géneros/etiquetas directamente del HTML
         val tags = doc.select("ul.fichas li:contains(Etiquetas:) a").map { it.text() }
             ?: doc.select("ul.fichas li a").map { it.text() } ?: emptyList()
 
@@ -185,43 +192,33 @@ class OtakuversoProvider : MainAPI() {
             val episodesOnPage = pageDoc.select("div.row div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20.text-center").mapNotNull { element ->
                 val epLinkElement = element.selectFirst("a.mb5.item-temp")
 
-                // Si no se encuentra a.item-temp, este 'element' no es un episodio válido, saltarlo.
                 if (epLinkElement == null) {
-                    Log.w("OtakuversoProvider", "Elemento de episodio sin a.item-temp dentro de #nav-episodios div.row: ${element.outerHtml().take(200)}")
-                    return@mapNotNull null // Saltar este elemento
+                    Log.w("OtakuversoProvider", "Elemento de episodio sin a.mb5.item-temp: ${element.outerHtml().take(200)}")
+                    return@mapNotNull null
                 }
 
                 val epUrl = fixUrl(epLinkElement.attr("href")).also {
                     if (it.isBlank()) Log.w("OtakuversoProvider", "EpLinkElement href is blank for an episode item: ${element.outerHtml().take(200)}")
                 }
 
-                // --- MOVIDO: EXTRACCIÓN DEL NÚMERO DE EPISODIO ANTES DE USARLO EN EL TÍTULO ---
                 var episodeNumber: Int? = null
                 val episodeUrlMatch = Regex("""episodio-(\d+)""").find(epUrl)
                 episodeNumber = episodeUrlMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
 
-                // --- INICIO DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
                 var epTitle: String = element.selectFirst("p.font-GDSherpa-Bold.font14.mb-1.text-left")?.text()?.trim() ?: ""
-                var epDescription: String = "" // Nueva variable para la descripción
+                var epDescription: String = ""
 
-                // Fallback: si el selector anterior no encontró nada para el título, intentar el atributo 'title' del enlace
                 if (epTitle.isBlank()) {
                     epTitle = epLinkElement.attr("title")?.trim() ?: ""
                 }
 
-                // Extracción de la descripción del episodio
                 epDescription = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: ""
 
-                // Si el número de episodio no se encontró en la URL (o fue null al principio),
-                // intentar del texto del título (si el formato es "Episodio X")
                 if (episodeNumber == null) {
                     val titleNumberMatch = Regex("""Episodio (\d+)""").find(epTitle)
                     episodeNumber = titleNumberMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
                 }
 
-                // A modo de último recurso para el título, si aun así no se encontró,
-                // o si el selector de la descripción capturó un título corto por error,
-                // podemos ajustarlo aquí.
                 if (epTitle.isBlank()) {
                     epTitle = element.selectFirst("span.font14.mb-1 a.text-white")?.text()?.trim() ?: ""
                 }
@@ -229,12 +226,11 @@ class OtakuversoProvider : MainAPI() {
                 if (epTitle.isBlank() && episodeNumber != null) {
                     epTitle = "Episodio $episodeNumber"
                 } else if (epTitle.isBlank()) {
-                    epTitle = "Episodio Desconocido" // Fallback final si no hay número
+                    epTitle = "Episodio Desconocido"
                 }
-                // --- FIN DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
 
                 if (epTitle.isBlank() || epUrl.isBlank()) {
-                    Log.w("OtakuversoProvider", "Episodio incompleto encontrado después de intentar varios selectores: URL='$epUrl', Título='$epTitle'")
+                    Log.w("OtakuversoProvider", "Episodio incompleto encontrado: URL='$epUrl', Título='$epTitle'")
                     return@mapNotNull null
                 }
 
@@ -244,28 +240,17 @@ class OtakuversoProvider : MainAPI() {
                 val episodeData = EpisodeLoadData(epTitle, epUrl)
                 Log.d("OtakuversoProvider", "load - Creando episodio con data: ${episodeData.toJson()}")
                 newEpisode(episodeData.toJson()) {
-                    // *** ¡CAMBIO CRÍTICO AQUÍ PARA INVERTIR EL TÍTULO Y LA DESCRIPCIÓN EN LA UI PARA EPISODIOS! ***
-                    // Como tu UI muestra 'name' como descripción y 'description' como título,
-                    // asignamos los valores al revés para que se vean correctamente.
-                    this.name = epDescription // Asigna la descripción al campo 'name' (que tu UI muestra como descripción)
+                    this.name = epDescription
                     this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
-                    this.description = epTitle // Asigna el título al campo 'description' (que tu UI muestra como título)
+                    this.description = epTitle
                 }
             }
             allEpisodes.addAll(episodesOnPage)
         }
 
         val finalEpisodes = allEpisodes.reversed()
-
-        // Añadir etiquetas de idioma fijo para Otakuverso
-        val audioTags = mutableListOf<String>()
-        if (url.contains("latino", ignoreCase = true)) {
-            audioTags.add("Latino")
-        } else {
-            audioTags.add("Castellano")
-        }
 
         return newTvSeriesLoadResponse(
             name = title,
@@ -275,36 +260,26 @@ class OtakuversoProvider : MainAPI() {
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
-            this.plot = description // Usamos 'description' para la sinopsis principal de la serie
-            this.tags = tags + audioTags // Combinar tags existentes con las de audio
+            this.plot = description
+            this.tags = tags // Ahora solo usamos los tags extraídos del HTML
             this.year = year
-            //this.status = status // Asegúrate de que parseStatus devuelve un ShowStatus válido
+            //this.status = status
 
-            // --- INICIO: EXTRACCIÓN Y ASIGNACIÓN DE RECOMENDACIONES ---
             this.recommendations = doc.select("div.pl-lg-4.pr-lg-4.mb20 div.row div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20").mapNotNull { element ->
                 val recTitle = element.selectFirst("h1.font-GDSherpa-Bold.font14.mb-1")?.text()?.trim()
                 val recUrl = element.selectFirst("a.item-temp")?.attr("href")
                 val recPoster = element.selectFirst("img.img-fluid")?.attr("src")
 
-                // La cantidad de videos está en: element.selectFirst("p.font14.mb-0.text-white.mt-2 span.bog")?.text()?.trim()
-                // Esta información se extrae, pero AnimeSearchResponse no tiene un campo 'description'
-                // para mostrarla en la interfaz de usuario de las recomendaciones.
-                val videoCountText = element.selectFirst("p.font14.mb-0.text-white.mt-2 span.bog")?.text()?.trim()
-                if (videoCountText != null) {
-                    Log.d("OtakuversoProvider", "load - Item recomendado: Título='$recTitle', Cantidad de Videos: '$videoCountText'")
-                }
-
                 if (recTitle != null && recUrl != null) {
                     newAnimeSearchResponse(
-                        recTitle, // Asignamos el título real del anime al 'name' de la recomendación
+                        recTitle,
                         fixUrl(recUrl)
                     ) {
                         this.posterUrl = recPoster
-                        this.type = TvType.Anime // Asumimos que todas las recomendaciones son de tipo Anime
+                        this.type = TvType.Anime
                     }
                 } else null
             }
-            // --- FIN: EXTRACCIÓN Y ASIGNACIÓN DE RECOMENDACIONES ---
         }
     }
 
