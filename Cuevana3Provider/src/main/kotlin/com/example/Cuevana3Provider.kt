@@ -62,7 +62,8 @@ class Cuevana3Provider : MainAPI() {
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
-        val seriesItems = seriesContainer?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
+        // INICIO DE LA MODIFICACIÓN
+        val seriesItems = seriesContainer?.select("div.TPostMv.item article.TPost")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
             val title = linkElement?.selectFirst("h2.Title")?.text()?.trim().orEmpty()
@@ -81,6 +82,7 @@ class Cuevana3Provider : MainAPI() {
                 null
             }
         }
+        // FIN DE LA MODIFICACIÓN
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series items parsed: ${seriesItems?.size ?: 0}")
         if (!seriesItems.isNullOrEmpty()) {
             items.add(HomePageList("Series Online", seriesItems))
