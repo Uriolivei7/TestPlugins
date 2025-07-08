@@ -42,7 +42,7 @@ class Cuevana3Provider : MainAPI() {
                 ?: item.selectFirst("div.Image img")?.attr("src")?.trim().orEmpty()
 
             if (title.isNotBlank() && link.isNotBlank()) {
-                newTvSeriesSearchResponse( // Usar newTvSeriesSearchResponse es correcto aquí
+                newTvSeriesSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
@@ -62,7 +62,6 @@ class Cuevana3Provider : MainAPI() {
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
-        // INICIO DE LA MODIFICACIÓN
         val seriesItems = seriesContainer?.select("div.TPostMv.item article.TPost")?.mapNotNull { item ->
             val linkElement = item.selectFirst("a")
             val link = linkElement?.attr("href")?.trim().orEmpty()
@@ -75,14 +74,19 @@ class Cuevana3Provider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries // ¡CRÍTICO! Asegurarse de que el tipo sea TvSeries
+                    this.type = TvType.TvSeries
                     this.posterUrl = fixUrl(img)
                 }
             } else {
                 null
             }
         }
-        // FIN DE LA MODIFICACIÓN
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series items parsed: ${seriesItems?.size ?: 0}")
+        if (!seriesItems.isNullOrEmpty()) {
+            items.add(HomePageList("Series Online", seriesItems))
+        } else {
+            Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - 'Series Online' list is empty or null, not added to HomePage.")
+        }
 
         // --- Sección de TOP ESTRENOS ---
         val topEstrenosSection = doc.selectFirst("div#peli_top_estrenos-2 ul.MovieList.top")
@@ -93,15 +97,14 @@ class Cuevana3Provider : MainAPI() {
             val title = linkElement?.selectFirst("div.Title")?.text()?.trim().orEmpty()
             val img = item.selectFirst("div.Image img")?.attr("data-src")?.trim().orEmpty()
 
-            // Determinar el tipo (película o serie) basado en el enlace
             val tvType = when {
                 link.contains("/serie/", ignoreCase = true) -> TvType.TvSeries
-                link.contains("/pelicula/", ignoreCase = true) || link.contains("/peliculas/", ignoreCase = true) || link.matches(Regex("/\\d+/.+")) -> TvType.Movie // URLs de películas suelen ser solo números
-                else -> null // Si no se puede determinar, se filtra
+                link.contains("/pelicula/", ignoreCase = true) || link.contains("/peliculas/", ignoreCase = true) || link.matches(Regex("/\\d+/.+")) -> TvType.Movie
+                else -> null
             }
 
             if (title.isNotBlank() && link.isNotBlank() && tvType != null) {
-                newTvSeriesSearchResponse( // Puedes usar esto para ambos tipos, solo asegúrate de establecer el "type"
+                newTvSeriesSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
@@ -131,7 +134,7 @@ class Cuevana3Provider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.Movie // Asumimos que son solo películas por la sección
+                    this.type = TvType.Movie
                     this.posterUrl = fixUrl(img)
                 }
             } else {
@@ -143,6 +146,7 @@ class Cuevana3Provider : MainAPI() {
             items.add(HomePageList("Películas Destacadas (Actualizadas)", destacadasActualizadasItems))
         }
 
+        // --- Sección de Películas Destacadas (Destacadas) ---
         val destacadasDestacadasSection = doc.selectFirst("div#aa-mov2 ul.MovieList")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_DESTACADAS - Películas Destacadas (Destacadas) section found: ${destacadasDestacadasSection != null}")
         val destacadasDestacadasItems = destacadasDestacadasSection?.select("li div.TPost.A")?.mapNotNull { item ->
@@ -156,7 +160,7 @@ class Cuevana3Provider : MainAPI() {
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.Movie // Asumimos que son solo películas por la sección
+                    this.type = TvType.Movie
                     this.posterUrl = fixUrl(img)
                 }
             } else {
