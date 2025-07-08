@@ -83,11 +83,89 @@ class Cuevana3Provider : MainAPI() {
             }
         }
         // FIN DE LA MODIFICACIÓN
-        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series items parsed: ${seriesItems?.size ?: 0}")
-        if (!seriesItems.isNullOrEmpty()) {
-            items.add(HomePageList("Series Online", seriesItems))
-        } else {
-            Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - 'Series Online' list is empty or null, not added to HomePage.")
+
+        // --- Sección de TOP ESTRENOS ---
+        val topEstrenosSection = doc.selectFirst("div#peli_top_estrenos-2 ul.MovieList.top")
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_TOP_ESTRENOS - Top Estrenos section found: ${topEstrenosSection != null}")
+        val topEstrenosItems = topEstrenosSection?.select("li div.TPost.A")?.mapNotNull { item ->
+            val linkElement = item.selectFirst("a")
+            val link = linkElement?.attr("href")?.trim().orEmpty()
+            val title = linkElement?.selectFirst("div.Title")?.text()?.trim().orEmpty()
+            val img = item.selectFirst("div.Image img")?.attr("data-src")?.trim().orEmpty()
+
+            // Determinar el tipo (película o serie) basado en el enlace
+            val tvType = when {
+                link.contains("/serie/", ignoreCase = true) -> TvType.TvSeries
+                link.contains("/pelicula/", ignoreCase = true) || link.contains("/peliculas/", ignoreCase = true) || link.matches(Regex("/\\d+/.+")) -> TvType.Movie // URLs de películas suelen ser solo números
+                else -> null // Si no se puede determinar, se filtra
+            }
+
+            if (title.isNotBlank() && link.isNotBlank() && tvType != null) {
+                newTvSeriesSearchResponse( // Puedes usar esto para ambos tipos, solo asegúrate de establecer el "type"
+                    title,
+                    fixUrl(link)
+                ) {
+                    this.type = tvType
+                    this.posterUrl = fixUrl(img)
+                }
+            } else {
+                null
+            }
+        }
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_TOP_ESTRENOS - Top Estrenos items parsed: ${topEstrenosItems?.size ?: 0}")
+        if (!topEstrenosItems.isNullOrEmpty()) {
+            items.add(HomePageList("TOP ESTRENOS", topEstrenosItems))
+        }
+
+        // --- Sección de Películas Destacadas (Actualizadas) ---
+        val destacadasActualizadasSection = doc.selectFirst("div#aa-mov1 ul.MovieList")
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_ACTUALIZADAS - Películas Destacadas (Actualizadas) section found: ${destacadasActualizadasSection != null}")
+        val destacadasActualizadasItems = destacadasActualizadasSection?.select("li div.TPost.A")?.mapNotNull { item ->
+            val linkElement = item.selectFirst("a")
+            val link = linkElement?.attr("href")?.trim().orEmpty()
+            val title = linkElement?.selectFirst("div.Title")?.text()?.trim().orEmpty()
+            val img = item.selectFirst("div.Image img")?.attr("data-src")?.trim().orEmpty()
+
+            if (title.isNotBlank() && link.isNotBlank()) {
+                newTvSeriesSearchResponse(
+                    title,
+                    fixUrl(link)
+                ) {
+                    this.type = TvType.Movie // Asumimos que son solo películas por la sección
+                    this.posterUrl = fixUrl(img)
+                }
+            } else {
+                null
+            }
+        }
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_ACTUALIZADAS - Películas Destacadas (Actualizadas) items parsed: ${destacadasActualizadasItems?.size ?: 0}")
+        if (!destacadasActualizadasItems.isNullOrEmpty()) {
+            items.add(HomePageList("Películas Destacadas (Actualizadas)", destacadasActualizadasItems))
+        }
+
+        val destacadasDestacadasSection = doc.selectFirst("div#aa-mov2 ul.MovieList")
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_DESTACADAS - Películas Destacadas (Destacadas) section found: ${destacadasDestacadasSection != null}")
+        val destacadasDestacadasItems = destacadasDestacadasSection?.select("li div.TPost.A")?.mapNotNull { item ->
+            val linkElement = item.selectFirst("a")
+            val link = linkElement?.attr("href")?.trim().orEmpty()
+            val title = linkElement?.selectFirst("div.Title")?.text()?.trim().orEmpty()
+            val img = item.selectFirst("div.Image img")?.attr("data-src")?.trim().orEmpty()
+
+            if (title.isNotBlank() && link.isNotBlank()) {
+                newTvSeriesSearchResponse(
+                    title,
+                    fixUrl(link)
+                ) {
+                    this.type = TvType.Movie // Asumimos que son solo películas por la sección
+                    this.posterUrl = fixUrl(img)
+                }
+            } else {
+                null
+            }
+        }
+        Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_DESTACADAS - Películas Destacadas (Destacadas) items parsed: ${destacadasDestacadasItems?.size ?: 0}")
+        if (!destacadasDestacadasItems.isNullOrEmpty()) {
+            items.add(HomePageList("Películas Destacadas (Destacadas)", destacadasDestacadasItems))
         }
 
         Log.d("Cuevana3Provider", "Final number of HomePageLists: ${items.size}")
