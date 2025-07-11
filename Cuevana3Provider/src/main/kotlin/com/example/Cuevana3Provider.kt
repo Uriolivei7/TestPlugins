@@ -30,7 +30,6 @@ class Cuevana3Provider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val doc = app.get(mainUrl).document
-
         // --- Sección de Películas Online ---
         val moviesSection = doc.selectFirst("section.home-movies")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_MOVIES - Movies section found: ${moviesSection != null}")
@@ -57,7 +56,6 @@ class Cuevana3Provider : MainAPI() {
         if (!moviesItems.isNullOrEmpty()) {
             items.add(HomePageList("Películas Online", moviesItems))
         }
-
         // --- Sección de Series Online ---
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
@@ -87,7 +85,6 @@ class Cuevana3Provider : MainAPI() {
         } else {
             Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - 'Series Online' list is empty or null, not added to HomePage.")
         }
-
         // --- Sección de TOP ESTRENOS ---
         val topEstrenosSection = doc.selectFirst("div#peli_top_estrenos-2 ul.MovieList.top")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_TOP_ESTRENOS - Top Estrenos section found: ${topEstrenosSection != null}")
@@ -119,7 +116,6 @@ class Cuevana3Provider : MainAPI() {
         if (!topEstrenosItems.isNullOrEmpty()) {
             items.add(HomePageList("TOP ESTRENOS", topEstrenosItems))
         }
-
         // --- Sección de Películas Destacadas (Actualizadas) ---
         val destacadasActualizadasSection = doc.selectFirst("div#aa-mov1 ul.MovieList")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_ACTUALIZADAS - Películas Destacadas (Actualizadas) section found: ${destacadasActualizadasSection != null}")
@@ -145,7 +141,6 @@ class Cuevana3Provider : MainAPI() {
         if (!destacadasActualizadasItems.isNullOrEmpty()) {
             items.add(HomePageList("Películas Destacadas (Actualizadas)", destacadasActualizadasItems))
         }
-
         // --- Sección de Películas Destacadas (Destacadas) ---
         val destacadasDestacadasSection = doc.selectFirst("div#aa-mov2 ul.MovieList")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_DESTACADAS - Películas Destacadas (Destacadas) section found: ${destacadasDestacadasSection != null}")
