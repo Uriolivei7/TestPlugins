@@ -43,12 +43,13 @@ class OtakuversoProvider : MainAPI() {
             ?: linkElement?.selectFirst("img.img-fluid")?.attr("alt")?.trim()
         // El título final será el de h2, o el de alt de la imagen si h2 no tiene
         val finalTitle = titleTextFromH2 ?: titleTextFromImgAlt
-
         val link = linkElement?.attr("href")
-
         val posterElement = element.selectFirst("img.lazyload")
             ?: element.selectFirst("img.img-fluid")
         val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
+
+        val releaseDateText = element.selectFirst("p.font15.mb-0.text-white.mt-2 span.bog")?.text()?.trim()
+        val releaseYear = Regex("""\d{4}""").find(releaseDateText ?: "")?.value?.toIntOrNull()
 
         if (finalTitle != null && link != null) {
             return newAnimeSearchResponse(
@@ -57,6 +58,7 @@ class OtakuversoProvider : MainAPI() {
             ) {
                 this.type = TvType.Anime
                 this.posterUrl = img
+                this.year = releaseYear
             }
         }
         return null

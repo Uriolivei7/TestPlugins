@@ -47,6 +47,10 @@ class OtakustvProvider : MainAPI() {
         val posterElement = element.selectFirst("img.lazyload")
             ?: element.selectFirst("img.img-fluid")
         val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
+
+        val releaseDateText = element.selectFirst("p.font15.mb-0.text-white.mt-2 span.bog")?.text()?.trim()
+        val releaseYear = Regex("""\d{4}""").find(releaseDateText ?: "")?.value?.toIntOrNull()
+
         if (finalTitle != null && link != null) {
             return newAnimeSearchResponse(
                 finalTitle,
@@ -54,6 +58,7 @@ class OtakustvProvider : MainAPI() {
             ) {
                 this.type = TvType.Anime
                 this.posterUrl = img
+                this.year = releaseYear
             }
         }
         return null
@@ -251,16 +256,11 @@ class OtakustvProvider : MainAPI() {
                 // Extracción de la descripción del episodio
                 epDescription = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: ""
 
-                // Si el número de episodio no se encontró en la URL (o fue null al principio),
-                // intentar del texto del título (si el formato es "Episodio X")
                 if (episodeNumber == null) {
                     val titleNumberMatch = Regex("""Episodio (\d+)""").find(epTitle)
                     episodeNumber = titleNumberMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
                 }
 
-                // A modo de último recurso para el título, si aun así no se encontró,
-                // o si el selector de la descripción capturó un título corto por error,
-                // podemos ajustarlo aquí.
                 if (epTitle.isBlank()) {
                     epTitle = element.selectFirst("span.font14.mb-1 a.text-white")?.text()?.trim() ?: ""
                 }
