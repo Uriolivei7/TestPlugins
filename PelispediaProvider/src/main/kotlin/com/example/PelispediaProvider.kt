@@ -101,12 +101,13 @@ class PelispediaProvider:MainAPI() {
                 val isValid = seasonid.size == 2
                 val episode = if (isValid) seasonid.getOrNull(1) else null
                 val season = if (isValid) seasonid.getOrNull(0) else null
-                epi.add(Episode(
-                    href,
-                    null,
-                    season,
-                    episode,
-                ))
+                epi.add(
+                    newEpisode(href) {
+                        this.season = season
+                        this.episode = episode
+                        this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+                    }
+                )
             }
         }
 
