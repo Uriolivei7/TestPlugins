@@ -164,20 +164,18 @@ class PlushdProvider :MainAPI() {
                                     val realimg = if (img.isNullOrEmpty()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
                                     val epurl = "$url/season/$seasonNum/episode/$epNum"
 
-                                    // Eliminado: La lógica para obtener la descripción del episodio individual
-                                    // val epDescription = null // La descripción ya no se obtiene ni se pasa
-
                                     Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg")
                                     epi.add(
-                                        Episode(
-                                            epurl,
-                                            epTitle,
-                                            seasonNum,
-                                            epNum,
-                                            realimg,
-                                            null, // Para el parámetro Int? (rating), si existe
-                                            null // La descripción ahora es null para todos los episodios
-                                        ))
+                                        newEpisode(epurl) { // 'epurl' es el parámetro 'data'
+                                            this.name = epTitle
+                                            this.season = seasonNum
+                                            this.episode = epNum
+                                            this.posterUrl = realimg
+                                            this.rating = null // Si quieres que rating sea null, asígnale por nombre
+                                            this.description = null // Si quieres que description sea null, asígnale por nombre
+                                            this.runTime = null // ¡IMPORTANTE! Añade esta línea y asígnale null (o el valor real si lo tienes)
+                                        }
+                                    )
                                 }
                             }
                             Log.d("PlushdProvider", "DEBUG: Total de episodios añadidos: ${epi.size}")
