@@ -64,7 +64,46 @@ class SoloLatinoProvider : MainAPI() {
         return null
     }
 
+    // Función auxiliar para extraer la mejor URL de un srcset
+    private fun extractBestSrcset(srcsetAttr: String?): String? {
+        if (srcsetAttr.isNullOrBlank()) return null
+
+        val sources = srcsetAttr.split(",").map { it.trim().split(" ") }
+        var bestUrl: String? = null
+        var bestMetric = 0 // Usaremos esto para comparar anchos o densidades
+
+        for (source in sources) {
+            if (source.size >= 2) {
+                val currentUrl = source[0]
+                val descriptor = source[1]
+                val widthMatch = Regex("""(\d+)w""").find(descriptor)
+                val densityMatch = Regex("""(\d+)x""").find(descriptor)
+
+                if (widthMatch != null) {
+                    val width = widthMatch.groupValues[1].toIntOrNull()
+                    if (width != null && width > bestMetric) {
+                        bestMetric = width
+                        bestUrl = currentUrl
+                    }
+                } else if (densityMatch != null) {
+                    val density = densityMatch.groupValues[1].toIntOrNull()
+                    if (density != null && density * 100 > bestMetric) {
+                        bestMetric = density * 100
+                        bestUrl = currentUrl
+                    }
+                }
+            } else if (source.isNotEmpty() && source.size == 1) {
+                if (bestUrl == null || bestMetric == 0) { // Considera si no hay mejor opción todavía
+                    bestUrl = source[0]
+                    bestMetric = 1 // Métrica baja
+                }
+            }
+        }
+        return bestUrl
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        Log.d("SoloLatino", "DEBUG: Iniciando getMainPage, página: $page, solicitud: ${request.name}")
         val items = ArrayList<HomePageList>()
         val urls = listOf(
             Pair("Series", "$mainUrl/series"),
@@ -85,77 +124,43 @@ class SoloLatinoProvider : MainAPI() {
                 return@apmap null
             }
             val doc = Jsoup.parse(html)
-            val homeItems = doc.select("div.items article.item").mapNotNull {
-                val title = it.selectFirst("a div.data h3")?.text()
-                val link = it.selectFirst("a")?.attr("href")
+            val homeItems = doc.select("div.items article.item").mapNotNull { article -> // Cambié 'it' por 'article' para mayor claridad
+                val title = article.selectFirst("a div.data h3")?.text()
+                val link = article.selectFirst("a")?.attr("href")
 
-                // --- INICIO: Lógica para mejor resolución de imagen (Pósteres) ---
-                var img: String? = null
-                val srcsetAttr = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset")
+                val imgElement = article.selectFirst("div.poster img.lazyload")
+                val srcsetAttr = imgElement?.attr("data-srcset")
+                var img = extractBestSrcset(srcsetAttr)
 
-                if (!srcsetAttr.isNullOrBlank()) {
-                    val sources = srcsetAttr.split(",").map { it.trim().split(" ") }
-                    var bestUrl: String? = null
-                    var bestMetric = 0 // Usaremos esto para comparar anchos o densidades
-
-                    for (source in sources) {
-                        if (source.size >= 2) {
-                            val currentUrl = source[0]
-                            val descriptor = source[1]
-                            val widthMatch = Regex("""(\d+)w""").find(descriptor)
-                            val densityMatch = Regex("""(\d+)x""").find(descriptor)
-
-                            if (widthMatch != null) {
-                                val width = widthMatch.groupValues[1].toIntOrNull()
-                                if (width != null && width > bestMetric) {
-                                    bestMetric = width
-                                    bestUrl = currentUrl
-                                }
-                            } else if (densityMatch != null) {
-                                // Si solo se da la densidad (ej. 2x), asumimos que es mejor que 1x.
-                                // Multiplicamos por un factor arbitrario para que sea comparable con los anchos si no hay un ancho explícito.
-                                val density = densityMatch.groupValues[1].toIntOrNull()
-                                if (density != null && density * 100 > bestMetric) {
-                                    bestMetric = density * 100
-                                    bestUrl = currentUrl
-                                }
-                            }
-                        } else if (source.isNotEmpty()) {
-                            // Si solo está la URL (sin descriptor), la consideramos si no hemos encontrado una mejor opción.
-                            if (bestUrl == null) {
-                                bestUrl = source[0]
-                                bestMetric = 1 // Le damos una métrica mínima para que sea considerada
-                            }
-                        }
-                    }
-                    img = bestUrl
-                }
-
-                // Fallback al atributo 'src' si data-srcset no se encuentra o no se pudo analizar para una mejor imagen
                 if (img.isNullOrBlank()) {
-                    img = it.selectFirst("div.poster img")?.attr("src")
+                    img = imgElement?.attr("src")
+                    Log.d("SoloLatino", "DEBUG: Fallback a src para título: $title, img: $img")
                 }
-                // --- FIN: Lógica para mejor resolución de imagen (Pósteres) ---
 
                 if (title != null && link != null) {
-                    newAnimeSearchResponse(
+                    newAnimeSearchResponse( // Puedes usar newTvSeriesSearchResponse si es más general
                         title,
                         fixUrl(link)
                     ) {
                         this.type = tvType
                         this.posterUrl = img
                     }
-                } else null
+                } else {
+                    Log.w("SoloLatino", "ADVERTENCIA: Elemento de inicio incompleto (título o link nulo) para URL: $url")
+                    null
+                }
             }
             HomePageList(name, homeItems)
         }.filterNotNull()
 
         items.addAll(homePageLists)
 
+        Log.d("SoloLatino", "DEBUG: getMainPage finalizado. ${items.size} listas añadidas.")
         return newHomePageResponse(items, false)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        Log.d("SoloLatino", "DEBUG: Iniciando search para query: $query")
         val url = "$mainUrl/?s=$query"
         val html = safeAppGet(url)
         if (html == null) {
@@ -163,22 +168,31 @@ class SoloLatinoProvider : MainAPI() {
             return emptyList()
         }
         val doc = Jsoup.parse(html)
-        return doc.select("div.items article.item").mapNotNull {
-            val title = it.selectFirst("a div.data h3")?.text()
-            val link = it.selectFirst("a")?.attr("href")
-            // La lógica de la imagen aquí es la original, ya que el enfoque era el carrusel principal.
-            // Si quieres mejorar la calidad de los pósteres en la búsqueda, se aplicaría la misma lógica que en getMainPage.
-            val img = it.selectFirst("div.poster img.lazyload")?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: it.selectFirst("div.poster img")?.attr("src")
+        return doc.select("div.items article.item").mapNotNull { article -> // Cambié 'it' por 'article'
+            val title = article.selectFirst("a div.data h3")?.text()
+            val link = article.selectFirst("a")?.attr("href")
+
+            val imgElement = article.selectFirst("div.poster img.lazyload")
+            val srcsetAttr = imgElement?.attr("data-srcset")
+            var img = extractBestSrcset(srcsetAttr)
+
+            if (img.isNullOrBlank()) {
+                img = imgElement?.attr("src")
+                Log.d("SoloLatino", "DEBUG: Fallback a src para resultado de búsqueda: $title, img: $img")
+            }
 
             if (title != null && link != null) {
-                newAnimeSearchResponse(
+                newTvSeriesSearchResponse( // Usé TvSeriesSearchResponse porque es más general que Anime
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries
+                    this.type = TvType.TvSeries // Asegúrate de que esto sea correcto para todos los resultados de búsqueda
                     this.posterUrl = img
                 }
-            } else null
+            } else {
+                Log.w("SoloLatino", "ADVERTENCIA: Resultado de búsqueda incompleto (título o link nulo) para query: $query")
+                null
+            }
         }
     }
 
@@ -247,11 +261,9 @@ class SoloLatinoProvider : MainAPI() {
             }
         } else listOf()
 
-        // --- INICIO: Lógica para "Títulos similares" (CORREGIDA) ---
         val recommendations = doc.select("div#single_relacionados article").mapNotNull {
             val recLink = it.selectFirst("a")?.attr("href")
             val recImgElement = it.selectFirst("a img.lazyload") ?: it.selectFirst("a img")
-            // También se podría aplicar la mejora de data-srcset aquí si fuera necesario
             val recImg = recImgElement?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: recImgElement?.attr("src")
             val recTitle = recImgElement?.attr("alt") // Usamos el atributo 'alt' de la imagen como título
 
@@ -268,7 +280,6 @@ class SoloLatinoProvider : MainAPI() {
                 null
             }
         }
-        // --- FIN: Lógica para "Títulos similares" (CORREGIDA) ---
 
         return when (tvType) {
             TvType.TvSeries -> {
