@@ -129,12 +129,13 @@ class TioanimeProvider:MainAPI() {
                 data.split("],").forEach {
                     it.split(",").forEach { epNum ->
                         val link = url.replace("/anime/","/ver/")+"-$epNum"
-                        episodes.add( Episode(
-                            link,
-                            "Capítulo $epNum",
-                            posterUrl = null,
-                            episode = epNum.toIntOrNull()
-                        )
+                        episodes.add(
+                            newEpisode(link) { // 'link' es el parámetro 'data'
+                                this.name = "Capítulo $epNum"
+                                this.posterUrl = null
+                                this.episode = epNum.toIntOrNull()
+                                this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+                            }
                         )
                     }
                 }
