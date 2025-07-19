@@ -225,13 +225,14 @@ class DoramasflixProvider:MainAPI() {
                     val epthumb = getImageUrl(it.stillPath)
                     val name = it.name
                     episodes.add(
-                        Episode(
-                            epSlug!!,
-                            name,
-                            season,
-                            epnum,
-                            epthumb
-                        ))
+                        newEpisode(epSlug!!) { // Usamos newEpisode con el 'data' (epSlug!!)
+                            this.name = name
+                            this.season = season
+                            this.episode = epnum
+                            this.posterUrl = epthumb
+                            this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+                        }
+                    )
                 }
             }
         } else if (isMovie) {
