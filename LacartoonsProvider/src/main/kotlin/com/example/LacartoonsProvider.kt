@@ -87,12 +87,12 @@ class LacartoonsProvider : MainAPI() {
 
             val actualEpnum = epnum?.toIntOrNull()
 
-            Episode(
-                fixUrl(href!!),
-                name,
-                seasonnum?.toIntOrNull(),
-                actualEpnum,
-            )
+            newEpisode(fixUrl(href!!)) { // 'fixUrl(href!!)' es el parámetro 'data'
+                this.name = name
+                this.season = seasonnum?.toIntOrNull()
+                this.episode = actualEpnum
+                this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+            }
         }
 
         // --- INICIO: Lógica para "Series recomendadas" ---

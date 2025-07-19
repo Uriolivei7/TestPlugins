@@ -141,7 +141,11 @@ class LatanimeProvider : MainAPI() {
             val epThumb = it.selectFirst(".animeimghv")?.attr("data-src")
                 ?: it.selectFirst("div.animeimgdiv img.animeimghv")?.attr("src")
                 ?: ""
-            Episode(link, name, posterUrl = epThumb)
+            newEpisode(link) { // 'link' es el parámetro 'data'
+                this.name = name
+                this.posterUrl = epThumb
+                this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+            }
         }
         return newAnimeLoadResponse(title, url, getType(title)) {
             posterUrl = poster
