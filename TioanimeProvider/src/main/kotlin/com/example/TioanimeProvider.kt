@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import java.util.*
 import kotlin.collections.ArrayList
+import android.util.Log // Importar Log para depuración
 
 class TioanimeProvider:MainAPI() {
     companion object {
@@ -28,92 +29,137 @@ class TioanimeProvider:MainAPI() {
     )
 
     override suspend fun getMainPage(page: Int, request : MainPageRequest): HomePageResponse {
+        Log.d("TioanimeProvider", "DEBUG: Iniciando getMainPage, página: $page")
         val urls = listOf(
             Pair("$mainUrl/directorio?year=1950%2C2022&status=2&sort=recent", "Animes"),
             Pair("$mainUrl/directorio?year=1950%2C2022&status=1&sort=recent", "En Emisión"),
             Pair("$mainUrl/directorio?type[]=1&year=1950%2C2022&status=2&sort=recent", "Películas"),
         )
         val items = ArrayList<HomePageList>()
-        items.add(
-            HomePageList(
-                "Últimos episodios",
-                app.get(mainUrl).document.select("ul.episodes li article").map {
-                    val title = it.selectFirst("h3.title")?.text()?.replace(Regex("((\\d+)\$)"),"")
-                    val poster = it.selectFirst("figure img")?.attr("src")
-                    val epRegex = Regex("(-(\\d+)\$)")
-                    val url = it.selectFirst("a")?.attr("href")?.replace(epRegex,"")
-                        ?.replace("ver/","anime/")
-                    val urlepnum = it.selectFirst("a")?.attr("href")
-                    val epNum = epRegex.findAll(urlepnum ?: "").map {
-                        it.value.replace("-","")
-                    }.first().toIntOrNull()
-                    val dubstat = if (title!!.contains("Latino") || title.contains("Castellano"))
-                        DubStatus.Dubbed
-                    else DubStatus.Subbed
-                    newAnimeSearchResponse(title, fixUrl(url!!)) {
-                        this.posterUrl = fixUrl(poster ?: "")
-                        addDubStatus(dubstat, epNum)
-                    }
-                })
-        )
-        urls.apmap { (url, name) ->
-            val doc = app.get(url).document
-            val home = doc.select("ul.animes li article").map {
-                val title = it.selectFirst("h3.title")?.text()
-                val poster = it.selectFirst("figure img")?.attr("src")
-                AnimeSearchResponse(
-                    title!!,
-                    fixUrl(it.selectFirst("a")?.attr("href") ?: ""),
-                    this.name,
-                    TvType.Anime,
-                    fixUrl(poster ?: ""),
-                    null,
-                    if (title.contains("Latino") || title.contains("Castellano")) EnumSet.of(DubStatus.Dubbed) else EnumSet.of(DubStatus.Subbed),
-                )
+
+        // Últimos episodios
+        val latestEpisodes = app.get(mainUrl).document.select("ul.episodes li article").mapNotNull { article -> // Usar mapNotNull
+            val titleRaw = article.selectFirst("h3.title")?.text()
+            val title = titleRaw?.replace(Regex("((\\d+)\$)"),"") // Eliminar número de episodio del título
+            val poster = article.selectFirst("figure img")?.attr("src")
+            val epRegex = Regex("(-(\\d+)\$)")
+            val urlRaw = article.selectFirst("a")?.attr("href")
+
+            // Validar datos mínimos
+            if (title.isNullOrEmpty() || poster.isNullOrEmpty() || urlRaw.isNullOrEmpty()) {
+                Log.w("TioanimeProvider", "WARN: Elemento de últimos episodios con datos nulos/vacíos, saltando. Título: $titleRaw, URL: $urlRaw")
+                return@mapNotNull null
             }
 
-            items.add(HomePageList(name, home))
+            val url = urlRaw.replace(epRegex,"")?.replace("ver/","anime/")
+            val epNum = epRegex.findAll(urlRaw).map {
+                it.value.replace("-","")
+            }.firstOrNull()?.toIntOrNull() // Usar firstOrNull para evitar NoSuchElementException si no hay coincidencias
+
+            val dubstat = if (titleRaw.contains("Latino") || titleRaw.contains("Castellano"))
+                DubStatus.Dubbed
+            else DubStatus.Subbed
+
+            // Usar newAnimeSearchResponse
+            newAnimeSearchResponse(title, fixUrl(url!!)) { // `url!!` es seguro porque ya validamos `urlRaw`
+                this.posterUrl = fixUrl(poster) // `poster` es seguro porque ya validamos
+                addDubStatus(dubstat, epNum)
+            }
         }
-        if (items.size <= 0) throw ErrorLoadingException()
-        return HomePageResponse(items)
+        items.add(HomePageList("Últimos episodios", latestEpisodes))
+
+
+        // Listas de directorio (Animes, En Emisión, Películas)
+        urls.forEach { (url, name) -> // Reemplazado apmap con forEach
+            Log.d("TioanimeProvider", "DEBUG: Obteniendo datos para la lista: $name de $url")
+            val doc = app.get(url).document
+            val home = doc.select("ul.animes li article").mapNotNull { article -> // Usar mapNotNull
+                val title = article.selectFirst("h3.title")?.text()
+                val poster = article.selectFirst("figure img")?.attr("src")
+                val link = article.selectFirst("a")?.attr("href")
+
+                // Validar datos mínimos
+                if (title.isNullOrEmpty() || poster.isNullOrEmpty() || link.isNullOrEmpty()) {
+                    Log.w("TioanimeProvider", "WARN: Elemento de directorio con datos nulos/vacíos, saltando. Título: $title, Link: $link")
+                    return@mapNotNull null
+                }
+
+                // Determinar DubStatus
+                val dubStatusSet = if (title.contains("Latino") || title.contains("Castellano"))
+                    EnumSet.of(DubStatus.Dubbed)
+                else EnumSet.of(DubStatus.Subbed)
+
+                // Usar newAnimeSearchResponse
+                newAnimeSearchResponse(title, fixUrl(link)) {
+                    this.type = TvType.Anime // Asumimos Anime por defecto para estas listas, ajusta si es necesario
+                    this.posterUrl = fixUrl(poster)
+                    this.dubStatus = dubStatusSet
+                }
+            }
+            if (home.isNotEmpty()) { // Añadir solo si hay elementos válidos
+                items.add(HomePageList(name, home))
+            }
+        }
+        if (items.isEmpty()) throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
+        // Usar newHomePageResponse
+        return newHomePageResponse(items)
     }
 
     data class SearchObject (
         @JsonProperty("id") val id: String,
         @JsonProperty("title") val title: String,
-        @JsonProperty("type") val type: String,
+        @JsonProperty("type") val type: String, // Este 'type' es un String de la API, no TvType
         @JsonProperty("last_id") val lastId: String?,
         @JsonProperty("slug") val slug: String
     )
 
     override suspend fun search(query: String): List<SearchResponse> {
+        Log.d("TioanimeProvider", "DEBUG: Iniciando search para query: $query")
         val response = app.post("https://tioanime.com/api/search",
             data = mapOf(Pair("value",query))
         ).text
         val json = parseJson<List<SearchObject>>(response)
-        return json.map { searchr ->
+        return json.mapNotNull { searchr -> // Usar mapNotNull
             val title = searchr.title
             val href = "$mainUrl/anime/${searchr.slug}"
             val image = "$mainUrl/uploads/portadas/${searchr.id}.jpg"
-            AnimeSearchResponse(
-                title,
-                href,
-                this.name,
-                TvType.Anime,
-                fixUrl(image),
-                null,
-                if (title.contains("Latino") || title.contains("Castellano")) EnumSet.of(DubStatus.Dubbed) else EnumSet.of(DubStatus.Subbed),
-            )
+
+            // Validar datos mínimos
+            if (title.isNullOrEmpty() || href.isNullOrEmpty() || image.isNullOrEmpty()) {
+                Log.w("TioanimeProvider", "WARN: Resultado de búsqueda con datos nulos/vacíos, saltando. Título: ${searchr.title}, Slug: ${searchr.slug}")
+                return@mapNotNull null
+            }
+
+            // Determinar DubStatus
+            val dubStatusSet = if (title.contains("Latino") || title.contains("Castellano"))
+                EnumSet.of(DubStatus.Dubbed)
+            else EnumSet.of(DubStatus.Subbed)
+
+            val inferredType = when (searchr.type.lowercase()) { // CORRECCIÓN: Usar lowercase()
+                "ova" -> TvType.OVA
+                "pelicula" -> TvType.AnimeMovie // Asume que 'pelicula' de la API es AnimeMovie
+                else -> TvType.Anime
+            }
+
+            // Usar newAnimeSearchResponse
+            newAnimeSearchResponse(title, fixUrl(href)) {
+                this.type = inferredType
+                this.posterUrl = fixUrl(image)
+                this.dubStatus = dubStatusSet
+            }
         }
     }
 
     override suspend fun load(url: String): LoadResponse {
+        Log.d("TioanimeProvider", "DEBUG: Iniciando load para URL: $url")
         val doc = app.get(url).document
         val episodes = ArrayList<Episode>()
         val title = doc.selectFirst("h1.Title")?.text()
+            ?: throw ErrorLoadingException("Título no encontrado para URL: $url")
         val poster = doc.selectFirst("div.thumb img")?.attr("src")
         val description = doc.selectFirst("p.sinopsis")?.text()
-        val type = doc.selectFirst("span.anime-type-peli")?.text()
+        val typeStr = doc.selectFirst("span.anime-type-peli")?.text()
+        val type = if (typeStr != null) getType(typeStr) else TvType.Anime // Convertir String a TvType
         val status = when (doc.selectFirst("div.thumb a.btn.status i")?.text()) {
             "En emision" -> ShowStatus.Ongoing
             "Finalizado" -> ShowStatus.Completed
@@ -123,26 +169,31 @@ class TioanimeProvider:MainAPI() {
             .map { it?.text()?.trim().toString() }
         val year = doc.selectFirst("span.year")?.text()?.toIntOrNull()
 
-        doc.select("script").map { script ->
+        doc.select("script").forEach { script -> // Reemplazado map con forEach para evitar crear listas intermedias innecesarias
             if (script.data().contains("var episodes = [")) {
                 val data = script.data().substringAfter("var episodes = [").substringBefore("];")
-                data.split("],").forEach {
-                    it.split(",").forEach { epNum ->
+                data.split("],").forEach { chunk -> // Iterar sobre cada "chunk" de episodios
+                    chunk.split(",").mapNotNull { epNumStr -> // mapNotNull para filtrar entradas no válidas
+                        val epNum = epNumStr.toIntOrNull()
+                        if (epNum == null) {
+                            Log.w("TioanimeProvider", "WARN: Número de episodio inválido: '$epNumStr' en URL: $url")
+                            return@mapNotNull null
+                        }
+
                         val link = url.replace("/anime/","/ver/")+"-$epNum"
-                        episodes.add(
-                            newEpisode(link) { // 'link' es el parámetro 'data'
-                                this.name = "Capítulo $epNum"
-                                this.posterUrl = null
-                                this.episode = epNum.toIntOrNull()
-                                this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
-                            }
-                        )
+                        newEpisode(link) {
+                            this.name = "Capítulo $epNum"
+                            this.posterUrl = null // No hay póster específico para episodios aquí
+                            this.episode = epNum
+                            this.runTime = null
+                        }
                     }
+                        .let { episodes.addAll(it) } // Añadir todos los episodios válidos a la lista principal
                 }
             }
         }
-        return newAnimeLoadResponse(title!!, url, getType(type!!)) {
-            posterUrl = fixUrl(poster ?: "")
+        return newAnimeLoadResponse(title, url, type) { // `type` ya es TvType, no necesita getType(type!!)
+            posterUrl = fixUrl(poster ?: "") // Manejar poster nulo
             addEpisodes(DubStatus.Subbed, episodes.reversed())
             showStatus = status
             plot = description
@@ -156,17 +207,29 @@ class TioanimeProvider:MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        app.get(data).document.select("script").apmap { script ->
+        Log.d("TioanimeProvider", "DEBUG: Iniciando loadLinks para data: $data")
+        var foundLinks = false
+        val doc = app.get(data).document
+        doc.select("script").forEach { script -> // Reemplazado apmap con forEach
             if (script.data().contains("var videos =") || script.data().contains("var anime_id =") || script.data().contains("server")) {
-                val videos = script.data().replace("\\/", "/")
-                fetchUrls(videos).map {
-                    it.replace("https://embedsb.com/e/","https://watchsb.com/e/")
+                val videosRaw = script.data().replace("\\/", "/") // No es necesario escapar las barras si no son parte de regex
+                val videoUrls = fetchUrls(videosRaw).mapNotNull { url -> // mapNotNull para filtrar posibles URLs nulas/vacías
+                    url.replace("https://embedsb.com/e/","https://watchsb.com/e/")
                         .replace("https://ok.ru","http://ok.ru")
-                }.toList().apmap {
-                    loadExtractor(it, subtitleCallback, callback)
+                }.toList()
+
+                // Usar forEach para cargar extractores, sin apmap
+                videoUrls.forEach { videoLink ->
+                    try {
+                        loadExtractor(videoLink, subtitleCallback, callback)
+                        foundLinks = true
+                    } catch (e: Exception) {
+                        Log.e("TioanimeProvider", "ERROR: Fallo al cargar extractor para $videoLink: ${e.message}", e)
+                    }
                 }
             }
         }
-        return true
+        Log.d("TioanimeProvider", "DEBUG: loadLinks finalizado para data: $data con foundLinks: $foundLinks")
+        return foundLinks
     }
 }
