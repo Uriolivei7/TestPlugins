@@ -6,8 +6,9 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import android.util.Log
 import android.util.Base64
+import com.fasterxml.jackson.annotation.JsonProperty // Asegúrate de que esta importación esté presente si usas Jackson para JSON
 
-class PlushdProvider :MainAPI() {
+class PlushdProvider : MainAPI() {
     override var mainUrl = "https://ww3.pelisplus.to"
     override var name = "PlusHD"
     override var lang = "es"
@@ -33,36 +34,77 @@ class PlushdProvider :MainAPI() {
             Pair("Series", "$mainUrl/series"),
             Pair("Animes", "$mainUrl/animes"),
             Pair("Doramas", "$mainUrl/doramas"),
-
-            )
+        )
 
         try {
-            urls.apmap { (name, url) ->
+            // Reemplazado apmap con map para evitar la deprecación y usar la lógica de construcción de SearchResponse
+            urls.map { (name, url) ->
                 Log.d("PlushdProvider", "DEBUG: Obteniendo datos para la lista: $name de $url")
                 val doc = app.get(url).document
-                val home = doc.select(".articlesList article").map { article ->
+                val home = doc.select(".articlesList article").mapNotNull { article -> // Usar mapNotNull para filtrar nulos
                     val title = article.selectFirst("a h2")?.text()
                     val link = article.selectFirst("a.itemA")?.attr("href")
-                    // Fallback para 'src' si 'data-src' no está presente
                     val img = article.selectFirst("picture img")?.attr("data-src") ?: article.selectFirst("picture img")?.attr("src")
+
+                    // Validar que los datos mínimos no sean nulos
+                    if (title == null || link == null) {
+                        Log.w("PlushdProvider", "WARN: Elemento principal con título o link nulo, saltando. Título: $title, Link: $link")
+                        return@mapNotNull null // Saltar este elemento si es nulo
+                    }
 
                     Log.d("PlushdProvider", "DEBUG: Elemento principal - Título: $title, Link: $link, Imagen: $img")
 
-                    // Nota: Aquí se mantiene la lógica original que usa '!!' y no diferencia entre Movie y TvSeries
-                    // Esto puede causar Type Mismatch si el link es de película y se intenta construir TvSeriesSearchResponse
-                    // o Null Pointer Exception si title/link son nulos.
-                    TvSeriesSearchResponse(
-                        title!!,
-                        link!!,
-                        this.name,
-                        TvType.TvSeries, // Puede ser incorrecto para películas
-                        img,
-                    )
+                    // Lógica para diferenciar el tipo de contenido y usar la función auxiliar adecuada
+                    val searchType = when {
+                        link.contains("/pelicula") -> TvType.Movie
+                        link.contains("/serie") -> TvType.TvSeries
+                        link.contains("/anime") -> TvType.Anime
+                        link.contains("/dorama") -> TvType.AsianDrama
+                        else -> {
+                            Log.w("PlushdProvider", "WARN: Tipo de TV desconocido para link: $link, asumiendo TvSeries.")
+                            TvType.TvSeries // Fallback
+                        }
+                    }
+
+                    when (searchType) {
+                        TvType.Movie -> {
+                            newMovieSearchResponse(name = title, url = link, type = searchType) {
+                                this.posterUrl = img
+                                // Puedes añadir más propiedades aquí si las obtienes, por ejemplo:
+                                // this.year = ...
+                                // this.quality = ...
+                            }
+                        }
+                        TvType.TvSeries, TvType.Anime, TvType.AsianDrama -> {
+                            newTvSeriesSearchResponse(name = title, url = link, type = searchType) {
+                                this.posterUrl = img
+                                // Puedes añadir más propiedades aquí si las obtienes, por ejemplo:
+                                // this.year = ...
+                                // this.episodes = ...
+                                // this.id = ...
+                                // this.quality = ...
+                                // this.score = ...
+                            }
+                        }
+                        else -> {
+                            Log.w("PlushdProvider", "WARN: Tipo de búsqueda no soportado en getMainPage: $searchType para link: $link")
+                            null
+                        }
+                    }
                 }
-                items.add(HomePageList(name, home))
+                // Añadir a la lista de HomePageList solo si hay elementos válidos
+                if (home.isNotEmpty()) {
+                    items.add(HomePageList(name, home))
+                } else {
+                    Log.w("PlushdProvider", "WARN: La lista '$name' está vacía después de filtrar elementos nulos.")
+                }
             }
             Log.d("PlushdProvider", "DEBUG: getMainPage finalizado. ${items.size} listas añadidas.")
-            return HomePageResponse(items)
+            if (items.isEmpty()) {
+                throw ErrorLoadingException("No se pudieron cargar elementos en la página principal.")
+            }
+            // Usar newHomePageResponse
+            return newHomePageResponse(items)
         } catch (e: Exception) {
             Log.e("PlushdProvider", "ERROR en getMainPage: ${e.message}", e)
             return null
@@ -75,23 +117,47 @@ class PlushdProvider :MainAPI() {
         try {
             val doc = app.get(url).document
             Log.d("PlushdProvider", "DEBUG: Documento de búsqueda obtenido para query: $query")
-            return doc.select("article.item").map { article ->
+            return doc.select("article.item").mapNotNull { article -> // Usar mapNotNull para filtrar nulos
                 val title = article.selectFirst("a h2")?.text()
                 val link = article.selectFirst("a.itemA")?.attr("href")
-                // Fallback para 'src' si 'data-src' no está presente
                 val img = article.selectFirst("picture img")?.attr("data-src") ?: article.selectFirst("picture img")?.attr("src")
+
+                // Validar que los datos mínimos no sean nulos
+                if (title == null || link == null) {
+                    Log.w("PlushdProvider", "WARN: Resultado de búsqueda con título o link nulo, saltando. Título: $title, Link: $link")
+                    return@mapNotNull null
+                }
 
                 Log.d("PlushdProvider", "DEBUG: Resultado de búsqueda - Título: $title, Link: $link, Imagen: $img")
 
-                //Yeji
-                // Nota: Mismos comentarios que en getMainPage.
-                TvSeriesSearchResponse(
-                    title!!,
-                    link!!,
-                    this.name,
-                    TvType.TvSeries, // Puede ser incorrecto para películas
-                    img,
-                )
+                // Lógica para diferenciar el tipo de contenido y usar la función auxiliar adecuada
+                val searchType = when {
+                    link.contains("/pelicula") -> TvType.Movie
+                    link.contains("/serie") -> TvType.TvSeries
+                    link.contains("/anime") -> TvType.Anime
+                    link.contains("/dorama") -> TvType.AsianDrama
+                    else -> {
+                        Log.w("PlushdProvider", "WARN: Tipo de TV desconocido para link de búsqueda: $link, asumiendo TvSeries.")
+                        TvType.TvSeries // Fallback
+                    }
+                }
+
+                when (searchType) {
+                    TvType.Movie -> {
+                        newMovieSearchResponse(name = title, url = link, type = searchType) {
+                            this.posterUrl = img
+                        }
+                    }
+                    TvType.TvSeries, TvType.Anime, TvType.AsianDrama -> {
+                        newTvSeriesSearchResponse(name = title, url = link, type = searchType) {
+                            this.posterUrl = img
+                        }
+                    }
+                    else -> {
+                        Log.w("PlushdProvider", "WARN: Tipo de búsqueda no soportado en search: $searchType para link: $link")
+                        null
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("PlushdProvider", "ERROR en search para query '$query': ${e.message}", e)
@@ -99,42 +165,44 @@ class PlushdProvider :MainAPI() {
         }
     }
 
-    class MainTemporada(elements: Map<String, List<MainTemporadaElement>>) : HashMap<String, List<MainTemporadaElement>>(elements)
+    class MainTemporada(@JsonProperty val elements: Map<String, List<MainTemporadaElement>>) : HashMap<String, List<MainTemporadaElement>>(elements)
     data class MainTemporadaElement (
-        val title: String? = null,
-        val image: String? = null,
-        val season: Int? = null,
-        val episode: Int? = null
-        // Eliminado: val description: String? = null, ya que no se extraerá de JSON ni se buscará en páginas individuales
+        @JsonProperty("title") val title: String? = null,
+        @JsonProperty("image") val image: String? = null,
+        @JsonProperty("season") val season: Int? = null,
+        @JsonProperty("episode") val episode: Int? = null
     )
+
     override suspend fun load(url: String): LoadResponse? {
         Log.d("PlushdProvider", "DEBUG: Iniciando load para URL: $url")
         try {
             val doc = app.get(url).document
             Log.d("PlushdProvider", "DEBUG: Documento obtenido para load() de URL: $url")
-            val tvType = if (url.contains("pelicula")) TvType.Movie else TvType.TvSeries
+            val tvType = if (url.contains("/pelicula")) TvType.Movie else TvType.TvSeries // Usar '/pelicula' para mayor especificidad
             Log.d("PlushdProvider", "DEBUG: Tipo detectado para URL $url: $tvType")
 
-            val title = doc.selectFirst(".slugh1")?.text() ?: ""
+            val title = doc.selectFirst(".slugh1")?.text()
+            if (title.isNullOrEmpty()) {
+                Log.e("PlushdProvider", "ERROR: Título no encontrado para URL: $url")
+                return null
+            }
             Log.d("PlushdProvider", "DEBUG: Título extraído: $title")
 
-            // Usar '?' y Elvis operator para manejar nulos de forma segura
-            val backimage = doc.selectFirst("head meta[property=og:image]")?.attr("content") ?: ""
+            val backimage = doc.selectFirst("head meta[property=og:image]")?.attr("content")
             Log.d("PlushdProvider", "DEBUG: Imagen de fondo extraída: $backimage")
 
-            val poster = backimage.replace("original", "w500")
+            val poster = backimage?.replace("original", "w500")
             Log.d("PlushdProvider", "DEBUG: Póster derivado: $poster")
 
-            // Usar '?' y Elvis operator para manejar nulos de forma segura
-            val description = doc.selectFirst("div.description")?.text() ?: ""
-            Log.d("PlushdProvider", "DEBUG: Descripción extraída (primeros 100 chars): ${description.take(100)}")
+            val description = doc.selectFirst("div.description")?.text()
+            Log.d("PlushdProvider", "DEBUG: Descripción extraída (primeros 100 chars): ${description?.take(100)}")
 
             val tags = doc.select("div.home__slider .genres:contains(Generos) a").map { it.text() }
             Log.d("PlushdProvider", "DEBUG: Tags extraídos: $tags")
 
             val epi = ArrayList<Episode>()
-            if (tvType == TvType.TvSeries) {
-                Log.d("PlushdProvider", "DEBUG: Contenido es TvSeries. Buscando temporadas/episodios.")
+            if (tvType == TvType.TvSeries || tvType == TvType.Anime || tvType == TvType.AsianDrama) { // Asegúrate de cubrir todos los tipos basados en episodios
+                Log.d("PlushdProvider", "DEBUG: Contenido es TvSeries/Anime/AsianDrama. Buscando temporadas/episodios.")
                 val script = doc.select("script").firstOrNull { it.html().contains("seasonsJson = ") }?.html()
                 if(!script.isNullOrEmpty()){
                     Log.d("PlushdProvider", "DEBUG: Script 'seasonsJson' encontrado.")
@@ -142,39 +210,37 @@ class PlushdProvider :MainAPI() {
                     val jsonRegex = Regex("seasonsJson\\s*=\\s*(\\{[^;]*\\});")
                     val match = jsonRegex.find(script)
 
-                    var jsonscript: String? = null
-                    if (match != null) {
-                        jsonscript = match.groupValues[1]
-                        Log.d("PlushdProvider", "DEBUG: JSON de temporadas extraído con Regex (primeros 200 chars): ${jsonscript.take(200)}")
-                    } else {
-                        Log.w("PlushdProvider", "ADVERTENCIA: Regex 'seasonsJson' no encontró el patrón esperado. Cayendo a substringAfter/Before.")
-                        jsonscript = script.substringAfter("seasonsJson = ").substringBefore(";")
-                        Log.w("PlushdProvider", "ADVERTENCIA: JSON con substringAfter/Before (primeros 200 chars): ${jsonscript.take(200)}")
-                    }
+                    val jsonscript: String? = match?.groupValues?.get(1) ?: script.substringAfter("seasonsJson = ").substringBefore(";")
 
                     if (!jsonscript.isNullOrEmpty()){
                         try {
                             val json = parseJson<MainTemporada>(jsonscript)
                             Log.d("PlushdProvider", "DEBUG: JSON de temporadas parseado exitosamente.")
-                            json.values.map { list ->
-                                list.map { info ->
+                            json.values.forEach { list -> // Usar forEach directamente
+                                list.forEach { info -> // Usar forEach directamente
                                     val epTitle = info.title
                                     val seasonNum = info.season
                                     val epNum = info.episode
                                     val img = info.image
                                     val realimg = if (img.isNullOrEmpty()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
-                                    val epurl = "$url/season/$seasonNum/episode/$epNum"
+                                    val epurl = "$url/season/$seasonNum/episode/$epNum" // Asegúrate que esta URL sea correcta para loadLinks
+
+                                    // Validar datos mínimos del episodio
+                                    if (epTitle == null || seasonNum == null || epNum == null) {
+                                        Log.w("PlushdProvider", "WARN: Datos de episodio incompletos, saltando. Título: $epTitle, Temporada: $seasonNum, Episodio: $epNum")
+                                        return@forEach // Saltar este episodio
+                                    }
 
                                     Log.d("PlushdProvider", "DEBUG: Añadiendo episodio: S:$seasonNum E:$epNum Título: $epTitle, URL: $epurl, Imagen: $realimg")
                                     epi.add(
-                                        newEpisode(epurl) { // 'epurl' es el parámetro 'data'
+                                        newEpisode(epurl) {
                                             this.name = epTitle
                                             this.season = seasonNum
                                             this.episode = epNum
                                             this.posterUrl = realimg
-                                            this.rating = null // Si quieres que rating sea null, asígnale por nombre
-                                            this.description = null // Si quieres que description sea null, asígnale por nombre
-                                            this.runTime = null // ¡IMPORTANTE! Añade esta línea y asígnale null (o el valor real si lo tienes)
+                                            this.rating = null
+                                            this.description = null
+                                            this.runTime = null
                                         }
                                     )
                                 }
@@ -182,7 +248,7 @@ class PlushdProvider :MainAPI() {
                             Log.d("PlushdProvider", "DEBUG: Total de episodios añadidos: ${epi.size}")
                         } catch (e: Exception) {
                             Log.e("PlushdProvider", "ERROR al parsear JSON de temporadas: ${e.message}", e)
-                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript?.take(500)}")
+                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript.take(500)}")
                         }
                     } else {
                         Log.w("PlushdProvider", "ADVERTENCIA: jsonscript vacío después de la extracción para URL: $url")
@@ -195,9 +261,8 @@ class PlushdProvider :MainAPI() {
             Log.d("PlushdProvider", "DEBUG: Devolviendo LoadResponse para tipo: $tvType")
             return when(tvType)
             {
-                TvType.TvSeries -> {
-                    newTvSeriesLoadResponse(title,
-                        url, tvType, epi,){
+                TvType.TvSeries, TvType.Anime, TvType.AsianDrama -> {
+                    newTvSeriesLoadResponse(title, url, tvType, epi){
                         this.posterUrl = poster
                         this.backgroundPosterUrl = backimage
                         this.plot = description
@@ -205,7 +270,7 @@ class PlushdProvider :MainAPI() {
                     }
                 }
                 TvType.Movie -> {
-                    newMovieLoadResponse(title, url, tvType, url){
+                    newMovieLoadResponse(title, url, tvType, url){ // El último 'url' es dataUrl para MovieLoadResponse
                         this.posterUrl = poster
                         this.backgroundPosterUrl = backimage
                         this.plot = description
@@ -240,9 +305,16 @@ class PlushdProvider :MainAPI() {
                 Log.d("PlushdProvider", "DEBUG: Se encontraron ${serversFound.size} servidores.")
             }
 
-            serversFound.apmap { serverLi ->
+            // Reemplazado apmap con forEach para evitar la deprecación
+            serversFound.forEach { serverLi ->
                 val serverData = serverLi.attr("data-server")
                 Log.d("PlushdProvider", "DEBUG: Procesando servidor con data-server: $serverData")
+
+                if (serverData.isNullOrEmpty()) {
+                    Log.w("PlushdProvider", "WARN: data-server es nulo o vacío para elemento: $serverLi")
+                    return@forEach // Saltar a la siguiente iteración
+                }
+
                 val encodedOne = serverData.toByteArray()
                 val encodedTwo = base64Encode(encodedOne)
                 val playerUrl = "$mainUrl/player/$encodedTwo"
@@ -271,5 +343,4 @@ class PlushdProvider :MainAPI() {
             return false
         }
     }
-
 }
