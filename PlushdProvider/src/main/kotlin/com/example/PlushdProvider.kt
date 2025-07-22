@@ -83,6 +83,7 @@ class PlushdProvider :MainAPI() {
 
                 Log.d("PlushdProvider", "DEBUG: Resultado de búsqueda - Título: $title, Link: $link, Imagen: $img")
 
+                //Yeji
                 // Nota: Mismos comentarios que en getMainPage.
                 TvSeriesSearchResponse(
                     title!!,
