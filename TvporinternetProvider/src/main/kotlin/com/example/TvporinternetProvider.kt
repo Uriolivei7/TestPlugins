@@ -33,16 +33,29 @@ class TvporinternetProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
     private val nowAllowed = listOf("Red Social", "Donacion")
 
+    // Modificada para incluir un User-Agent por defecto
     private suspend fun safeAppGet(
         url: String,
         retries: Int = 3,
         delayMs: Long = 2000L,
-        timeoutMs: Long = 15000L
+        timeoutMs: Long = 15000L,
+        additionalHeaders: Map<String, String>? = null // Nuevo parámetro opcional para headers
     ): String? {
+        val requestHeaders = (additionalHeaders ?: emptyMap()).toMutableMap()
+        // Agrega un User-Agent si no se ha proporcionado uno específicamente
+        if (!requestHeaders.containsKey("User-Agent")) {
+            requestHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            Log.d("TvporInternet", "safeAppGet - Añadido User-Agent por defecto: ${requestHeaders["User-Agent"]}")
+        } else {
+            Log.d("TvporInternet", "safeAppGet - Usando User-Agent proporcionado: ${requestHeaders["User-Agent"]}")
+        }
+
+
         for (i in 0 until retries) {
             try {
                 Log.d("TvporInternet", "safeAppGet - Intento ${i + 1}/$retries para URL: $url")
-                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs)
+                // Pasa los headers al app.get
+                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = requestHeaders)
                 if (res.isSuccessful) {
                     Log.d("TvporInternet", "safeAppGet - Petición exitosa para URL: $url")
                     return res.text
@@ -293,7 +306,7 @@ class TvporinternetProvider : MainAPI() {
         }
         val doc = Jsoup.parse(initialHtml)
 
-        // --- NUEVA LÓGICA: INTENTAR ENCONTRAR ENLACES DIRECTOS EN SCRIPTS EN LA PÁGINA INICIAL ---
+        // --- LÓGICA: INTENTAR ENCONTRAR ENLACES DIRECTOS EN SCRIPTS EN LA PÁGINA INICIAL (saohgdasregions.fun) ---
         val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
         val saohgdasregionsRegex = """(https?:\/\/[^'"]*saohgdasregions\.fun[^'"]*)""".toRegex()
         val directSaohgdasRegionsMatches = saohgdasregionsRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
@@ -308,7 +321,7 @@ class TvporinternetProvider : MainAPI() {
         } else {
             Log.d("TvporInternet", "loadLinks: No se encontró enlace saohgdasregions.fun directo en scripts de la página inicial.")
         }
-        // --- FIN NUEVA LÓGICA ---
+        // --- FIN LÓGICA ESPECÍFICA ---
 
         val playerLinks = mutableListOf<String>()
 
@@ -346,9 +359,7 @@ class TvporinternetProvider : MainAPI() {
             return false
         }
 
-        // Procesa los playerLinks como antes. La entrada para americatv.php
-        // ahora devolverá un HTML sin el iframe esperado, como se confirmó
-        // en el último log, pero este flujo se mantiene para otros casos.
+        // Procesa los playerLinks como antes.
         playerLinks.apmap { playerUrl ->
             Log.d("TvporInternet", "loadLinks: Procesando enlace de reproductor: $playerUrl")
 
@@ -356,6 +367,7 @@ class TvporinternetProvider : MainAPI() {
 
             if (currentProcessingUrl.contains("tvporinternet2.com/live/") && currentProcessingUrl.endsWith(".php")) {
                 Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
+                // No es necesario pasar additionalHeaders aquí ya que safeAppGet ya tiene un User-Agent por defecto.
                 val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl))
                 if (phpIframeHtml != null) {
                     // Log que muestra el HTML devuelto por americatv.php (con el frame-buster)
