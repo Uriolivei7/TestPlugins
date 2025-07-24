@@ -293,6 +293,23 @@ class TvporinternetProvider : MainAPI() {
         }
         val doc = Jsoup.parse(initialHtml)
 
+        // --- NUEVA LÓGICA: INTENTAR ENCONTRAR ENLACES DIRECTOS EN SCRIPTS EN LA PÁGINA INICIAL ---
+        val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
+        val saohgdasregionsRegex = """(https?:\/\/[^'"]*saohgdasregions\.fun[^'"]*)""".toRegex()
+        val directSaohgdasRegionsMatches = saohgdasregionsRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
+
+        if (directSaohgdasRegionsMatches.isNotEmpty()) {
+            Log.d("TvporInternet", "loadLinks: Encontrado enlace saohgdasregions.fun directamente en script de la página inicial. Procesando...")
+            directSaohgdasRegionsMatches.apmap { directUrl ->
+                Log.d("TvporInternet", "loadLinks: Encontrado directo en script: $directUrl")
+                loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
+            }
+            return true // Si encontramos y procesamos estos, asumimos que hemos terminado
+        } else {
+            Log.d("TvporInternet", "loadLinks: No se encontró enlace saohgdasregions.fun directo en scripts de la página inicial.")
+        }
+        // --- FIN NUEVA LÓGICA ---
+
         val playerLinks = mutableListOf<String>()
 
         val mainIframeSrc = doc.selectFirst("iframe[name=\"player\"]")?.attr("src")
@@ -313,22 +330,25 @@ class TvporinternetProvider : MainAPI() {
 
         if (playerLinks.isEmpty()) {
             Log.e("TvporInternet", "loadLinks: No se encontraron enlaces de reproductores en la página del canal: $targetUrl")
-            val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
-            val directRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
-            val directMatches = directRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
+            // Este fallback general a directRegex se mantiene como una opción, aunque la búsqueda específica anterior es prioritaria.
+            val genericDirectRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
+            val genericDirectMatches = genericDirectRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
-            if (directMatches.isNotEmpty()) {
-                Log.d("TvporInternet", "loadLinks: Intentando encontrar enlaces directos en scripts como fallback.")
-                directMatches.apmap { directUrl ->
-                    Log.d("TvporInternet", "loadLinks: Encontrado enlace directo en script: $directUrl")
+            if (genericDirectMatches.isNotEmpty()) {
+                Log.d("TvporInternet", "loadLinks: Intentando encontrar enlaces directos genéricos en scripts como fallback.")
+                genericDirectMatches.apmap { directUrl ->
+                    Log.d("TvporInternet", "loadLinks: Encontrado enlace directo genérico en script: $directUrl")
                     loadExtractor(directUrl, targetUrl, subtitleCallback, callback)
                 }
                 return true
             }
-            Log.d("TvporInternet", "loadLinks: No se encontraron enlaces directos en scripts de la página del canal como fallback.")
+            Log.d("TvporInternet", "loadLinks: No se encontraron enlaces directos genéricos en scripts de la página del canal como fallback.")
             return false
         }
 
+        // Procesa los playerLinks como antes. La entrada para americatv.php
+        // ahora devolverá un HTML sin el iframe esperado, como se confirmó
+        // en el último log, pero este flujo se mantiene para otros casos.
         playerLinks.apmap { playerUrl ->
             Log.d("TvporInternet", "loadLinks: Procesando enlace de reproductor: $playerUrl")
 
@@ -338,8 +358,8 @@ class TvporinternetProvider : MainAPI() {
                 Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
                 val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl))
                 if (phpIframeHtml != null) {
-                    // ¡NUEVO LOG DE DEPURACIÓN AQUÍ!
-                    Log.d("TvporInternet", "loadLinks: HTML obtenido de PHP iframe: ${phpIframeHtml.substring(0, Math.min(phpIframeHtml.length, 1000))}...") // Imprime los primeros 1000 caracteres
+                    // Log que muestra el HTML devuelto por americatv.php (con el frame-buster)
+                    Log.d("TvporInternet", "loadLinks: HTML obtenido de PHP iframe: ${phpIframeHtml.substring(0, Math.min(phpIframeHtml.length, 1000))}...")
 
                     val phpIframeDoc = Jsoup.parse(phpIframeHtml)
                     val nestedIframeSrc = phpIframeDoc.selectFirst("iframe[src*='saohgdasregions.fun']")?.attr("src")
@@ -349,7 +369,6 @@ class TvporinternetProvider : MainAPI() {
                         Log.d("TvporInternet", "loadLinks: Iframe anidado en PHP encontrado: $currentProcessingUrl")
                     } else {
                         Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado en el archivo PHP: $currentProcessingUrl")
-                        // Logs adicionales para depuración:
                         val allIframes = phpIframeDoc.select("iframe")
                         if (allIframes.isNotEmpty()) {
                             Log.e("TvporInternet", "loadLinks: Otros iframes encontrados en PHP, pero no coincidieron con el selector 'saohgdasregions.fun':")
@@ -360,17 +379,13 @@ class TvporinternetProvider : MainAPI() {
                         val allScripts = phpIframeDoc.select("script")
                         if (allScripts.isNotEmpty()) {
                             Log.e("TvporInternet", "loadLinks: Se encontraron scripts en PHP, podría generarse con JS.")
-                            // Si quieres ver el contenido de los scripts, puedes añadir:
-                            // allScripts.forEachIndexed { index, element ->
-                            //     Log.e("TvporInternet", "loadLinks:   Script ${index + 1} content: ${element.html().substring(0, Math.min(element.html().length, 500))}...")
-                            // }
                         }
                     }
                 } else {
                     Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe PHP: $currentProcessingUrl")
                 }
             }
-
+            // ... (resto de tu lógica existente para ghbrisk.com, xupalace.org, embed69.org)
             if (currentProcessingUrl.contains("ghbrisk.com")) {
                 Log.d("TvporInternet", "loadLinks: Detectado ghbrisk.com. Buscando iframe anidado.")
                 val ghbriskHtml = safeAppGet(fixUrl(currentProcessingUrl))
@@ -438,10 +453,10 @@ class TvporinternetProvider : MainAPI() {
                 val frameHtml = safeAppGet(fixUrl(currentProcessingUrl))
                 if (frameHtml != null) {
                     val frameDoc = Jsoup.parse(frameHtml)
-                    val scriptContent = frameDoc.select("script").map { it.html() }.joinToString("\n")
+                    val scriptContentFrame = frameDoc.select("script").map { it.html() }.joinToString("\n")
 
                     val dataLinkRegex = """const\s+dataLink\s*=\s*(\[.*?\]);""".toRegex()
-                    val dataLinkJsonString = dataLinkRegex.find(scriptContent)?.groupValues?.get(1)
+                    val dataLinkJsonString = dataLinkRegex.find(scriptContentFrame)?.groupValues?.get(1)
 
                     if (!dataLinkJsonString.isNullOrBlank()) {
                         val dataLinkEntries = tryParseJson<List<DataLinkEntry>>(dataLinkJsonString)
