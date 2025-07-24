@@ -19,6 +19,7 @@ import java.util.Date
 import java.util.Calendar
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
+import com.fasterxml.jackson.annotation.JsonProperty // Necesario para @JsonProperty
 
 class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
@@ -37,7 +38,7 @@ class AnimeonsenProvider : MainAPI() {
     private var searchOrigin: String = "https://search.animeonsen.xyz"
     private var searchToken: String? = null
     // ADVERTENCIA: Este token expira el 1 de agosto de 2025.
-    private var apiAuthToken: String? = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQifQ.eyJpc3MiOiJodHRwczovL2F1dGguYW5pbWVvbnNlbi54eXovIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYW5pbWVvbnNlbi54eXoiLCJpYXQiOjE3NTMzOTU0ODcsImV4cCI6MTc1NDAwMDI4Nywic3ViIjoiMDZkMjJiOTYtNjNlNy00NmE5LTgwZmMtZGM0NDFkNDFjMDM4LmNsaWVudCIsImF6cCI6IjA2ZDIyYjk2LTYzZTctNDZhOS04MGZjLWRjNDQxZDQxYzAzOCIsImd0eSI6ImNsaWVudF9jcmVkZW50aWFscyJ9.xTqP444XaqD1Z_U_x4dCvgVHYWeGo5yt8y0uBXonRXu8Q5PtHjM0s6bVPtGWIwomVTtNfIexjviNflTqioMUju1GHEnFo7jUYNkvJbtyGt6PJxE2BNtxhF6v3UrVrc3XuuWtb2t8tz89TXY5oUhvLwjd6jkZ3p-PZ6OlDFJ8mCRkyJ7UF_yKK2F_3ppfDgil5dja9MuJupObJUGmLsUwVKhgtAM65EQTb6wf11ff0iCTYEkeYmY1tq-gcyfxQV-cQujoJZXt03sYkcYKogRwH9iwoGY6hcBSr1LUYcL2ORiak_2rNoPDAQadSPTTed6n4KbuncoQKPggEQn-KryN5A"
+    private var apiAuthToken: String? = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQifQ.eyJpc3MiOiJodHRwczovL2F1dGguYW5pbWVvbnNlbi54eXovIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYW5pbWVvbnNlbi54eXoiLCJpYXQiOjE3NTMzOTU0ODcsImV4cCI6MTc1NDAwMDI4Nywic3ViIjoiMDZkMjJiOTYtNjNlNy00NmE5LTgwZmMtZGM0NDFkNDFjMDM4LmNsaWVudCIsImF6cCI6IjA2ZDIyYjk2LTYzZTctNDZhOS04MGZjLWRjNDQxZDRxYzAzOCIsImd0eSI6ImNsaWVudF9jcmVkZW50aWFscyJ9.xTqP444XaqD1Z_U_x4dCvgVHYWeGo5yt8y0uBXonRXu8Q5PtHjM0s6bVPtGWIwomVTtNfIexjviNflTqioMUju1GHEnFo7jUYNkvJbtyGt6PJxE2BNtxhF6v3UrVrc3XuuWtb2t8tz89TXY5oUhvLwjd6jkZ3p-PZ6OlDFJ8mCRkyJ7UF_yKK2F_3ppfDgil5dja9MuJupObJUGmLsUwVKhgtAM65EQTb6wf11ff0iCTYEkeYmY1tq-gcyfxQV-cQujoJZXt03sYkcYKogRwH9iwoGY6hcBSr1LUYcL2ORiak_2rNoPDAQadSPTTed6n4KbuncoQKPggEQn-KryN5A"
     private val cfKiller = CloudflareKiller()
 
     private suspend fun safeAppGet(
@@ -48,9 +49,15 @@ class AnimeonsenProvider : MainAPI() {
         headers: Map<String, String>? = null
     ): String? {
         val requestHeaders = (headers?.toMutableMap() ?: mutableMapOf()).apply {
-            if (apiAuthToken != null && url.startsWith(apiOrigin)) {
-                this["Authorization"] = "Bearer $apiAuthToken"
+            if (url.startsWith(apiOrigin)) { // Aplica a API y posiblemente subtítulos
+                if (apiAuthToken != null) {
+                    this["Authorization"] = "Bearer $apiAuthToken"
+                }
+                this["Origin"] = mainUrl
+                this["Referer"] = "$mainUrl/"
+                this["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
             }
+            headers?.let { putAll(it) } // Añade cualquier header extra que se pase
         }
 
         for (i in 0 until retries) {
@@ -90,6 +97,7 @@ class AnimeonsenProvider : MainAPI() {
             } else if (url.startsWith(apiOrigin) && apiAuthToken != null) {
                 this["Authorization"] = "Bearer $apiAuthToken"
             }
+            headers?.let { putAll(it) } // Añade cualquier header extra que se pase
         }
 
         for (i in 0 until retries) {
@@ -224,6 +232,32 @@ class AnimeonsenProvider : MainAPI() {
             get() = content_title_en ?: content_title ?: content_title_jp ?: "Unknown Title"
     }
 
+    // --- Nuevas Data Classes para la respuesta de /v4/content/$animeId/video/$episodeNumber ---
+    data class VideoApiResponse(
+        val metadata: VideoMetadata,
+        val uri: VideoUris
+    )
+
+    data class VideoMetadata(
+        @JsonProperty("content_id") val contentId: String,
+        @JsonProperty("content_title") val contentTitle: String,
+        @JsonProperty("content_title_en") val contentTitleEn: String?,
+        @JsonProperty("data_type") val dataType: String,
+        @JsonProperty("is_movie") val isMovie: Boolean,
+        @JsonProperty("subtitle_support") val subtitleSupport: Boolean,
+        @JsonProperty("total_episodes") val totalEpisodes: Int,
+        @JsonProperty("next_season") val nextSeason: String?,
+        @JsonProperty("mal_id") val malId: Int,
+        val episode: List<Any>, // Puede ser un Int o un mapa, se mantiene Any para flexibilidad
+        val subtitles: Map<String, String> // Mapa de langCode a langName
+    )
+
+    data class VideoUris(
+        val stream: String?,
+        val subtitles: Map<String, String>? // Mapa de langCode a URL de subtítulo
+    )
+    // --- Fin Nuevas Data Classes ---
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val mainPageHtml = safeAppGet(mainUrl)
         if (mainPageHtml != null) {
@@ -311,12 +345,15 @@ class AnimeonsenProvider : MainAPI() {
         val animeId = url.substringAfterLast("/anime/").substringBefore("?")
         if (animeId.isBlank()) return null
 
-        if (searchToken == null) {
+        // Refrescar tokens si es necesario
+        if (searchToken == null || apiAuthToken == null) {
             val mainPageHtml = safeAppGet(mainUrl)
             if (mainPageHtml != null) {
                 val doc = Jsoup.parse(mainPageHtml)
                 searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
                 apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
+                // No se obtiene apiAuthToken de meta tags, así que se asume que siempre está hardcodeado o se obtiene de otra forma.
+                // Si el apiAuthToken necesita refrescarse, la lógica debe implementarse aquí o en safeAppGet/Post.
             }
         }
 
@@ -343,10 +380,14 @@ class AnimeonsenProvider : MainAPI() {
         try {
             val animePageHtml = app.get("$mainUrl/anime/$animeId", interceptor = cfKiller).text
             val animeDoc = Jsoup.parse(animePageHtml)
-            poster = animeDoc.selectFirst("div.content__poster img")?.attr("src")
-            banner = animeDoc.selectFirst("div.content__banner img")?.attr("src")
-            Log.d("AnimeOnsen", "Poster URL: $poster") // Añadir esta línea
-            Log.d("AnimeOnsen", "Banner URL: $banner") // Añadir esta línea
+            // Nuevo selector para el póster basado en el HTML proporcionado:
+            poster = animeDoc.selectFirst("img[alt^=Image of]")?.attr("src")
+            // No hay un selector claro para un banner distinto en el HTML proporcionado,
+            // por lo que se usa el póster como fallback. Si existe un banner,
+            // se necesitaría un selector específico aquí.
+            banner = null // O podrías intentar buscar un banner con otro selector
+            Log.d("AnimeOnsen", "Poster URL: $poster")
+            Log.d("AnimeOnsen", "Banner URL: $banner")
         } catch (e: Exception) {
             Log.e("AnimeOnsen", "Error scraping poster/banner from anime page: ${e.message}", e)
         }
@@ -366,7 +407,7 @@ class AnimeonsenProvider : MainAPI() {
             }
         } else listOf()
 
-        val recommendations = listOf<SearchResponse>()
+        val recommendations = listOf<SearchResponse>() // Implementar si es necesario
 
         val year = extensiveContent.date_added?.let { timestampSeconds ->
             try {
@@ -441,9 +482,13 @@ class AnimeonsenProvider : MainAPI() {
         val animeId = parsedEpisodeData?.contentId
         val episodeNumber = parsedEpisodeData?.episodeNumber
 
-        if (animeId.isNullOrBlank() || episodeNumber == null) return false
+        if (animeId.isNullOrBlank() || episodeNumber == null) {
+            Log.e("AnimeOnsen", "loadLinks: Missing animeId or episodeNumber from parsed data.")
+            return false
+        }
 
-        if (searchToken == null) {
+        // Refrescar tokens si es necesario (ya implementado en getMainPage y load, pero asegurar aquí si no se llama antes)
+        if (searchToken == null || apiAuthToken == null) {
             val mainPageHtml = safeAppGet(mainUrl)
             if (mainPageHtml != null) {
                 val doc = Jsoup.parse(mainPageHtml)
@@ -452,34 +497,52 @@ class AnimeonsenProvider : MainAPI() {
             }
         }
 
-        val mpdUrl = "https://cdn.animeonsen.xyz/video/mp4-dash/$animeId/$episodeNumber/manifest.mpd"
-        callback(
-            newExtractorLink(
-                source = "AnimeOnsen (DASH)",
-                name = "Play",
-                url = mpdUrl,
-                type = ExtractorLinkType.DASH
-            ) {
-                referer = mainUrl
-            }
-        )
+        // Nueva llamada para obtener la URL del stream y los subtítulos con el formato correcto
+        val videoApiUrl = "$apiOrigin/v4/content/$animeId/video/$episodeNumber"
+        val videoApiResponseJson = safeAppGet(videoApiUrl)
 
-        val subtitlesLanguagesUrl = "$apiOrigin/v4/subtitles/$animeId/languages"
-        val subtitlesLanguagesJson = safeAppGet(subtitlesLanguagesUrl)
-        if (subtitlesLanguagesJson != null) {
-            val languagesMap = tryParseJson<Map<String, String>>(subtitlesLanguagesJson)
-            // Dentro de loadLinks, después de obtener languagesMap
-            languagesMap?.forEach { (langCode, langName) ->
-                val subtitleUrl = "$apiOrigin/v4/subtitles/$animeId/$episodeNumber/$langCode.vtt"
-                Log.d("AnimeOnsen", "Attempting to load subtitle URL: $subtitleUrl") // AÑADIR ESTA LÍNEA
-                subtitleCallback(
-                    SubtitleFile(
-                        langName,
-                        subtitleUrl
-                    )
-                )
-            }
+        if (videoApiResponseJson == null) {
+            Log.e("AnimeOnsen", "loadLinks: Failed to get video API response for $videoApiUrl")
+            return false
         }
+
+        val videoApiResponse = tryParseJson<VideoApiResponse>(videoApiResponseJson)
+        if (videoApiResponse == null) {
+            Log.e("AnimeOnsen", "loadLinks: Failed to parse video API response for $videoApiUrl")
+            return false
+        }
+
+        // Procesar link del stream
+        val streamUrl = videoApiResponse.uri.stream
+        if (streamUrl != null) {
+            callback(
+                newExtractorLink(
+                    source = "AnimeOnsen",
+                    name = "Play", // O podrías usar un nombre más descriptivo si la API lo proporciona
+                    url = streamUrl,
+                    type = ExtractorLinkType.DASH // Asumiendo que siempre es DASH si viene de cdn.animeonsen.xyz/video/mp4-dash/
+                ) {
+                    referer = mainUrl // Referer para el stream CDN
+                }
+            )
+        } else {
+            Log.w("AnimeOnsen", "loadLinks: Stream URL not found in API response for $videoApiUrl")
+        }
+
+        // Procesar links de subtítulos
+        videoApiResponse.uri.subtitles?.forEach { (langCode, subUrl) ->
+            val langName = videoApiResponse.metadata.subtitles[langCode] ?: langCode
+            subtitleCallback(
+                SubtitleFile(
+                    langName,
+                    subUrl
+                )
+            )
+            Log.d("AnimeOnsen", "Loaded SubtitleFile: lang=$langName, url=$subUrl")
+        } ?: run {
+            Log.i("AnimeOnsen", "loadLinks: No subtitles found in API response for $videoApiUrl")
+        }
+
         return true
     }
 }
