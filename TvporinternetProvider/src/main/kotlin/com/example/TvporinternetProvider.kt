@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 
 class TvporinternetProvider : MainAPI() {
     override var mainUrl = "https://www.tvporinternet2.com"
-    override var name = "TVporInternet"
+    override var name = "TvporInternet"
 
     override val supportedTypes = setOf(
         TvType.Live
@@ -174,9 +174,9 @@ class TvporinternetProvider : MainAPI() {
                 newLiveSearchResponse(
                     name = title,
                     url = link,
-                    type = TvType.Live // Este sigue siendo un parámetro directo
-                ) { // Este es el bloque 'initializer' para configurar la LiveSearchResponse
-                    this.posterUrl = img // Asigna la URL del póster dentro del bloque
+                    type = TvType.Live
+                ) {
+                    this.posterUrl = img
                 }
             } else {
                 Log.w("TvporInternet", "search: Elemento de búsqueda incompleto (título, link o imagen nulo).")
@@ -333,6 +333,24 @@ class TvporinternetProvider : MainAPI() {
             Log.d("TvporInternet", "loadLinks: Procesando enlace de reproductor: $playerUrl")
 
             var currentProcessingUrl = playerUrl
+
+            if (currentProcessingUrl.contains("tvporinternet2.com/live/") && currentProcessingUrl.endsWith(".php")) {
+                Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
+                val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl))
+                if (phpIframeHtml != null) {
+                    val phpIframeDoc = Jsoup.parse(phpIframeHtml)
+                    val nestedIframeSrc = phpIframeDoc.selectFirst("iframe[src*='saohgdasregions.fun']")?.attr("src")
+
+                    if (!nestedIframeSrc.isNullOrBlank()) {
+                        currentProcessingUrl = nestedIframeSrc
+                        Log.d("TvporInternet", "loadLinks: Iframe anidado en PHP encontrado: $currentProcessingUrl")
+                    } else {
+                        Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado en el archivo PHP: $currentProcessingUrl")
+                    }
+                } else {
+                    Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe PHP: $currentProcessingUrl")
+                }
+            }
 
             if (currentProcessingUrl.contains("ghbrisk.com")) {
                 Log.d("TvporInternet", "loadLinks: Detectado ghbrisk.com. Buscando iframe anidado.")
