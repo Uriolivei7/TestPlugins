@@ -30,9 +30,7 @@ class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
     override var name = "AnimeOnsen"
     override val supportedTypes = setOf(
-        TvType.Anime,
-        TvType.Movie,
-        TvType.TvSeries,
+        TvType.Anime
     )
 
     override var lang = "es"
@@ -43,6 +41,7 @@ class AnimeonsenProvider : MainAPI() {
     private var apiOrigin: String = "https://api.animeonsen.xyz"
     private var searchOrigin: String = "https://search.animeonsen.xyz"
     private var searchToken: String? = null
+    private var apiAuthToken: String? = null
 
     private val cfKiller = CloudflareKiller()
 
@@ -92,6 +91,22 @@ class AnimeonsenProvider : MainAPI() {
         }
         Log.e("AnimeOnsen", "safeAppPost - Fallaron todos los intentos para URL: $url")
         return null
+    }
+
+    data class AnimeOnsenMainPageResponse(
+        val cursor: Cursor,
+        val content: List<AnimeOnsenContentItemSimplified> // Usaremos una simplificada para MainPage
+    )
+
+    data class AnimeOnsenContentItemSimplified(
+        val content_id: String,
+        val content_title: String?, // Título en japonés
+        val content_title_en: String?, // Título en inglés
+        val total_episodes: Int?,
+        val date_added: Long?
+    ) {
+        val preferredTitle: String
+            get() = content_title_en ?: content_title ?: "Título Desconocido"
     }
 
     data class AnimeOnsenSpotlightResponse(
@@ -205,17 +220,26 @@ class AnimeonsenProvider : MainAPI() {
             searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
             apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
             searchOrigin = doc.selectFirst("meta[name=ao-search-origin]")?.attr("content") ?: searchOrigin
+
+            apiAuthToken = null // Lo reseteamos o lo dejamos nulo, ya no se usa para esta llamada
+
+            Log.d("AnimeOnsen", "Token de búsqueda obtenido: $searchToken")
+            Log.d("AnimeOnsen", "API Origin: $apiOrigin")
+            Log.d("AnimeOnsen", "Search Origin: $searchOrigin")
+            // Log.d("AnimeOnsen", "API Auth Token obtenido: ${apiAuthToken?.take(30)}...") // Esto ya no es relevante si es nulo
         }
 
         val items = mutableListOf<HomePageList>()
 
-        val spotlightUrl = "$apiOrigin/v4/content/index/recent/spotlight"
-        val spotlightJson = safeAppGet(spotlightUrl)
+        val allContentUrl = "$apiOrigin/v4/content/index?start=${(page - 1) * 30}&limit=30" // Agregando paginación básica
+        val allContentJson = safeAppGet(allContentUrl) // Este GET no requiere Authorization Bearer
 
-        if (spotlightJson != null) {
-            val spotlightResponse = tryParseJson<AnimeOnsenSpotlightResponse>(spotlightJson)
-            if (spotlightResponse != null && spotlightResponse.content.isNotEmpty()) {
-                val homeItems = spotlightResponse.content.mapNotNull { item ->
+        var hasNextPage = false
+
+        if (allContentJson != null) {
+            val mainPageResponse = tryParseJson<AnimeOnsenMainPageResponse>(allContentJson)
+            if (mainPageResponse != null && mainPageResponse.content.isNotEmpty()) {
+                val homeItems = mainPageResponse.content.mapNotNull { item ->
                     newAnimeSearchResponse(
                         item.preferredTitle,
                         "$mainUrl/anime/${item.content_id}"
@@ -223,12 +247,15 @@ class AnimeonsenProvider : MainAPI() {
                         this.type = TvType.Anime
                     }
                 }
-                items.add(HomePageList("Animes Recientes", homeItems))
+                items.add(HomePageList("Todos los Animes", homeItems)) // Cambia el título de la sección
+
+                hasNextPage = mainPageResponse.cursor.next?.getOrNull(0) == true
             }
         }
+
         return newHomePageResponse(
-            list = items.toList(), // Especifica el nombre del parámetro 'list'
-            hasNext = false        // Especifica el nombre del parámetro 'hasNext'
+            list = items.toList(),
+            hasNext = hasNextPage
         )
     }
 
