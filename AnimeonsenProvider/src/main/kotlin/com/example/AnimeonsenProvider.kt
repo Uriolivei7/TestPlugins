@@ -345,6 +345,8 @@ class AnimeonsenProvider : MainAPI() {
             val animeDoc = Jsoup.parse(animePageHtml)
             poster = animeDoc.selectFirst("div.content__poster img")?.attr("src")
             banner = animeDoc.selectFirst("div.content__banner img")?.attr("src")
+            Log.d("AnimeOnsen", "Poster URL: $poster") // Añadir esta línea
+            Log.d("AnimeOnsen", "Banner URL: $banner") // Añadir esta línea
         } catch (e: Exception) {
             Log.e("AnimeOnsen", "Error scraping poster/banner from anime page: ${e.message}", e)
         }
@@ -466,8 +468,10 @@ class AnimeonsenProvider : MainAPI() {
         val subtitlesLanguagesJson = safeAppGet(subtitlesLanguagesUrl)
         if (subtitlesLanguagesJson != null) {
             val languagesMap = tryParseJson<Map<String, String>>(subtitlesLanguagesJson)
+            // Dentro de loadLinks, después de obtener languagesMap
             languagesMap?.forEach { (langCode, langName) ->
                 val subtitleUrl = "$apiOrigin/v4/subtitles/$animeId/$episodeNumber/$langCode.vtt"
+                Log.d("AnimeOnsen", "Attempting to load subtitle URL: $subtitleUrl") // AÑADIR ESTA LÍNEA
                 subtitleCallback(
                     SubtitleFile(
                         langName,
