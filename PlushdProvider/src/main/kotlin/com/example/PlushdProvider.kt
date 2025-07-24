@@ -204,7 +204,6 @@ class PlushdProvider : MainAPI() {
 
                     if (!jsonscript.isNullOrEmpty()){
                         try {
-                            // CORRECCIÓN CLAVE: Parsear directamente a un Map
                             val seasonsMap = parseJson<Map<String, List<MainTemporadaElement>>>(jsonscript)
                             Log.d("PlushdProvider", "DEBUG: JSON de temporadas parseado exitosamente como Map<String, List<MainTemporadaElement>>.")
 

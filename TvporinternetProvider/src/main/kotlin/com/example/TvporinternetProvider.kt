@@ -18,7 +18,7 @@ import kotlinx.coroutines.delay
 
 class TvporinternetProvider : MainAPI() {
     override var mainUrl = "https://www.tvporinternet2.com"
-    override var name = "TvporInternet"
+    override var name = "TVporInternet"
 
     override val supportedTypes = setOf(
         TvType.Live
@@ -170,15 +170,14 @@ class TvporinternetProvider : MainAPI() {
                 val link = fixUrl(linkRaw)
                 val img = fixUrl(imgRaw)
                 Log.d("TvporInternet", "search: Resultado encontrado - Título: $title, Link: $link, Imagen: $img")
-                LiveSearchResponse(
-                    title,
-                    link,
-                    this.name,
-                    TvType.Live,
-                    img,
-                    null,
-                    null,
-                )
+
+                newLiveSearchResponse(
+                    name = title,
+                    url = link,
+                    type = TvType.Live // Este sigue siendo un parámetro directo
+                ) { // Este es el bloque 'initializer' para configurar la LiveSearchResponse
+                    this.posterUrl = img // Asigna la URL del póster dentro del bloque
+                }
             } else {
                 Log.w("TvporInternet", "search: Elemento de búsqueda incompleto (título, link o imagen nulo).")
                 null
