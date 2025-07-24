@@ -21,7 +21,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 import java.util.Date
 import java.util.Calendar
-import kotlin.collections.List // o no tenerla, ya que es implícita
+import kotlin.collections.List
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 
@@ -30,7 +30,9 @@ class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
     override var name = "AnimeOnsen"
     override val supportedTypes = setOf(
-        TvType.Anime
+        TvType.Anime,
+        TvType.Movie,
+        TvType.TvSeries,
     )
 
     override var lang = "es"
@@ -41,7 +43,7 @@ class AnimeonsenProvider : MainAPI() {
     private var apiOrigin: String = "https://api.animeonsen.xyz"
     private var searchOrigin: String = "https://search.animeonsen.xyz"
     private var searchToken: String? = null
-    private var apiAuthToken: String? = null
+    private var apiAuthToken: String? = null // ¡Esta línea debe estar aquí!
 
     private val cfKiller = CloudflareKiller()
 
@@ -52,9 +54,17 @@ class AnimeonsenProvider : MainAPI() {
         timeoutMs: Long = 15000L,
         headers: Map<String, String>? = null
     ): String? {
+        val requestHeaders = (headers?.toMutableMap() ?: mutableMapOf()).apply {
+            // Solo añadir Authorization Bearer si apiAuthToken existe Y la URL no es la del índice principal
+            // ya que esa URL funcionaba sin token en el navegador.
+            if (apiAuthToken != null && url != "$apiOrigin/v4/content/index" && !url.startsWith("$apiOrigin/v4/content/index?")) {
+                this["Authorization"] = "Bearer $apiAuthToken"
+            }
+        }
+
         for (i in 0 until retries) {
             try {
-                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = headers ?: emptyMap())
+                val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = requestHeaders)
                 if (res.isSuccessful) return res.text
                 Log.w("AnimeOnsen", "safeAppGet - Petición fallida para URL: $url con código ${res.code}. Error HTTP.")
             } catch (e: Exception) {
@@ -77,7 +87,24 @@ class AnimeonsenProvider : MainAPI() {
         val jsonBodyString = data?.toJson()
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
         val requestBody = jsonBodyString?.toRequestBody(mediaType)
-        val postHeaders = (headers ?: emptyMap()) + mapOf("Content-Type" to "application/json")
+
+        val postHeaders = (headers?.toMutableMap() ?: mutableMapOf()).apply {
+            this["Content-Type"] = "application/json"
+            // Añadir encabezados estándar que el navegador envía y que podrían ser necesarios
+            this["Origin"] = mainUrl
+            this["Referer"] = mainUrl + "/" // Asegura que termine en barra
+            this["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36" // Tu User-Agent original
+
+            // Añadir Authorization para la búsqueda si el searchToken existe
+            if (url.startsWith(searchOrigin) && searchToken != null) {
+                this["Authorization"] = "Bearer $searchToken"
+            }
+            // Aunque apiAuthToken no se usa para getMainPage, si load/loadLinks lo necesitan
+            // y se obtiene de algún lado, la lógica aquí se encargará de añadirlo.
+            else if (url.startsWith(apiOrigin) && apiAuthToken != null) {
+                this["Authorization"] = "Bearer $apiAuthToken"
+            }
+        }
 
         for (i in 0 until retries) {
             try {
@@ -93,15 +120,16 @@ class AnimeonsenProvider : MainAPI() {
         return null
     }
 
+    // Nuevas data classes para MainPage
     data class AnimeOnsenMainPageResponse(
         val cursor: Cursor,
-        val content: List<AnimeOnsenContentItemSimplified> // Usaremos una simplificada para MainPage
+        val content: List<AnimeOnsenContentItemSimplified>
     )
 
     data class AnimeOnsenContentItemSimplified(
         val content_id: String,
-        val content_title: String?, // Título en japonés
-        val content_title_en: String?, // Título en inglés
+        val content_title: String?,
+        val content_title_en: String?,
         val total_episodes: Int?,
         val date_added: Long?
     ) {
@@ -109,6 +137,7 @@ class AnimeonsenProvider : MainAPI() {
             get() = content_title_en ?: content_title ?: "Título Desconocido"
     }
 
+    // Tus otras data classes permanecen igual
     data class AnimeOnsenSpotlightResponse(
         val content: List<AnimeOnsenSpotlightItem>
     )
@@ -189,9 +218,7 @@ class AnimeonsenProvider : MainAPI() {
     )
 
     data class SearchRequestBody(
-        val query: String,
-        val limit: Int = 20,
-        val offset: Int = 0
+        val q: String
     )
 
     data class SearchResponseRoot(
@@ -221,18 +248,19 @@ class AnimeonsenProvider : MainAPI() {
             apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
             searchOrigin = doc.selectFirst("meta[name=ao-search-origin]")?.attr("content") ?: searchOrigin
 
-            apiAuthToken = null // Lo reseteamos o lo dejamos nulo, ya no se usa para esta llamada
+            // No intentamos extraer apiAuthToken aquí para el endpoint de la página principal
+            // ya que comprobamos que no lo requiere el navegador.
+            apiAuthToken = null // Aseguramos que no se use un token obsoleto/incorrecto paragetMainPage
 
             Log.d("AnimeOnsen", "Token de búsqueda obtenido: $searchToken")
             Log.d("AnimeOnsen", "API Origin: $apiOrigin")
             Log.d("AnimeOnsen", "Search Origin: $searchOrigin")
-            // Log.d("AnimeOnsen", "API Auth Token obtenido: ${apiAuthToken?.take(30)}...") // Esto ya no es relevante si es nulo
         }
 
         val items = mutableListOf<HomePageList>()
 
-        val allContentUrl = "$apiOrigin/v4/content/index?start=${(page - 1) * 30}&limit=30" // Agregando paginación básica
-        val allContentJson = safeAppGet(allContentUrl) // Este GET no requiere Authorization Bearer
+        val allContentUrl = "$apiOrigin/v4/content/index?start=${(page - 1) * 30}&limit=30"
+        val allContentJson = safeAppGet(allContentUrl)
 
         var hasNextPage = false
 
@@ -247,7 +275,7 @@ class AnimeonsenProvider : MainAPI() {
                         this.type = TvType.Anime
                     }
                 }
-                items.add(HomePageList("Todos los Animes", homeItems)) // Cambia el título de la sección
+                items.add(HomePageList("Todos los Animes", homeItems))
 
                 hasNextPage = mainPageResponse.cursor.next?.getOrNull(0) == true
             }
@@ -258,7 +286,6 @@ class AnimeonsenProvider : MainAPI() {
             hasNext = hasNextPage
         )
     }
-
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (searchToken == null) {
@@ -276,10 +303,10 @@ class AnimeonsenProvider : MainAPI() {
         }
 
         val searchUrl = "$searchOrigin/indexes/content/search"
-        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
-        val requestBody = SearchRequestBody(query = query, limit = 20, offset = 0)
+        // Los headers se configuran en safeAppPost
+        val requestBody = SearchRequestBody(q = query)
 
-        val searchJson = safeAppPost(searchUrl, requestBody, headers = headers)
+        val searchJson = safeAppPost(searchUrl, requestBody)
         if (searchJson == null) return emptyList()
 
         val searchResponse = tryParseJson<SearchResponseRoot>(searchJson)
@@ -308,18 +335,25 @@ class AnimeonsenProvider : MainAPI() {
         val animeId = url.substringAfterLast("/anime/").substringBefore("?")
         if (animeId.isBlank()) return null
 
+        // También necesitamos asegurar que apiAuthToken se obtenga si es necesario para load/loadLinks
+        // Si estos endpoints requieren un token Bearer, deberías extraerlo en getMainPage
+        // o antes de llamar a load. Por ahora, asumimos que no es necesario basado en los logs.
         if (searchToken == null) {
             val mainPageHtml = safeAppGet(mainUrl)
             if (mainPageHtml != null) {
                 val doc = Jsoup.parse(mainPageHtml)
                 searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
                 apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
+                // Si 'load' o 'loadLinks' necesitan apiAuthToken, deberías encontrar su origen aquí
+                // apiAuthToken = doc.selectFirst("meta[name=ALGUN_TOKEN_PARA_LOAD]")?.attr("content")
             }
         }
 
-        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+        // Si apiAuthToken está nulo, los headers serán emptyMap()
+        val headers = apiAuthToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
 
         val extensiveApiUrl = "$apiOrigin/v4/content/$animeId/extensive"
+        // safeAppGet ya maneja si se envía o no Authorization basado en apiAuthToken
         val extensiveJson = safeAppGet(extensiveApiUrl, headers = headers)
         if (extensiveJson == null) return null
         val extensiveContent = tryParseJson<AnimeOnsenExtensiveContent>(extensiveJson)
@@ -461,7 +495,7 @@ class AnimeonsenProvider : MainAPI() {
             }
         )
 
-        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+        val headers = apiAuthToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
         val subtitlesLanguagesUrl = "$apiOrigin/v4/subtitles/$animeId/languages"
         val subtitlesLanguagesJson = safeAppGet(subtitlesLanguagesUrl, headers = headers)
         if (subtitlesLanguagesJson != null) {
@@ -476,6 +510,6 @@ class AnimeonsenProvider : MainAPI() {
                 )
             }
         }
-        return true // Asumimos que siempre intentará añadir al menos el MPD
+        return true
     }
 }
