@@ -3,7 +3,7 @@ package com.example
 import android.util.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
-import com.lagradost.cloudstream3.utils.* // Asegúrate de que ExtractorLinkType y INFER_TYPE estén importados
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 
@@ -14,7 +14,20 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
+
 import kotlinx.coroutines.delay
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+
+// REMOVED java.time IMPORTS:
+// import java.time.Instant
+// import java.time.ZoneId
+// import java.time.LocalDate
+
+// ADDED java.util IMPORTS FOR DATE HANDLING:
+import java.util.Date
+import java.util.Calendar
+
 
 class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
@@ -45,8 +58,6 @@ class AnimeonsenProvider : MainAPI() {
     ): String? {
         for (i in 0 until retries) {
             try {
-                // El error "Val cannot be reassigned" en esta línea DEBERÍA haber desaparecido con el Clean/Rebuild.
-                // Si persiste, es muy extraño y podría ser un problema del IDE o la configuración del proyecto.
                 val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = headers ?: emptyMap())
 
                 if (res.isSuccessful) {
@@ -67,38 +78,137 @@ class AnimeonsenProvider : MainAPI() {
         return null
     }
 
-    // --- Data Classes para la API de AnimeOnsen ---
-    data class AnimeOnsenContent(
-        val id: String,
-        val type: String, // "anime", "movie"
-        val titles: Map<String, String?>?, // *** ¡NUEVO INTENTO! El mapa EN SÍ puede ser nulo, y sus valores también. ***
-        val poster: String?,
-        val banner: String?,
-        val description: String?,
-        val genres: List<String>?,
-        val episodes: List<AnimeOnsenEpisode>?, // Para series
-        val releaseYear: Int?
-    ) {
-        val preferredTitle: String
-            // Ajustar para manejar el caso donde 'titles' es completamente nulo
-            get() = titles?.get("en") ?: titles?.get("ja") ?: titles?.values?.firstOrNull() ?: "Título Desconocido"
+    private suspend fun safeAppPost(
+        url: String,
+        data: Any?,
+        retries: Int = 3,
+        delayMs: Long = 2000L,
+        timeoutMs: Long = 15000L,
+        headers: Map<String, String>? = null
+    ): String? {
+        val jsonBodyString = data?.toJson()
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val requestBody = jsonBodyString?.toRequestBody(mediaType)
+
+        val postHeaders = (headers ?: emptyMap()) + mapOf("Content-Type" to "application/json")
+
+        for (i in 0 until retries) {
+            try {
+                val res = app.post(url, requestBody = requestBody, interceptor = cfKiller, timeout = timeoutMs, headers = postHeaders)
+
+                if (res.isSuccessful) {
+                    Log.d("AnimeOnsen", "safeAppPost - Petición POST exitosa para URL: $url")
+                    return res.text
+                } else {
+                    Log.w("AnimeOnsen", "safeAppPost - Petición POST fallida para URL: $url con código ${res.code}. Error HTTP.")
+                }
+            } catch (e: Exception) {
+                Log.e("AnimeOnsen", "safeAppPost - Error en intento ${i + 1}/$retries para URL: $url: ${e.message}", e)
+            }
+            if (i < retries - 1) {
+                Log.d("AnimeOnsen", "safeAppPost - Reintentando en ${delayMs / 1000.0} segundos...")
+                delay(delayMs)
+            }
+        }
+        Log.e("AnimeOnsen", "safeAppPost - Fallaron todos los intentos para URL: $url")
+        return null
     }
 
-    data class AnimeOnsenEpisode(
-        val id: String,
-        val number: Int,
-        val title: String?,
-        val thumbnail: String?,
-        val streams: List<AnimeOnsenStream>? // Detalles de los enlaces del video
+    // --- Data Classes para la API de AnimeOnsen ---
+
+    data class AnimeOnsenContentIndexResponse(
+        val cursor: Cursor?,
+        val content: List<AnimeOnsenContentItem>?
     )
 
-    data class AnimeOnsenStream(
-        val id: String,
-        val type: String, // e.g., "mp4", "m3u8"
-        val url: String,
-        val resolution: String?, // e.g., "1080p"
-        val isDHLS: Boolean? // Si es DASH/HLS
+    data class Cursor(
+        val start: Int?,
+        val limit: Int?,
+        val next: List<Any>?
     )
+
+    data class AnimeOnsenContentItem(
+        val content_id: String,
+        val content_title: String?,
+        val content_title_en: String?,
+        val total_episodes: Int?,
+        val date_added: Long?
+    ) {
+        val preferredTitle: String
+            get() = content_title_en ?: content_title ?: "Título Desconocido"
+    }
+
+    data class AnimeOnsenExtensiveContent(
+        val content_id: String,
+        val content_title: String?,
+        val content_title_en: String?,
+        val data_type: String?,
+        val is_movie: Boolean?,
+        val subtitle_support: Boolean?,
+        val total_episodes: Int?,
+        val previous_season: String?,
+        val next_season: String?,
+        val mal_id: Int?,
+        val mal_data: MalData?,
+        val available: Boolean?,
+        val date_added: Long? // This is the Unix timestamp in SECONDS
+    ) {
+        val preferredTitle: String
+            get() = content_title_en ?: content_title ?: "Título Desconocido"
+    }
+
+    data class MalData(
+        val synopsis: String?,
+        val mean_score: Double?,
+        val genres: List<Genre>?,
+        val status: String?,
+        val broadcast: Broadcast?,
+        val rating: String?,
+        val studios: List<Studio>?,
+    )
+
+    data class Genre(
+        val id: Int,
+        val name: String
+    )
+
+    data class Broadcast(
+        val day_of_the_week: String?,
+        val start_time: String?
+    )
+
+    data class Studio(
+        val id: Int,
+        val name: String
+    )
+
+    data class EpisodeTitles(
+        val contentTitle_episode_en: String?,
+        val contentTitle_episode_jp: String?
+    )
+
+    data class SearchRequestBody(
+        val query: String
+    )
+
+    data class SearchResponseRoot(
+        val hits: List<SearchHit>?,
+        val query: String?,
+        val processingTimeMs: Long?,
+        val limit: Int?,
+        val offset: Int?,
+        val estimatedTotalHits: Int?
+    )
+
+    data class SearchHit(
+        val content_title: String?,
+        val content_title_en: String?,
+        val content_title_jp: String?,
+        val content_id: String
+    ) {
+        val preferredTitle: String
+            get() = content_title_en ?: content_title ?: content_title_jp ?: "Título Desconocido"
+    }
 
     // --- Fin Data Classes ---
 
@@ -120,53 +230,33 @@ class AnimeonsenProvider : MainAPI() {
 
         val items = ArrayList<HomePageList>()
 
-        val recentAnimeUrl = "$apiOrigin/api/v2/anime?sort=recently_updated&page=$page"
-        val popularAnimeUrl = "$apiOrigin/api/v2/anime?sort=popularity&page=$page"
+        val headersForApi = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
 
-        val recentAnimeJson = safeAppGet(recentAnimeUrl)
-        if (recentAnimeJson != null) {
-            val recentAnimeResponse = tryParseJson<List<AnimeOnsenContent>>(recentAnimeJson)
-            if (recentAnimeResponse != null) {
-                val homeItems = recentAnimeResponse.mapNotNull { content ->
+        val contentIndexUrl = "$apiOrigin/v4/content/index?start=${(page - 1) * 30}&limit=30"
+        val contentIndexJson = safeAppGet(contentIndexUrl, headers = headersForApi)
+
+        if (contentIndexJson != null) {
+            val contentIndexResponse = tryParseJson<AnimeOnsenContentIndexResponse>(contentIndexJson)
+            if (contentIndexResponse != null && contentIndexResponse.content != null) {
+                val homeItems = contentIndexResponse.content.mapNotNull { item ->
                     newAnimeSearchResponse(
-                        content.preferredTitle,
-                        "$mainUrl/anime/${content.id}"
+                        item.preferredTitle,
+                        "$mainUrl/anime/${item.content_id}"
                     ) {
-                        this.type = if (content.type == "movie") TvType.Movie else TvType.Anime
-                        this.posterUrl = content.poster
+                        this.type = TvType.Anime
                     }
                 }
                 items.add(HomePageList("Animes Recientes", homeItems))
             } else {
-                Log.e("AnimeOnsen", "Error al parsear JSON de animes recientes: $recentAnimeJson")
+                Log.e("AnimeOnsen", "Error al parsear JSON de índice de contenido o contenido nulo: $contentIndexJson")
             }
         } else {
-            Log.e("AnimeOnsen", "No se pudo obtener animes recientes de la API.")
-        }
-
-        val popularAnimeJson = safeAppGet(popularAnimeUrl)
-        if (popularAnimeJson != null) {
-            val popularAnimeResponse = tryParseJson<List<AnimeOnsenContent>>(popularAnimeJson)
-            if (popularAnimeResponse != null) {
-                val homeItems = popularAnimeResponse.mapNotNull { content ->
-                    newAnimeSearchResponse(
-                        content.preferredTitle,
-                        "$mainUrl/anime/${content.id}"
-                    ) {
-                        this.type = if (content.type == "movie") TvType.Movie else TvType.Anime
-                        this.posterUrl = content.poster
-                    }
-                }
-                items.add(HomePageList("Animes Populares", homeItems))
-            } else {
-                Log.e("AnimeOnsen", "Error al parsear JSON de animes populares: $popularAnimeJson")
-            }
-        } else {
-            Log.e("AnimeOnsen", "No se pudo obtener animes populares de la API.")
+            Log.e("AnimeOnsen", "No se pudo obtener el índice de contenido de la API.")
         }
 
         Log.d("AnimeOnsen", "DEBUG: getMainPage finalizado. ${items.size} listas añadidas.")
-        return newHomePageResponse(items, false)
+        val hasNextPage = (contentIndexJson != null && tryParseJson<AnimeOnsenContentIndexResponse>(contentIndexJson)?.cursor?.next?.getOrNull(0) as? Boolean == true)
+        return newHomePageResponse(items, hasNextPage)
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -187,35 +277,39 @@ class AnimeonsenProvider : MainAPI() {
             return emptyList()
         }
 
-        val searchUrl = "$searchOrigin/api/v2/search?query=$query"
-        val headers = mapOf("Authorization" to "Bearer $searchToken")
+        val searchUrl = "$searchOrigin/indexes/content/search"
+        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+        val requestBody = SearchRequestBody(query)
 
-        val searchJson = safeAppGet(searchUrl, headers = headers)
+        val searchJson = safeAppPost(searchUrl, requestBody, headers = headers)
         if (searchJson == null) {
-            Log.e("AnimeOnsen", "search - No se pudo obtener JSON para la búsqueda: $searchUrl")
+            Log.e("AnimeOnsen", "search - No se pudo obtener JSON para la búsqueda POST: $searchUrl")
             return emptyList()
         }
 
-        val searchResults = tryParseJson<List<AnimeOnsenContent>>(searchJson)
-        if (searchResults.isNullOrEmpty()) {
+        val searchResponse = tryParseJson<SearchResponseRoot>(searchJson)
+        val searchHits = searchResponse?.hits
+
+        if (searchHits.isNullOrEmpty()) {
             Log.d("AnimeOnsen", "No se encontraron resultados de búsqueda o el parseo falló.")
             return emptyList()
         }
 
-        return searchResults.mapNotNull { content ->
+        return searchHits.mapNotNull { hit ->
             newAnimeSearchResponse(
-                content.preferredTitle,
-                "$mainUrl/anime/${content.id}"
+                hit.preferredTitle,
+                "$mainUrl/anime/${hit.content_id}"
             ) {
-                this.type = if (content.type == "movie") TvType.Movie else TvType.Anime
-                this.posterUrl = content.poster
+                this.type = TvType.Anime
             }
         }
     }
 
     data class EpisodeLoadData(
         val title: String,
-        val url: String
+        val url: String,
+        val contentId: String,
+        val episodeNumber: Int?
     )
 
     override suspend fun load(url: String): LoadResponse? {
@@ -237,41 +331,80 @@ class AnimeonsenProvider : MainAPI() {
             }
         }
 
-        val apiUrl = "$apiOrigin/api/v2/anime/$animeId"
         val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
 
-        val animeJson = safeAppGet(apiUrl, headers = headers)
-        if (animeJson == null) {
-            Log.e("AnimeOnsen", "load - No se pudo obtener JSON del anime de la API para ID: $animeId")
+        val extensiveApiUrl = "$apiOrigin/v4/content/$animeId/extensive"
+        val extensiveJson = safeAppGet(extensiveApiUrl, headers = headers)
+        if (extensiveJson == null) {
+            Log.e("AnimeOnsen", "load - No se pudo obtener JSON extenso del anime de la API para ID: $animeId")
+            return null
+        }
+        val extensiveContent = tryParseJson<AnimeOnsenExtensiveContent>(extensiveJson)
+        if (extensiveContent == null) {
+            Log.e("AnimeOnsen", "load - Error al parsear JSON extenso del anime para ID: $animeId: $extensiveJson")
             return null
         }
 
-        val animeContent = tryParseJson<AnimeOnsenContent>(animeJson)
-        if (animeContent == null) {
-            Log.e("AnimeOnsen", "load - Error al parsear JSON del anime para ID: $animeId: $animeJson")
-            return null
+        val episodesApiUrl = "$apiOrigin/v4/content/$animeId/episodes"
+        val episodesJson = safeAppGet(episodesApiUrl, headers = headers)
+        var parsedEpisodes: Map<String, EpisodeTitles>? = null
+        if (episodesJson != null) {
+            parsedEpisodes = tryParseJson<Map<String, EpisodeTitles>>(episodesJson)
+            if (parsedEpisodes == null) {
+                Log.e("AnimeOnsen", "load - Error al parsear JSON de episodios (Map<String, EpisodeTitles>): $episodesJson")
+            }
+        } else {
+            Log.w("AnimeOnsen", "load - No se pudo obtener JSON de episodios para ID: $animeId")
         }
 
-        val title = animeContent.preferredTitle
-        val poster = animeContent.poster
-        val description = animeContent.description
-        val tags = animeContent.genres
-        val tvType = if (animeContent.type == "movie") TvType.Movie else TvType.Anime
+        val title = extensiveContent.preferredTitle
+        val description = extensiveContent.mal_data?.synopsis
+        val tags = extensiveContent.mal_data?.genres?.map { it.name }
+        val tvType = if (extensiveContent.is_movie == true) TvType.Movie else TvType.Anime
 
-        val episodes = if (tvType == TvType.Anime) {
-            animeContent.episodes?.mapNotNull { ep ->
+        var poster: String? = null
+        var banner: String? = null
+        try {
+            val animePageHtml = app.get("$mainUrl/anime/$animeId", interceptor = cfKiller).text
+            val animeDoc = Jsoup.parse(animePageHtml)
+            poster = animeDoc.selectFirst("div.content__poster img")?.attr("src")
+            banner = animeDoc.selectFirst("div.content__banner img")?.attr("src")
+            if (poster.isNullOrBlank()) Log.w("AnimeOnsen", "No se encontró poster para $animeId")
+            if (banner.isNullOrBlank()) Log.w("AnimeOnsen", "No se encontró banner para $animeId")
+        } catch (e: Exception) {
+            Log.e("AnimeOnsen", "Error al raspar el poster/banner de la página del anime: ${e.message}", e)
+        }
+
+        val episodesList = if (tvType == TvType.Anime) {
+            val totalEpisodes = extensiveContent.total_episodes ?: parsedEpisodes?.size ?: 0
+            (1..totalEpisodes).mapNotNull { i ->
+                val episodeTitles = parsedEpisodes?.get(i.toString())
+                val episodeTitle = episodeTitles?.contentTitle_episode_en ?: episodeTitles?.contentTitle_episode_jp ?: "Episodio $i"
                 newEpisode(
-                    EpisodeLoadData(ep.title ?: "Episodio ${ep.number}", "$mainUrl/anime/$animeId/episode/${ep.number}").toJson()
+                    EpisodeLoadData(episodeTitle, "$mainUrl/anime/$animeId/episode/$i", animeId, i).toJson()
                 ) {
-                    this.name = ep.title ?: "Episodio ${ep.number}"
+                    this.name = episodeTitle
                     this.season = 1
-                    this.episode = ep.number
-                    this.posterUrl = ep.thumbnail
+                    this.episode = i
                 }
-            } ?: listOf()
+            }
         } else listOf()
 
         val recommendations = listOf<SearchResponse>()
+
+        // CAMBIO AQUI: Uso de Calendar para obtener el año
+        val year = extensiveContent.date_added?.let { timestampSeconds ->
+            try {
+                // Convertir timestamp de segundos a milisegundos para Date
+                val date = Date(timestampSeconds * 1000L)
+                val calendar = Calendar.getInstance()
+                calendar.time = date
+                calendar.get(Calendar.YEAR)
+            } catch (e: Exception) {
+                Log.e("AnimeOnsen", "Error al parsear la fecha usando Calendar: ${e.message}", e)
+                null
+            }
+        }
 
         return when (tvType) {
             TvType.Anime, TvType.TvSeries -> {
@@ -279,14 +412,14 @@ class AnimeonsenProvider : MainAPI() {
                     name = title,
                     url = url,
                     type = tvType,
-                    episodes = episodes,
+                    episodes = episodesList,
                 ) {
                     this.posterUrl = poster
-                    this.backgroundPosterUrl = animeContent.banner ?: poster
+                    this.backgroundPosterUrl = banner ?: poster
                     this.plot = description
                     this.tags = tags
                     this.recommendations = recommendations
-                    this.year = animeContent.releaseYear
+                    this.year = year // Usar el 'year' calculado
                 }
             }
             TvType.Movie -> {
@@ -294,14 +427,14 @@ class AnimeonsenProvider : MainAPI() {
                     name = title,
                     url = url,
                     type = tvType,
-                    dataUrl = EpisodeLoadData(title, "$mainUrl/anime/$animeId/episode/1").toJson()
+                    dataUrl = EpisodeLoadData(title, "$mainUrl/anime/$animeId/episode/1", animeId, 1).toJson()
                 ) {
                     this.posterUrl = poster
-                    this.backgroundPosterUrl = animeContent.banner ?: poster
+                    this.backgroundPosterUrl = banner ?: poster
                     this.plot = description
                     this.tags = tags
                     this.recommendations = recommendations
-                    this.year = animeContent.releaseYear
+                    this.year = year // Usar el 'year' calculado
                 }
             }
             else -> null
@@ -334,14 +467,11 @@ class AnimeonsenProvider : MainAPI() {
         Log.d("AnimeOnsen", "loadLinks - Data de entrada: $data")
 
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
-        val episodeUrl = parsedEpisodeData?.url ?: data
-
-        val urlParts = episodeUrl.split("/")
-        val animeId = urlParts.getOrNull(urlParts.indexOf("anime") + 1)
-        val episodeNumber = urlParts.getOrNull(urlParts.indexOf("episode") + 1)?.toIntOrNull()
+        val animeId = parsedEpisodeData?.contentId
+        val episodeNumber = parsedEpisodeData?.episodeNumber
 
         if (animeId.isNullOrBlank() || episodeNumber == null) {
-            Log.e("AnimeOnsen", "loadLinks - No se pudo extraer el ID del anime o el número de episodio de la URL: $episodeUrl")
+            Log.e("AnimeOnsen", "loadLinks - No se pudo extraer el ID del anime o el número de episodio de la data: $data")
             return false
         }
 
@@ -354,61 +484,43 @@ class AnimeonsenProvider : MainAPI() {
             }
         }
 
-        val episodeStreamsUrl = "$apiOrigin/api/v2/anime/$animeId/episode/$episodeNumber"
-        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+        val mpdUrl = "https://cdn.animeonsen.xyz/video/mp4-dash/$animeId/$episodeNumber/manifest.mpd"
+        Log.d("AnimeOnsen", "loadLinks - URL MPD construida: $mpdUrl")
 
-        val episodeJson = safeAppGet(episodeStreamsUrl, headers = headers)
-        if (episodeJson == null) {
-            Log.e("AnimeOnsen", "loadLinks - No se pudo obtener JSON de streams del episodio: $episodeStreamsUrl")
-            return false
-        }
-
-        val episodeData = tryParseJson<AnimeOnsenEpisode>(episodeJson)
-        if (episodeData == null || episodeData.streams.isNullOrEmpty()) {
-            Log.e("AnimeOnsen", "loadLinks - Error al parsear JSON de streams o no se encontraron streams para el episodio.")
-            return false
-        }
-
-        var foundLinks = false
-        for (stream in episodeData.streams) {
-            Log.d("AnimeOnsen", "Procesando stream: ${stream.url} (Tipo: ${stream.type}, Resolución: ${stream.resolution})")
-            if (stream.url.isNotBlank()) {
-                if (stream.type == "m3u8" || stream.isDHLS == true) {
-                    callback(
-                        newExtractorLink(
-                            source = "AnimeOnsen",
-                            name = "AnimeOnsen ${stream.resolution ?: "HD"}",
-                            url = stream.url,
-                            type = ExtractorLinkType.M3U8 // M3U8 es una constante de ExtractorLinkType
-                        ) {
-                            quality = getQualityFromName(stream.resolution ?: "")
-                            referer = mainUrl
-                        }
-                    )
-                    foundLinks = true
-                } else {
-                    if (loadExtractor(stream.url, mainUrl, subtitleCallback, callback)) {
-                        foundLinks = true
-                    } else {
-                        callback(
-                            newExtractorLink(
-                                source = "AnimeOnsen",
-                                name = "AnimeOnsen ${stream.resolution ?: "Direct"}",
-                                url = stream.url,
-                                type = INFER_TYPE // *** CAMBIO: Usar INFER_TYPE para tipos que no son M3U8 ***
-                            ) {
-                                quality = getQualityFromName(stream.resolution ?: "")
-                                referer = mainUrl
-                            }
-                        )
-                        foundLinks = true
-                    }
-                }
+        callback(
+            newExtractorLink(
+                source = "AnimeOnsen (DASH)",
+                name = "Reproducir",
+                url = mpdUrl,
+                type = ExtractorLinkType.DASH
+            ) {
+                referer = mainUrl
             }
+        )
+        var foundLinks = true
+
+        val headers = searchToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+        val subtitlesLanguagesUrl = "$apiOrigin/v4/subtitles/$animeId/languages"
+        val subtitlesLanguagesJson = safeAppGet(subtitlesLanguagesUrl, headers = headers)
+        if (subtitlesLanguagesJson != null) {
+            val languagesMap = tryParseJson<Map<String, String>>(subtitlesLanguagesJson)
+            languagesMap?.forEach { (langCode, langName) ->
+                val subtitleUrl = "$apiOrigin/v4/subtitles/$animeId/$episodeNumber/$langCode.vtt"
+                subtitleCallback(
+                    SubtitleFile(
+                        langName,
+                        subtitleUrl
+                    )
+                )
+                Log.d("AnimeOnsen", "Añadido subtítulo: $langName - $subtitleUrl")
+            }
+        } else {
+            Log.w("AnimeOnsen", "No se pudieron obtener los idiomas de subtítulos para $animeId/$episodeNumber")
         }
+
 
         if (!foundLinks) {
-            Log.e("AnimeOnsen", "loadLinks - No se encontraron enlaces de video válidos después de procesar los streams de la API.")
+            Log.e("AnimeOnsen", "loadLinks - No se encontraron enlaces de video válidos.")
         }
         return foundLinks
     }
