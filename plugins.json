@@ -43,7 +43,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/PlushdProvider.cs3",
     "status": 1,
-    "version": 3,
+    "version": 4,
     "apiVersion": 3,
     "name": "PlusHD",
     "internalName": "PlushdProvider",
@@ -221,7 +221,8 @@
     ],
     "description": "Plugin para tioanime.com",
     "tvTypes": [
-      "Anime"
+      "Anime",
+      "Ova"
     ],
     "iconUrl": "https://tioanime.com/assets/img/icon-32x32.png",
     "language": "es",
@@ -239,7 +240,8 @@
     ],
     "description": "Plugin para www1.otakustv.com",
     "tvTypes": [
-      "Anime"
+      "Anime",
+      "Ova"
     ],
     "iconUrl": "https://www1.otakustv.com/favicon.png",
     "language": "es",
@@ -257,10 +259,29 @@
     ],
     "description": "Plugin para otakuverso.net",
     "tvTypes": [
-      "Anime"
+      "Anime",
+      "OVA"
     ],
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
     "fileSize": 22000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/TvporinternetProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 15,
+    "name": "TVporInternet",
+    "internalName": "TvporinternetProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para www.tvporinternet2.com",
+    "tvTypes": [
+      "Live"
+    ],
+    "iconUrl": "https://www.tvporinternet2.com/imge/favicon.png",
+    "language": "es",
+    "fileSize": 24000
   }
 ]
