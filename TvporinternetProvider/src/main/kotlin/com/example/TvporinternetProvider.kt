@@ -338,6 +338,9 @@ class TvporinternetProvider : MainAPI() {
                 Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
                 val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl))
                 if (phpIframeHtml != null) {
+                    // ¡NUEVO LOG DE DEPURACIÓN AQUÍ!
+                    Log.d("TvporInternet", "loadLinks: HTML obtenido de PHP iframe: ${phpIframeHtml.substring(0, Math.min(phpIframeHtml.length, 1000))}...") // Imprime los primeros 1000 caracteres
+
                     val phpIframeDoc = Jsoup.parse(phpIframeHtml)
                     val nestedIframeSrc = phpIframeDoc.selectFirst("iframe[src*='saohgdasregions.fun']")?.attr("src")
 
@@ -346,6 +349,22 @@ class TvporinternetProvider : MainAPI() {
                         Log.d("TvporInternet", "loadLinks: Iframe anidado en PHP encontrado: $currentProcessingUrl")
                     } else {
                         Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado en el archivo PHP: $currentProcessingUrl")
+                        // Logs adicionales para depuración:
+                        val allIframes = phpIframeDoc.select("iframe")
+                        if (allIframes.isNotEmpty()) {
+                            Log.e("TvporInternet", "loadLinks: Otros iframes encontrados en PHP, pero no coincidieron con el selector 'saohgdasregions.fun':")
+                            allIframes.forEachIndexed { index, element ->
+                                Log.e("TvporInternet", "loadLinks:   Iframe ${index + 1}: src='${element.attr("src")}', id='${element.attr("id")}', name='${element.attr("name")}'")
+                            }
+                        }
+                        val allScripts = phpIframeDoc.select("script")
+                        if (allScripts.isNotEmpty()) {
+                            Log.e("TvporInternet", "loadLinks: Se encontraron scripts en PHP, podría generarse con JS.")
+                            // Si quieres ver el contenido de los scripts, puedes añadir:
+                            // allScripts.forEachIndexed { index, element ->
+                            //     Log.e("TvporInternet", "loadLinks:   Script ${index + 1} content: ${element.html().substring(0, Math.min(element.html().length, 500))}...")
+                            // }
+                        }
                     }
                 } else {
                     Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe PHP: $currentProcessingUrl")
@@ -413,44 +432,6 @@ class TvporinternetProvider : MainAPI() {
                 } else {
                     Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe de Xupalace: $currentProcessingUrl")
                 }
-            } else if (currentProcessingUrl.contains("re.sololatino.net/embed.php")) {
-                Log.d("TvporInternet", "loadLinks: Detectado re.sololatino.net/embed.php.")
-                val embedHtml = safeAppGet(fixUrl(currentProcessingUrl))
-                if (embedHtml != null) {
-                    val embedDoc = Jsoup.parse(embedHtml)
-                    val regexGoToPlayerUrl = Regex("""go_to_player\('([^']+)'\)""")
-                    val elementsWithOnclick = embedDoc.select("*[onclick*='go_to_player']")
-                    if (elementsWithOnclick.isNotEmpty()) {
-                        val foundReSoloLatinoLinks = mutableListOf<String>()
-                        for (element in elementsWithOnclick) {
-                            val onclickAttr = element.attr("onclick")
-                            val matchPlayerUrl = regexGoToPlayerUrl.find(onclickAttr)
-                            if (matchPlayerUrl != null) {
-                                val videoUrl = matchPlayerUrl.groupValues[1]
-                                val serverName = element.selectFirst("span")?.text()?.trim() ?: "Desconocido"
-                                Log.d("TvporInternet", "loadLinks: SoloLatino - Servidor '$serverName' con URL: $videoUrl")
-                                if (videoUrl.isNotBlank()) {
-                                    foundReSoloLatinoLinks.add(videoUrl)
-                                }
-                            } else {
-                                Log.w("TvporInternet", "loadLinks: SoloLatino - No se pudo extraer la URL del onclick: $onclickAttr")
-                            }
-                        }
-                        if (foundReSoloLatinoLinks.isNotEmpty()) {
-                            Log.d("TvporInternet", "loadLinks: SoloLatino - Enlaces directos encontrados, procesando.")
-                            foundReSoloLatinoLinks.apmap { playerDirectUrl ->
-                                loadExtractor(fixUrl(playerDirectUrl), currentProcessingUrl, subtitleCallback, callback)
-                            }
-                            return@apmap
-                        } else {
-                            Log.e("TvporInternet", "loadLinks: No se encontraron enlaces de video de re.sololatino.net/embed.php.")
-                        }
-                    } else {
-                        Log.w("TvporInternet", "loadLinks: No se encontraron elementos con 'go_to_player' en re.sololatino.net/embed.php.")
-                    }
-                } else {
-                    Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe de re.sololatino.net: $currentProcessingUrl")
-                }
             } else if (currentProcessingUrl.contains("embed69.org")) {
                 Log.d("TvporInternet", "loadLinks: Detectado embed69.org. Iniciando desencriptación.")
 
@@ -496,7 +477,7 @@ class TvporinternetProvider : MainAPI() {
 
             if (currentProcessingUrl.isNotBlank() &&
                 !(currentProcessingUrl.contains("ghbrisk.com") || currentProcessingUrl.contains("xupalace.org") ||
-                        currentProcessingUrl.contains("re.sololatino.net") || currentProcessingUrl.contains("embed69.org"))
+                        currentProcessingUrl.contains("embed69.org"))
             ) {
                 Log.d("TvporInternet", "loadLinks: Pasando al extractor general de CloudStream con URL final: $currentProcessingUrl")
                 loadExtractor(fixUrl(currentProcessingUrl), targetUrl, subtitleCallback, callback)
