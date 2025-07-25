@@ -19,17 +19,17 @@ import java.util.Date
 import java.util.Calendar
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
-import com.fasterxml.jackson.annotation.JsonProperty // Necesario para @JsonProperty
+import com.fasterxml.jackson.annotation.JsonProperty
+import kotlin.collections.toList // Importación para .toList() si fuera necesario
+import com.lagradost.nicehttp.NiceResponse
 
 class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
     override var name = "AnimeOnsen"
     override val supportedTypes = setOf(
-        TvType.Anime,
-        TvType.Movie,
-        TvType.TvSeries,
+        TvType.Anime
     )
-    override var lang = "es"
+    override var lang = "en"
     override val hasMainPage = true
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
@@ -37,9 +37,82 @@ class AnimeonsenProvider : MainAPI() {
     private var apiOrigin: String = "https://api.animeonsen.xyz"
     private var searchOrigin: String = "https://search.animeonsen.xyz"
     private var searchToken: String? = null
-    // ADVERTENCIA: Este token expira el 1 de agosto de 2025.
-    private var apiAuthToken: String? = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQifQ.eyJpc3MiOiJodHRwczovL2F1dGguYW5pbWVvbnNlbi54eXovIiwiYXVkIjoiaHR0cHM6Ly9hcGkuYW5pbWVvbnNlbi54eXoiLCJpYXQiOjE3NTMzOTU0ODcsImV4cCI6MTc1NDAwMDI4Nywic3ViIjoiMDZkMjJiOTYtNjNlNy00NmE5LTgwZmMtZGM0NDFkNDFjMDM4LmNsaWVudCIsImF6cCI6IjA2ZDIyYjk2LTYzZTctNDZhOS04MGZjLWRjNDQxZDRxYzAzOCIsImd0eSI6ImNsaWVudF9jcmVkZW50aWFscyJ9.xTqP444XaqD1Z_U_x4dCvgVHYWeGo5yt8y0uBXonRXu8Q5PtHjM0s6bVPtGWIwomVTtNfIexjviNflTqioMUju1GHEnFo7jUYNkvJbtyGt6PJxE2BNtxhF6v3UrVrc3XuuWtb2t8tz89TXY5oUhvLwjd6jkZ3p-PZ6OlDFJ8mCRkyJ7UF_yKK2F_3ppfDgil5dja9MuJupObJUGmLsUwVKhgtAM65EQTb6wf11ff0iCTYEkeYmY1tq-gcyfxQV-cQujoJZXt03sYkcYKogRwH9iwoGY6hcBSr1LUYcL2ORiak_2rNoPDAQadSPTTed6n4KbuncoQKPggEQn-KryN5A"
+    private var apiAuthToken: String? = null
     private val cfKiller = CloudflareKiller()
+
+    private fun base64Decode(input: String): String {
+        return try {
+            String(Base64.decode(input, Base64.DEFAULT), UTF_8)
+        } catch (e: Exception) {
+            Log.e("AnimeOnsen", "Base64 Decoding Error: ${e.message}")
+            ""
+        }
+    }
+
+    private fun deObfuscateToken(obfuscatedToken: String): String {
+        return obfuscatedToken.map { char ->
+            (char.code - 1).toChar()
+        }.joinToString("")
+    }
+
+    private suspend fun getApiAuthTokenFromCookie(): String? {
+        val mainPageResponse = app.get(mainUrl, interceptor = cfKiller)
+
+        val cookiesList: List<Any> = mainPageResponse.cookies.toList()
+
+        var aoSessionCookie: String? = null
+
+        for (cookieObject in cookiesList) {
+            Log.d("AnimeOnsen", "Cookie object type: ${cookieObject::class.java.name}")
+
+            try {
+                val nameProperty = cookieObject.javaClass.getMethod("name")
+                val valueProperty = cookieObject.javaClass.getMethod("value")
+
+                val cookieName = nameProperty.invoke(cookieObject) as? String
+                val cookieValue = valueProperty.invoke(cookieObject) as? String
+
+                if (cookieName == "ao.session") {
+                    aoSessionCookie = cookieValue
+                    break
+                }
+            } catch (e: NoSuchMethodException) {
+                try {
+                    val nameField = cookieObject.javaClass.getField("name")
+                    val valueField = cookieObject.javaClass.getField("value")
+
+                    val cookieName = nameField.get(cookieObject) as? String
+                    val cookieValue = valueField.get(cookieObject) as? String
+
+                    if (cookieName == "ao.session") {
+                        aoSessionCookie = cookieValue
+                        break
+                    }
+                } catch (e2: NoSuchFieldException) {
+                    Log.e("AnimeOnsen", "Cookie object does not have 'name' or 'value' field/method. " + e2.message)
+                } catch (e3: Exception) {
+                    Log.e("AnimeOnsen", "Error accessing cookie properties: " + e3.message)
+                }
+            } catch (e: Exception) {
+                Log.e("AnimeOnsen", "Error invoking cookie methods: " + e.message)
+            }
+        }
+
+
+        if (aoSessionCookie.isNullOrBlank()) {
+            Log.w("AnimeOnsen", "ao.session cookie not found.")
+            return null
+        }
+
+        val decodedCookieValue = base64Decode(aoSessionCookie)
+        if (decodedCookieValue.isBlank()) {
+            Log.w("AnimeOnsen", "Failed to Base64 decode ao.session cookie.")
+            return null
+        }
+
+        val finalToken = decodedCookieValue // O deObfuscateToken(decodedCookieValue)
+        return finalToken
+    }
 
     private suspend fun safeAppGet(
         url: String,
@@ -48,25 +121,43 @@ class AnimeonsenProvider : MainAPI() {
         timeoutMs: Long = 15000L,
         headers: Map<String, String>? = null
     ): String? {
+        if (apiAuthToken == null && url.startsWith(apiOrigin)) {
+            apiAuthToken = getApiAuthTokenFromCookie()
+            if (apiAuthToken == null) {
+                Log.e("AnimeOnsen", "Failed to obtain API Auth Token for GET requests.")
+            }
+        }
+
         val requestHeaders = (headers?.toMutableMap() ?: mutableMapOf()).apply {
-            if (url.startsWith(apiOrigin)) { // Aplica a API y posiblemente subtítulos
-                if (apiAuthToken != null) {
-                    this["Authorization"] = "Bearer $apiAuthToken"
-                }
+            if (url.startsWith(apiOrigin)) {
+                apiAuthToken?.let { this["Authorization"] = "Bearer $it" }
                 this["Origin"] = mainUrl
                 this["Referer"] = "$mainUrl/"
                 this["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
             }
-            headers?.let { putAll(it) } // Añade cualquier header extra que se pase
+            headers?.let { putAll(it) }
         }
 
         for (i in 0 until retries) {
             try {
                 val res = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = requestHeaders)
                 if (res.isSuccessful) return res.text
-                Log.w("AnimeOnsen", "safeAppGet - Request failed for URL: $url with code ${res.code}. HTTP Error.")
+
+                if (res.code == 401 && url.startsWith(apiOrigin)) {
+                    Log.d("AnimeOnsen", "Received 401 for GET, attempting token refresh.")
+                    apiAuthToken = getApiAuthTokenFromCookie()
+                    if (apiAuthToken != null) {
+                        requestHeaders["Authorization"] = "Bearer $apiAuthToken"
+                        val retryRes = app.get(url, interceptor = cfKiller, timeout = timeoutMs, headers = requestHeaders)
+                        if (retryRes.isSuccessful) return retryRes.text
+                        Log.w("AnimeOnsen", "Retry after 401 failed for URL: $url with code ${retryRes.code}.")
+                    } else {
+                        Log.e("AnimeOnsen", "Failed to refresh token after 401.")
+                        return null
+                    }
+                }
             } catch (e: Exception) {
-                Log.e("AnimeOnsen", "safeAppGet - Error on attempt ${i + 1}/$retries for URL: $url: ${e.message}", e)
+                Log.e("AnimeOnsen", "safeAppGet - Error on attempt ${i + 1}/$retries for URL: $url: ${e.message}")
             }
             if (i < retries - 1) delay(delayMs)
         }
@@ -82,6 +173,13 @@ class AnimeonsenProvider : MainAPI() {
         timeoutMs: Long = 15000L,
         headers: Map<String, String>? = null
     ): String? {
+        if (apiAuthToken == null && url.startsWith(apiOrigin)) {
+            apiAuthToken = getApiAuthTokenFromCookie()
+            if (apiAuthToken == null) {
+                Log.e("AnimeOnsen", "Failed to obtain API Auth Token for POST requests.")
+            }
+        }
+
         val jsonBodyString = data?.toJson()
         val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
         val requestBody = jsonBodyString?.toRequestBody(mediaType)
@@ -90,23 +188,36 @@ class AnimeonsenProvider : MainAPI() {
             this["Content-Type"] = "application/json"
             this["Origin"] = mainUrl
             this["Referer"] = "$mainUrl/"
-            this["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+            this["User-Agent"] = "Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
 
             if (url.startsWith(searchOrigin) && searchToken != null) {
                 this["Authorization"] = "Bearer $searchToken"
             } else if (url.startsWith(apiOrigin) && apiAuthToken != null) {
                 this["Authorization"] = "Bearer $apiAuthToken"
             }
-            headers?.let { putAll(it) } // Añade cualquier header extra que se pase
+            headers?.let { putAll(it) }
         }
 
         for (i in 0 until retries) {
             try {
                 val res = app.post(url, requestBody = requestBody, interceptor = cfKiller, timeout = timeoutMs, headers = postHeaders)
                 if (res.isSuccessful) return res.text
-                Log.w("AnimeOnsen", "safeAppPost - POST request failed for URL: $url with code ${res.code}. HTTP Error.")
+
+                if (res.code == 401 && url.startsWith(apiOrigin)) {
+                    Log.d("AnimeOnsen", "Received 401 for POST, attempting token refresh.")
+                    apiAuthToken = getApiAuthTokenFromCookie()
+                    if (apiAuthToken != null) {
+                        postHeaders["Authorization"] = "Bearer $apiAuthToken"
+                        val retryRes = app.post(url, requestBody = requestBody, interceptor = cfKiller, timeout = timeoutMs, headers = postHeaders)
+                        if (retryRes.isSuccessful) return retryRes.text
+                        Log.w("AnimeOnsen", "Retry after 401 failed for URL: $url with code ${retryRes.code}.")
+                    } else {
+                        Log.e("AnimeOnsen", "Failed to refresh token after 401.")
+                        return null
+                    }
+                }
             } catch (e: Exception) {
-                Log.e("AnimeOnsen", "safeAppPost - Error on attempt ${i + 1}/$retries for URL: $url: ${e.message}", e)
+                Log.e("AnimeOnsen", "safeAppPost - Error on attempt ${i + 1}/$retries for URL: $url: ${e.message}")
             }
             if (i < retries - 1) delay(delayMs)
         }
@@ -232,7 +343,6 @@ class AnimeonsenProvider : MainAPI() {
             get() = content_title_en ?: content_title ?: content_title_jp ?: "Unknown Title"
     }
 
-    // --- Nuevas Data Classes para la respuesta de /v4/content/$animeId/video/$episodeNumber ---
     data class VideoApiResponse(
         val metadata: VideoMetadata,
         val uri: VideoUris
@@ -248,28 +358,31 @@ class AnimeonsenProvider : MainAPI() {
         @JsonProperty("total_episodes") val totalEpisodes: Int,
         @JsonProperty("next_season") val nextSeason: String?,
         @JsonProperty("mal_id") val malId: Int,
-        val episode: List<Any>, // Puede ser un Int o un mapa, se mantiene Any para flexibilidad
-        val subtitles: Map<String, String> // Mapa de langCode a langName
+        val episode: List<Any>,
+        val subtitles: Map<String, String>
     )
 
     data class VideoUris(
         val stream: String?,
-        val subtitles: Map<String, String>? // Mapa de langCode a URL de subtítulo
+        val subtitles: Map<String, String>?
     )
-    // --- Fin Nuevas Data Classes ---
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        if (apiAuthToken == null) {
+            apiAuthToken = getApiAuthTokenFromCookie()
+            if (apiAuthToken == null) {
+                Log.w("AnimeOnsen", "Could not get initial API Auth Token on getMainPage.")
+            } else {
+                Log.d("AnimeOnsen", "Initial API Auth Token from Cookie: ${apiAuthToken?.take(30)}...")
+            }
+        }
+
         val mainPageHtml = safeAppGet(mainUrl)
         if (mainPageHtml != null) {
             val doc = Jsoup.parse(mainPageHtml)
             searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
             apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
             searchOrigin = doc.selectFirst("meta[name=ao-search-origin]")?.attr("content") ?: searchOrigin
-
-            Log.d("AnimeOnsen", "Search Token: $searchToken")
-            Log.d("AnimeOnsen", "API Origin: $apiOrigin")
-            Log.d("AnimeOnsen", "Search Origin: $searchOrigin")
-            Log.d("AnimeOnsen", "API Auth Token: ${apiAuthToken?.take(30)}...")
         }
 
         val items = mutableListOf<HomePageList>()
@@ -299,12 +412,15 @@ class AnimeonsenProvider : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        if (searchToken == null) {
+        if (searchToken == null || apiAuthToken == null) {
             val mainPageHtml = safeAppGet(mainUrl)
             if (mainPageHtml != null) {
                 val doc = Jsoup.parse(mainPageHtml)
                 searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
                 searchOrigin = doc.selectFirst("meta[name=ao-search-origin]")?.attr("content") ?: searchOrigin
+                if (apiAuthToken == null) {
+                    apiAuthToken = getApiAuthTokenFromCookie()
+                }
             }
         }
 
@@ -345,15 +461,15 @@ class AnimeonsenProvider : MainAPI() {
         val animeId = url.substringAfterLast("/anime/").substringBefore("?")
         if (animeId.isBlank()) return null
 
-        // Refrescar tokens si es necesario
         if (searchToken == null || apiAuthToken == null) {
             val mainPageHtml = safeAppGet(mainUrl)
             if (mainPageHtml != null) {
                 val doc = Jsoup.parse(mainPageHtml)
                 searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
                 apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
-                // No se obtiene apiAuthToken de meta tags, así que se asume que siempre está hardcodeado o se obtiene de otra forma.
-                // Si el apiAuthToken necesita refrescarse, la lógica debe implementarse aquí o en safeAppGet/Post.
+                if (apiAuthToken == null) {
+                    apiAuthToken = getApiAuthTokenFromCookie()
+                }
             }
         }
 
@@ -380,16 +496,10 @@ class AnimeonsenProvider : MainAPI() {
         try {
             val animePageHtml = app.get("$mainUrl/anime/$animeId", interceptor = cfKiller).text
             val animeDoc = Jsoup.parse(animePageHtml)
-            // Nuevo selector para el póster basado en el HTML proporcionado:
             poster = animeDoc.selectFirst("img[alt^=Image of]")?.attr("src")
-            // No hay un selector claro para un banner distinto en el HTML proporcionado,
-            // por lo que se usa el póster como fallback. Si existe un banner,
-            // se necesitaría un selector específico aquí.
-            banner = null // O podrías intentar buscar un banner con otro selector
-            Log.d("AnimeOnsen", "Poster URL: $poster")
-            Log.d("AnimeOnsen", "Banner URL: $banner")
+            banner = null
         } catch (e: Exception) {
-            Log.e("AnimeOnsen", "Error scraping poster/banner from anime page: ${e.message}", e)
+            Log.e("AnimeOnsen", "Error scraping poster/banner from anime page: ${e.message}")
         }
 
         val episodesList = if (tvType == TvType.Anime) {
@@ -407,7 +517,7 @@ class AnimeonsenProvider : MainAPI() {
             }
         } else listOf()
 
-        val recommendations = listOf<SearchResponse>() // Implementar si es necesario
+        val recommendations = listOf<SearchResponse>()
 
         val year = extensiveContent.date_added?.let { timestampSeconds ->
             try {
@@ -467,7 +577,7 @@ class AnimeonsenProvider : MainAPI() {
             val decryptedBytes = cipher.doFinal(cipherTextBytes)
             return String(decryptedBytes, UTF_8)
         } catch (e: Exception) {
-            Log.e("AnimeOnsen", "Error decrypting link: ${e.message}", e)
+            Log.e("AnimeOnsen", "Error decrypting link: ${e.message}")
             return null
         }
     }
@@ -487,17 +597,14 @@ class AnimeonsenProvider : MainAPI() {
             return false
         }
 
-        // Refrescar tokens si es necesario (ya implementado en getMainPage y load, pero asegurar aquí si no se llama antes)
-        if (searchToken == null || apiAuthToken == null) {
-            val mainPageHtml = safeAppGet(mainUrl)
-            if (mainPageHtml != null) {
-                val doc = Jsoup.parse(mainPageHtml)
-                searchToken = doc.selectFirst("meta[name=ao-search-token]")?.attr("content")
-                apiOrigin = doc.selectFirst("meta[name=ao-api-origin]")?.attr("content") ?: apiOrigin
+        if (apiAuthToken == null) {
+            apiAuthToken = getApiAuthTokenFromCookie()
+            if (apiAuthToken == null) {
+                Log.e("AnimeOnsen", "loadLinks: Failed to obtain API Auth Token. Cannot load links.")
+                return false
             }
         }
 
-        // Nueva llamada para obtener la URL del stream y los subtítulos con el formato correcto
         val videoApiUrl = "$apiOrigin/v4/content/$animeId/video/$episodeNumber"
         val videoApiResponseJson = safeAppGet(videoApiUrl)
 
@@ -512,24 +619,22 @@ class AnimeonsenProvider : MainAPI() {
             return false
         }
 
-        // Procesar link del stream
         val streamUrl = videoApiResponse.uri.stream
         if (streamUrl != null) {
             callback(
                 newExtractorLink(
                     source = "AnimeOnsen",
-                    name = "Play", // O podrías usar un nombre más descriptivo si la API lo proporciona
+                    name = "Play",
                     url = streamUrl,
-                    type = ExtractorLinkType.DASH // Asumiendo que siempre es DASH si viene de cdn.animeonsen.xyz/video/mp4-dash/
+                    type = ExtractorLinkType.DASH
                 ) {
-                    referer = mainUrl // Referer para el stream CDN
+                    referer = mainUrl
                 }
             )
         } else {
             Log.w("AnimeOnsen", "loadLinks: Stream URL not found in API response for $videoApiUrl")
         }
 
-        // Procesar links de subtítulos
         videoApiResponse.uri.subtitles?.forEach { (langCode, subUrl) ->
             val langName = videoApiResponse.metadata.subtitles[langCode] ?: langCode
             subtitleCallback(
@@ -538,7 +643,6 @@ class AnimeonsenProvider : MainAPI() {
                     subUrl
                 )
             )
-            Log.d("AnimeOnsen", "Loaded SubtitleFile: lang=$langName, url=$subUrl")
         } ?: run {
             Log.i("AnimeOnsen", "loadLinks: No subtitles found in API response for $videoApiUrl")
         }
