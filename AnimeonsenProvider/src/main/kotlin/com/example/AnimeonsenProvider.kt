@@ -8,6 +8,7 @@ import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import org.jsoup.Jsoup
 import android.util.Base64
+import java.net.URLDecoder // Necesitas importar URLDecoder
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -21,7 +22,7 @@ import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.fasterxml.jackson.annotation.JsonProperty
 // import kotlin.collections.toList // Importación para .toList() si fuera necesario
-import com.lagradost.nicehttp.NiceResponse // Mantén esta importación si es necesaria, pero no la usamos directamente para las cookies
+import com.lagradost.nicehttp.NiceResponse
 
 class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
@@ -71,7 +72,9 @@ class AnimeonsenProvider : MainAPI() {
             return null
         }
 
-        val decodedCookieValue = base64Decode(aoSessionCookie)
+        val urlDecodedCookieValue = URLDecoder.decode(aoSessionCookie, UTF_8.name())
+
+        val decodedCookieValue = base64Decode(urlDecodedCookieValue)
         if (decodedCookieValue.isBlank()) {
             Log.w("AnimeOnsen", "Failed to Base64 decode ao.session cookie.")
             return null
