@@ -224,7 +224,6 @@ class VerAnimesProvider : MainAPI() {
         // **INTENTO #1: EXTRAER DE 'var eps' EN EL SCRIPT**
         var foundEpisodesFromScript = false
         if (dataSl != null) {
-            // Selector más flexible: busca cualquier script que contenga la cadena "var eps = ["
             val scriptContent = doc.select("script").map { it.html() }.firstOrNull { it.contains("var eps = [") }
 
             if (scriptContent != null) {
@@ -233,11 +232,12 @@ class VerAnimesProvider : MainAPI() {
 
                 if (matchResult != null) {
                     val epsString = matchResult.groupValues[1]
-                    val epsArray = epsString.split(",").mapNotNull { it.trim().toIntOrNull() }
+                    // *** CAMBIO CLAVE AQUÍ: removeSurrounding("\"") para manejar las comillas dobles ***
+                    val epsArray = epsString.split(",").mapNotNull { it.trim().removeSurrounding("\"").toIntOrNull() }
 
                     Log.d("VerAnimesProvider", "load - `eps` array extraído del script: ${epsArray.joinToString(", ")}, data-sl: $dataSl")
 
-                    val sortedEpsArray = epsArray.sorted() // Asegura el orden ascendente
+                    val sortedEpsArray = epsArray.sorted()
 
                     for (epn in sortedEpsArray) {
                         val episodeTitle = "Episodio $epn"
@@ -263,7 +263,7 @@ class VerAnimesProvider : MainAPI() {
             Log.w("VerAnimesProvider", "load - data-sl es nulo, no se puede intentar extraer episodios del script.")
         }
 
-        // **INTENTO #2: FALLBACK A data-ep SI EL SCRIPT NO FUNCIONÓ**
+        // **INTENTO #2: FALLBACK A data-ep SI EL SCRIPT NO FUNCIONÓ O SI NO SE ENCONTRARON EPISODIOS CON EL SCRIPT**
         if (!foundEpisodesFromScript && dataSl != null && totalEpisodes != null && totalEpisodes > 0) {
             Log.d("VerAnimesProvider", "load - Generando episodios con data-ep como fallback. Total: $totalEpisodes")
             for (epn in 1..totalEpisodes) {
@@ -279,13 +279,12 @@ class VerAnimesProvider : MainAPI() {
                     }
                 )
             }
-        } else if (!foundEpisodesFromScript) { // Este log solo si el script no se encontró Y el fallback tampoco pudo ejecutarse
+        } else if (!foundEpisodesFromScript && (dataSl == null || totalEpisodes == null || totalEpisodes <= 0)) { // Condición para log más claro si el fallback tampoco se pudo usar
             Log.w("VerAnimesProvider", "load - Fallback con data-ep no se pudo usar (data-sl nulo, o totalEpisodes inválido/cero). No se generarán episodios en este caso.")
         }
 
         Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
 
-        // Las recomendaciones - NO SE MOSTRARÁN EN TU VERSIÓN DE CLOUDSTREAM DEBIDO A LA API
         val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
             val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
             val recLink = element.selectFirst("a")?.attr("href")
@@ -323,7 +322,7 @@ class VerAnimesProvider : MainAPI() {
             backgroundPosterUrl = poster
             plot = description
             tags = localTags
-            // year, status y recommendations no se pueden asignar aquí.
+            // year, status y recommendations no se pueden asignar aquí con tu API de CloudStream.
         }
     }
 
