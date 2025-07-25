@@ -58,46 +58,15 @@ class AnimeonsenProvider : MainAPI() {
     private suspend fun getApiAuthTokenFromCookie(): String? {
         val mainPageResponse = app.get(mainUrl, interceptor = cfKiller)
 
-        val cookiesList: List<Any> = mainPageResponse.cookies.toList()
+        val cookiesList: List<Pair<String, String>> = mainPageResponse.cookies
+                as? List<Pair<String, String>> ?: run {
+            Log.e("AnimeOnsen", "mainPageResponse.cookies no es una lista de Pair<String, String>")
+            return null
+        }
 
         var aoSessionCookie: String? = null
 
-        for (cookieObject in cookiesList) {
-            Log.d("AnimeOnsen", "Cookie object type: ${cookieObject::class.java.name}")
-
-            try {
-                val nameProperty = cookieObject.javaClass.getMethod("name")
-                val valueProperty = cookieObject.javaClass.getMethod("value")
-
-                val cookieName = nameProperty.invoke(cookieObject) as? String
-                val cookieValue = valueProperty.invoke(cookieObject) as? String
-
-                if (cookieName == "ao.session") {
-                    aoSessionCookie = cookieValue
-                    break
-                }
-            } catch (e: NoSuchMethodException) {
-                try {
-                    val nameField = cookieObject.javaClass.getField("name")
-                    val valueField = cookieObject.javaClass.getField("value")
-
-                    val cookieName = nameField.get(cookieObject) as? String
-                    val cookieValue = valueField.get(cookieObject) as? String
-
-                    if (cookieName == "ao.session") {
-                        aoSessionCookie = cookieValue
-                        break
-                    }
-                } catch (e2: NoSuchFieldException) {
-                    Log.e("AnimeOnsen", "Cookie object does not have 'name' or 'value' field/method. " + e2.message)
-                } catch (e3: Exception) {
-                    Log.e("AnimeOnsen", "Error accessing cookie properties: " + e3.message)
-                }
-            } catch (e: Exception) {
-                Log.e("AnimeOnsen", "Error invoking cookie methods: " + e.message)
-            }
-        }
-
+        aoSessionCookie = cookiesList.firstOrNull { it.first == "ao.session" }?.second
 
         if (aoSessionCookie.isNullOrBlank()) {
             Log.w("AnimeOnsen", "ao.session cookie not found.")
