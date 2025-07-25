@@ -6,17 +6,14 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import kotlin.collections.ArrayList
 import kotlinx.coroutines.delay
-
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
-
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakustvProvider : MainAPI() {
@@ -89,6 +86,13 @@ class OtakustvProvider : MainAPI() {
         val html = safeAppGet(url) ?: return null
         val doc = Jsoup.parse(html)
 
+        // --- SECCIÓN NUEVA: EPISODIOS ESTRENO (MOVÍDA AL PRINCIPIO) ---
+        doc.selectFirst("div.reciente.mt-3:has(h3:contains(EPISODIOS ESTRENO))")?.let { container ->
+            val animes = container.select(".row .col-6").mapNotNull { extractEpisodeItem(it) }
+            if (animes.isNotEmpty()) items.add(HomePageList("Episodios Estreno", animes))
+        }
+
+        // --- SECCIONES EXISTENTES (EN SU ORDEN ORIGINAL DESPUÉS DE "EPISODIOS ESTRENO") ---
         doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")?.let { container ->
             val animes = container.select(".carusel_ranking .item").mapNotNull { extractAnimeItem(it) }
             if (animes.isNotEmpty()) items.add(HomePageList("Animes Finalizados", animes))
@@ -121,6 +125,47 @@ class OtakustvProvider : MainAPI() {
 
         return HomePageResponse(items)
     }
+
+    // Función específica para extraer elementos de "Episodios Estreno"
+    private fun extractEpisodeItem(element: Element): AnimeSearchResponse? {
+        try {
+            val linkElement = element.selectFirst("a") ?: return null
+            val titleElement = element.selectFirst("h2 a") ?: return null
+
+            val title = titleElement.text().trim()
+            val episodeUrl = linkElement.attr("href") // URL actual del episodio
+
+            // Modificación clave: extraer la URL base del anime
+            // Esto buscará "/episodio-" y devolverá todo lo que esté antes.
+            // Si no lo encuentra (lo cual no debería pasar para episodios), devuelve la URL original.
+            val animeUrl = episodeUrl.substringBeforeLast("/episodio-", episodeUrl)
+
+            val posterElement = element.selectFirst("img.lazyload")
+                ?: element.selectFirst("img.img-fluid")
+            val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
+
+            // Extraer el número de episodio para quizás usarlo como un "subtítulo" si el AnimeSearchResponse lo permite
+            val episodeNumberText = element.selectFirst("p.font15 span.bog")?.text()?.replace("Episodio ", "")?.trim() ?: ""
+
+            // Creamos un AnimeSearchResponse que enlazará a la página del anime
+            // Puedes incluir el número de episodio en el título si quieres que se vea, ej: "$title (Ep. $episodeNumberText)"
+            // O dejarlo así si la UI de CloudStream3 no tiene un campo de subtítulo para estos items.
+            return newAnimeSearchResponse(
+                title, // Título del anime
+                fixUrl(animeUrl) // URL que lleva a la página del anime
+            ) {
+                this.type = TvType.Anime
+                this.posterUrl = img
+                // Si quieres que el número de episodio aparezca en la UI para esta sección,
+                // podrías añadirlo al título así: this.name = "$title (Ep. $episodeNumberText)"
+                // Pero esto podría no ser deseable para la consistencia si otras secciones no lo hacen.
+            }
+        } catch (e: Exception) {
+            Log.e("OtakustvProvider", "Error extracting episode item: ${e.message}", e)
+            return null
+        }
+    }
+
 
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/buscador?q=$query"

@@ -231,7 +231,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakustvProvider.cs3",
     "status": 1,
-    "version": 3,
+    "version": 4,
     "apiVersion": 13,
     "name": "OtakusTV",
     "internalName": "OtakustvProvider",
@@ -245,12 +245,12 @@
     ],
     "iconUrl": "https://www1.otakustv.com/favicon.png",
     "language": "es",
-    "fileSize": 24000
+    "fileSize": 25000
   },
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/OtakuversoProvider.cs3",
     "status": 1,
-    "version": 3,
+    "version": 4,
     "apiVersion": 14,
     "name": "Otakuverso",
     "internalName": "OtakuversoProvider",
