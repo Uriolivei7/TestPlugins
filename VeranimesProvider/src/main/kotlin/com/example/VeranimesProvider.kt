@@ -16,10 +16,12 @@ import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.MainAPI
 
 class VerAnimesProvider : MainAPI() {
     override var mainUrl = "https://wwv.veranimes.net"
     override var name = "VerAnimes"
+    val referer = "$mainUrl/"
     override val supportedTypes = setOf(
         TvType.Anime,
     )
@@ -342,45 +344,45 @@ class VerAnimesProvider : MainAPI() {
             return false
         }
 
+        // *** CAMBIO CLAVE AQUÍ: Volvemos a app.get() pero añadimos un User-Agent y Referer ***
+        val headers = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36",
+            "Referer" to referer // Usamos el referer de la clase
+        )
+
         val initialHtml = try {
-            // Asegurarse de que safeAppGet está funcionando correctamente o usar app.get().text
-            // Si usas tu propio safeAppGet, asegúrate de que no tenga problemas de SSL, User-Agent, etc.
-            // Aquí uso app.get().text que es el estándar y suele ser robusto.
-            app.get(targetUrl).text
+            app.get(targetUrl, headers = headers).text // Pasamos los headers con User-Agent
         } catch (e: Exception) {
-            Log.e("VerAnimesProvider", "loadLinks - Falló la obtención del HTML para: $targetUrl", e)
+            Log.e("VerAnimesProvider", "loadLinks - Falló la obtención del HTML (con User-Agent) para: $targetUrl", e)
             return false
         }
 
         if (initialHtml.isNullOrBlank()) {
-            Log.e("VerAnimesProvider", "loadLinks - HTML recibido está en blanco para: $targetUrl")
+            Log.e("VerAnimesProvider", "loadLinks - HTML recibido (con User-Agent) está en blanco para: $targetUrl")
             return false
         }
 
-        // Logging el HTML completo para depuración si es necesario.
-        // **NO DESCOMENTAR EN PRODUCCIÓN YA QUE PUEDE SER MUCHA INFORMACIÓN**
-        // Log.d("VerAnimesProvider", "loadLinks - HTML completo recibido para $targetUrl:\n$initialHtml")
-        Log.d("VerAnimesProvider", "loadLinks - HTML recibido para $targetUrl (primeros 500 caracteres): ${initialHtml.take(500)}")
+        // Descomenta la siguiente línea para depuración extrema si el problema persiste
+        // Log.d("VerAnimesProvider", "loadLinks - HTML COMPLETO recibido (con User-Agent) para $targetUrl:\n$initialHtml")
+        Log.d("VerAnimesProvider", "loadLinks - HTML recibido (con User-Agent) para $targetUrl (primeros 500 caracteres): ${initialHtml.take(500)}")
 
         val doc = Jsoup.parse(initialHtml)
 
         var linksFound = false
 
         // --- PRIMERO Y MÁS IMPORTANTE: Extraer de las opciones de reproducción (ul.opt con 'encrypt') ---
-        val optionsList = doc.select("ul.opt li[encrypt]") // Busca <li> dentro de <ul class="opt"> que tengan el atributo 'encrypt'
+        val optionsList = doc.select("ul.opt li[encrypt]")
 
         if (optionsList.isNotEmpty()) {
-            Log.d("VerAnimesProvider", "loadLinks - ✅ ENCONTRADAS ${optionsList.size} opciones de REPRODUCCIÓN en ul.opt con atributo 'encrypt'.")
+            Log.d("VerAnimesProvider", "loadLinks - ✅ ENCONTRADAS ${optionsList.size} opciones de REPRODUCCIÓN en ul.opt con atributo 'encrypt' (con User-Agent).")
             optionsList.forEach { liElement ->
                 val encryptedUrlHex = liElement.attr("encrypt")
-                // Preferimos el texto del primer span, sino el segundo span (Opción X), sino el title, sino un default.
                 val serverName = liElement.select("span").firstOrNull()?.text()?.trim()
                     ?.ifBlank { liElement.select("span").getOrNull(1)?.text()?.trim()?.ifBlank { liElement.attr("title").ifBlank { "Servidor Desconocido" } } }
                     ?: liElement.attr("title").ifBlank { "Servidor Desconocido" }
 
                 if (encryptedUrlHex.isNotBlank()) {
                     try {
-                        // Decodificación hexadecimal
                         val decryptedUrl = encryptedUrlHex.chunked(2)
                             .map { it.toInt(16).toChar() }
                             .joinToString("")
@@ -402,11 +404,10 @@ class VerAnimesProvider : MainAPI() {
                 }
             }
         } else {
-            Log.w("VerAnimesProvider", "loadLinks - ❌ No se encontró la lista de opciones de REPRODUCCIÓN 'ul.opt' con 'encrypt' o está vacía.")
+            Log.w("VerAnimesProvider", "loadLinks - ❌ NO SE ENCONTRÓ la lista de opciones de REPRODUCCIÓN 'ul.opt' con 'encrypt' incluso con User-Agent. Esto es un problema.")
         }
 
         // --- SEGUNDO: Extraer de los enlaces de DESCARGA (a.d con data-dwn) ---
-        // Como confirmaste, esto es para descarga. Lo incluimos, pero se hará la distinción.
         val downloadDataElement = doc.selectFirst("a.d[data-dwn]")
         downloadDataElement?.attr("data-dwn")?.let { downloadData ->
             Log.d("VerAnimesProvider", "loadLinks - ✅ Botón de DESCARGA encontrado, data-dwn: '$downloadData'")
@@ -419,10 +420,6 @@ class VerAnimesProvider : MainAPI() {
                         val fixedDownloadUrl = fixUrl(downloadUrl)
                         if (fixedDownloadUrl != null && fixedDownloadUrl.isNotBlank()) {
                             Log.d("VerAnimesProvider", "loadLinks - Extractor del enlace de DESCARGA '$downloadServerName': $fixedDownloadUrl")
-                            // Aquí, si CloudStream tiene un extractor para Mega, mp4upload directo, etc.,
-                            // lo agregará como una opción de video si loadExtractor lo procesa.
-                            // Para diferenciar descarga de reproducción, a veces se usa un .addUrl(name, url, isDwnld=true)
-                            // pero para simple funcionalidad, loadExtractor es suficiente.
                             loadExtractor(fixedDownloadUrl, targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
@@ -436,8 +433,6 @@ class VerAnimesProvider : MainAPI() {
         } ?: Log.w("VerAnimesProvider", "loadLinks - ❌ Botón de DESCARGA con 'data-dwn' (a.d[data-dwn]) no encontrado.")
 
         // --- TERCERO: (Último recurso, MENOS PROBABLE) Iframe directo ---
-        // Sabemos que el iframe se carga dinámicamente, por lo que es improbable que lo encontremos en el HTML inicial.
-        // Mantenemos este bloque solo por si acaso, pero el objetivo principal es ul.opt.
         val playerIframe = doc.selectFirst("div.ply iframe")
         if (playerIframe != null) {
             var iframeSrc = playerIframe.attr("src")
@@ -458,7 +453,7 @@ class VerAnimesProvider : MainAPI() {
                 Log.w("VerAnimesProvider", "loadLinks - ⚠️ El src del iframe del reproductor principal es nulo/vacío.")
             }
         } else {
-            Log.w("VerAnimesProvider", "loadLinks - ❌ No se encontró el iframe del reproductor principal con el selector 'div.ply iframe'. (Es probable si se carga dinámicamente)")
+            Log.w("VerAnimesProvider", "loadLinks - ❌ No se encontró el iframe del reproductor principal con el selector 'div.ply iframe'.")
         }
 
         Log.d("VerAnimesProvider", "loadLinks - Finalizado, enlaces encontrados: $linksFound")
