@@ -265,5 +265,24 @@
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
     "fileSize": 22000
+  },
+  {
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/VeranimesProvider.cs3",
+    "status": 1,
+    "version": 1,
+    "apiVersion": 15,
+    "name": "VerAnimes",
+    "internalName": "VeranimesProvider",
+    "authors": [
+      "Ranita"
+    ],
+    "description": "Plugin para wwv.veranimes.net",
+    "tvTypes": [
+      "Anime",
+      "OVA"
+    ],
+    "iconUrl": "https://wwv.veranimes.net/cdn/img/favicon.png",
+    "language": "es",
+    "fileSize": 22000
   }
 ]
