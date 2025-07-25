@@ -175,8 +175,9 @@ class VerAnimesProvider : MainAPI() {
         else if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) cleanUrl = "https://" + cleanUrl.removePrefix("//")
 
         val finalUrlToFetch: String?
-        val episodePathRegex = Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-episodio-\d+)?(?:-\d+)?\/?$""")
-        val match = episodePathRegex.find(cleanUrl)
+        // Regex mejorada para capturar el slug principal del anime, manejando también la estructura de /ver/
+        val animePathRegex = Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""") // Modificado para ser más general
+        val match = animePathRegex.find(cleanUrl)
 
         if (match != null) {
             val slug = match.groupValues[1]
@@ -217,11 +218,12 @@ class VerAnimesProvider : MainAPI() {
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
         val allEpisodes = ArrayList<Episode>()
-        // El selector para episodios en la página de carga está bien: section#l ul.ep li
+        // *** CAMBIO CLAVE APLICADO AQUÍ ***
         val episodeContainers = doc.select("div.th:has(h2.h:contains(Listado de episodios)) + ul.ep li")
 
         if (episodeContainers.isEmpty()) {
-            Log.w("VerAnimesProvider", "load - ¡ADVERTENCIA! No se encontraron episodios con el selector 'section#l ul.ep li' para $fixedFinalUrlToFetch. Verifique el HTML.")
+            // *** ACTUALIZADO EL MENSAJE DE ADVERTENCIA PARA REFLEJAR EL NUEVO SELECTOR ***
+            Log.w("VerAnimesProvider", "load - ¡ADVERTENCIA! No se encontraron episodios con el selector 'div.th:has(h2.h:contains(Listado de episodios)) + ul.ep li' para $fixedFinalUrlToFetch. Verifique el HTML.")
         } else {
             Log.d("VerAnimesProvider", "load - Se encontraron ${episodeContainers.size} contenedores de episodios.")
         }
@@ -234,10 +236,16 @@ class VerAnimesProvider : MainAPI() {
             val epTitleText = epLinkElement?.selectFirst("span")?.text()?.trim() ?: ""
 
             var episodeNumber: Int? = null
+            // Intentar extraer el número de episodio del título "Episodio X" o solo "X"
             val episodeNumberMatch = Regex("""\d+""").find(epTitleText)
             episodeNumber = episodeNumberMatch?.value?.toIntOrNull()
 
-            val finalEpTitle = epTitleText.ifBlank { "Episodio ${episodeNumber ?: "Desconocido"}" }
+            // Si el título es solo el número, o está vacío, construir un título por defecto
+            val finalEpTitle = if (epTitleText.isBlank() || epTitleText.matches(Regex("""\d+"""))) {
+                "Episodio ${episodeNumber ?: "Desconocido"}"
+            } else {
+                epTitleText
+            }
 
             val epPoster = poster
 
@@ -250,10 +258,10 @@ class VerAnimesProvider : MainAPI() {
 
             newEpisode(EpisodeLoadData(finalEpTitle, epUrl).toJson()) {
                 this.name = finalEpTitle
-                this.season = null
+                this.season = null // Si no hay concepto de temporadas, dejar en null
                 this.episode = episodeNumber
                 this.posterUrl = epPoster
-                this.description = finalEpTitle
+                this.description = finalEpTitle // La descripción del episodio puede ser el mismo título si no hay más info
             }
         }
         Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
@@ -285,14 +293,14 @@ class VerAnimesProvider : MainAPI() {
             name = title,
             url = fixedFinalUrlToFetch,
             type = TvType.Anime,
-            episodes = finalEpisodes
+            episodes = finalEpisodes // Asegúrate de usar la lista de episodios final
         ) {
             this.posterUrl = poster
-            this.backgroundPosterUrl = poster
+            this.backgroundPosterUrl = poster // A menudo el póster principal puede ser el background
             this.plot = description
             this.tags = localTags
             this.year = year
-            //this.status = localStatus
+            //this.status = localStatus // Descomentado si parseStatus funciona bien
             this.recommendations = recommendations
         }
     }
