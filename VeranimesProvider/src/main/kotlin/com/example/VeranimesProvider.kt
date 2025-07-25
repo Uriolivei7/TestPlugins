@@ -41,7 +41,6 @@ class VerAnimesProvider : MainAPI() {
         val titleText = element.selectFirst("h3.h a")?.text()?.trim()
             ?: element.selectFirst("span.n b")?.text()?.trim()
 
-        // *** MODIFICACIÓN AQUI: Priorizar data-src para el póster ***
         val posterElement = element.selectFirst("figure.i img")
         val img = fixUrl(posterElement?.attr("data-src") ?: posterElement?.attr("src"))
 
@@ -107,21 +106,19 @@ class VerAnimesProvider : MainAPI() {
         Log.d("VerAnimesProvider", "getMainPage - HTML cargado para $url. Extrayendo listas de la página principal.")
 
         // Nuevos episodios agregados
-        doc.selectFirst("h2.h:contains(Nuevos episodios agregados)")?.let { h2 ->
-            // *** MODIFICACIÓN AQUI: Cambiado div.ul.x2 a div.ul.episodes ***
-            h2.parent()?.selectFirst("div.ul.episodes")?.let { container ->
-                val animes = container.select("article.li").mapNotNull { extractAnimeItem(it) } // Se cambió a article.li para consistencia
-                if (animes.isNotEmpty()) {
-                    items.add(HomePageList("Nuevos Episodios Agregados", animes))
-                    Log.d("VerAnimesProvider", "getMainPage - Añadidos ${animes.size} Nuevos Episodios Agregados.")
-                } else {
-                    Log.w("VerAnimesProvider", "getMainPage - No se encontraron animes para 'Nuevos Episodios Agregados'.")
-                }
-            } ?: Log.w("VerAnimesProvider", "getMainPage - Contenedor para 'Nuevos episodios agregados' (div.ul.episodes) no encontrado después de h2.")
-        } ?: Log.w("VerAnimesProvider", "getMainPage - Título 'Nuevos episodios agregados' (h2.h) no encontrado.")
+        // *** MODIFICACIÓN AQUI: Selector más robusto para "Nuevos episodios agregados" ***
+        doc.selectFirst("div.th:has(h2.h:contains(Nuevos episodios agregados)) + div.ul.episodes")?.let { container ->
+            val animes = container.select("article.li").mapNotNull { extractAnimeItem(it) }
+            if (animes.isNotEmpty()) {
+                items.add(HomePageList("Nuevos Episodios Agregados", animes))
+                Log.d("VerAnimesProvider", "getMainPage - Añadidos ${animes.size} Nuevos Episodios Agregados.")
+            } else {
+                Log.w("VerAnimesProvider", "getMainPage - No se encontraron animes para 'Nuevos Episodios Agregados'.")
+            }
+        } ?: Log.w("VerAnimesProvider", "getMainPage - Contenedor para 'Nuevos episodios agregados' (div.ul.episodes) no encontrado.")
 
 
-        // Nuevos Animes Agregados (este selector ya funcionaba)
+        // Nuevos Animes Agregados
         doc.selectFirst("div.th:has(h2.h:contains(Nuevos Animes Agregados)) + div.ul.x6")?.let { container ->
             val animes = container.select("article.li").mapNotNull { extractAnimeItem(it) }
             if (animes.isNotEmpty()) {
@@ -146,7 +143,6 @@ class VerAnimesProvider : MainAPI() {
         return doc.select("div.ul.x5 article.li").mapNotNull {
             val title = it.selectFirst("h3.h a")?.text()?.trim()
             val link = it.selectFirst("a")?.attr("href")
-            // *** MODIFICACIÓN AQUI: Priorizar data-src para el póster en search ***
             val img = fixUrl(it.selectFirst("img")?.attr("data-src") ?: it.selectFirst("img")?.attr("src"))
 
             Log.d("VerAnimesProvider", "search - Resultado: Título: $title, Link: $link, Póster: $img")
@@ -206,7 +202,6 @@ class VerAnimesProvider : MainAPI() {
         val doc = Jsoup.parse(html)
 
         val title = doc.selectFirst("div.ti h1 strong")?.text() ?: ""
-        // *** MODIFICACIÓN AQUI: Priorizar data-src para el póster principal en load ***
         val poster = fixUrl(doc.selectFirst("div.sc div.l figure.i img")?.attr("data-src") ?: doc.selectFirst("div.sc div.l figure.i img")?.attr("src"))
         val description = doc.selectFirst("div.tx p")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
 
@@ -222,6 +217,7 @@ class VerAnimesProvider : MainAPI() {
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
         val allEpisodes = ArrayList<Episode>()
+        // El selector para episodios en la página de carga está bien: section#l ul.ep li
         val episodeContainers = doc.select("section#l ul.ep li")
 
         if (episodeContainers.isEmpty()) {
@@ -267,7 +263,6 @@ class VerAnimesProvider : MainAPI() {
         val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
             val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
             val recLink = element.selectFirst("a")?.attr("href")
-            // *** MODIFICACIÓN AQUI: Priorizar data-src para el póster de recomendaciones ***
             val recImg = fixUrl(element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src"))
 
             if (recTitle != null && recLink != null) {
