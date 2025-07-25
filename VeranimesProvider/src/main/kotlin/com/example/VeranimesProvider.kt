@@ -38,10 +38,13 @@ class VerAnimesProvider : MainAPI() {
         val linkElement = element.selectFirst("a")
         val episodeLink = linkElement?.attr("href") // Esta es la URL del episodio
 
-        val titleText = element.selectFirst("span.n b")?.text()?.trim()
+        // Adjusted selector based on the provided HTML examples
+        val titleText = element.selectFirst("h3.h a")?.text()?.trim()
+            ?: element.selectFirst("span.n b")?.text()?.trim() // Fallback for episode lists
 
         val posterElement = element.selectFirst("figure.i img")
-        val img = posterElement?.attr("src")
+        // Apply fixUrl directly when extracting poster
+        val img = fixUrl(posterElement?.attr("src"))
 
         val releaseYear = null
 
@@ -53,12 +56,15 @@ class VerAnimesProvider : MainAPI() {
 
             Log.d("VerAnimesProvider", "extractAnimeItem - Título: $titleText, Enlace Episodio: $episodeLink, Enlace BASE Anime: $baseAnimeUrl, Póster: $img")
 
+            // Línea 61: fixUrl(baseAnimeUrl) - la URL principal debe ser no nula
+            val finalBaseUrl = fixUrl(baseAnimeUrl) ?: return null // Si es nula, no podemos crear el SearchResponse
+
             return newAnimeSearchResponse(
                 titleText,
-                fixUrl(baseAnimeUrl) // Usamos la URL BASE del anime aquí
+                finalBaseUrl
             ) {
                 this.type = TvType.Anime
-                this.posterUrl = img
+                this.posterUrl = img // 'img' es String?, compatible con posterUrl: String?
                 this.year = releaseYear
             }
         }
@@ -117,19 +123,23 @@ class VerAnimesProvider : MainAPI() {
                 val titleText = element.selectFirst("h3.h a")?.text()?.trim()
                 val link = linkElement?.attr("href")
                 val posterElement = element.selectFirst("img")
-                val img = posterElement?.attr("src")
+                // Apply fixUrl to img
+                val img = fixUrl(posterElement?.attr("src"))
                 val genres = element.select("p.g a").map { it.text().trim() }
 
                 Log.d("VerAnimesProvider", "getMainPage - Últimas Peliculas - Título: $titleText, Link: $link, Póster: $img, Géneros: $genres")
 
                 if (titleText != null && link != null) {
+                    // Línea 132: fixUrl(link) - la URL principal debe ser no nula
+                    val finalLink = fixUrl(link) ?: return@mapNotNull null // Si es nula, no podemos crear el SearchResponse
+
                     newAnimeSearchResponse(
                         titleText,
-                        fixUrl(link)
+                        finalLink
                     ) {
                         this.type = TvType.Anime
-                        this.posterUrl = img
-                        //this.tags = genres
+                        this.posterUrl = img // img es String?, compatible con posterUrl: String?
+                        //this.tags = genres // tags es List<String>, compatible
                     }
                 } else null
             }
@@ -148,19 +158,23 @@ class VerAnimesProvider : MainAPI() {
                 val titleText = element.selectFirst("h3.h a")?.text()?.trim()
                 val link = linkElement?.attr("href")
                 val posterElement = element.selectFirst("img")
-                val img = posterElement?.attr("src")
+                // Apply fixUrl to img
+                val img = fixUrl(posterElement?.attr("src"))
                 val genres = element.select("p.g a").map { it.text().trim() }
 
                 Log.d("VerAnimesProvider", "getMainPage - Últimos Ovas - Título: $titleText, Link: $link, Póster: $img, Géneros: $genres")
 
                 if (titleText != null && link != null) {
+                    // Línea 164: fixUrl(link) - la URL principal debe ser no nula
+                    val finalLink = fixUrl(link) ?: return@mapNotNull null
+
                     newAnimeSearchResponse(
                         titleText,
-                        fixUrl(link)
+                        finalLink
                     ) {
                         this.type = TvType.Anime
-                        this.posterUrl = img
-                        //this.tags = genres
+                        this.posterUrl = img // img es String?, compatible
+                        //this.tags = genres // tags es List<String>, compatible
                     }
                 } else null
             }
@@ -179,19 +193,23 @@ class VerAnimesProvider : MainAPI() {
                 val titleText = element.selectFirst("h3.h a")?.text()?.trim()
                 val link = linkElement?.attr("href")
                 val posterElement = element.selectFirst("img")
-                val img = posterElement?.attr("src")
+                // Apply fixUrl to img
+                val img = fixUrl(posterElement?.attr("src"))
                 val genres = element.select("p.g a").map { it.text().trim() }
 
                 Log.d("VerAnimesProvider", "getMainPage - Últimos Especiales - Título: $titleText, Link: $link, Póster: $img, Géneros: $genres")
 
                 if (titleText != null && link != null) {
+                    // Línea 196: fixUrl(link) - la URL principal debe ser no nula
+                    val finalLink = fixUrl(link) ?: return@mapNotNull null
+
                     newAnimeSearchResponse(
                         titleText,
-                        fixUrl(link)
+                        finalLink
                     ) {
                         this.type = TvType.Anime
-                        this.posterUrl = img
-                        //this.tags = genres
+                        this.posterUrl = img // img es String?, compatible
+                        //this.tags = genres // tags es List<String>, compatible
                     }
                 } else null
             }
@@ -228,17 +246,21 @@ class VerAnimesProvider : MainAPI() {
         return doc.select("div.ul.x5 article.li").mapNotNull {
             val title = it.selectFirst("h3.h a")?.text()?.trim()
             val link = it.selectFirst("a")?.attr("href")
-            val img = it.selectFirst("img")?.attr("src")
+            // Apply fixUrl here directly
+            val img = fixUrl(it.selectFirst("img")?.attr("src"))
 
             Log.d("VerAnimesProvider", "search - Resultado: Título: $title, Link: $link, Póster: $img")
 
             if (title != null && link != null) {
+                // Línea 245: fixUrl(link) - la URL principal debe ser no nula
+                val finalLink = fixUrl(link) ?: return@mapNotNull null
+
                 newAnimeSearchResponse(
                     title,
-                    fixUrl(link)
+                    finalLink
                 ) {
                     this.type = TvType.Anime
-                    this.posterUrl = img
+                    this.posterUrl = img // img es String?, compatible
                 }
             } else {
                 Log.w("VerAnimesProvider", "search - Elemento de búsqueda incompleto (título o link nulo): ${it.outerHtml().take(100)}")
@@ -263,7 +285,8 @@ class VerAnimesProvider : MainAPI() {
             val baseUrl = animeBaseUrlMatch.groupValues[1]
             val type = animeBaseUrlMatch.groupValues[2] // "ver" o "anime"
             val animeSlug = animeBaseUrlMatch.groupValues[3].substringBeforeLast("-episodio").substringBeforeLast("-") // Obtener solo el slug del anime
-            "$baseUrl/$type/$animeSlug"
+            // Asegurarse de que el slug no termine con un guion si no hay número
+            "$baseUrl/$type/${animeSlug.trimEnd('-')}" // Ajuste para slugs limpios
         } else {
             cleanUrl
         }
@@ -284,11 +307,12 @@ class VerAnimesProvider : MainAPI() {
         val doc = Jsoup.parse(html)
 
         val title = doc.selectFirst("div.ti h1 strong")?.text() ?: ""
-        val poster = doc.selectFirst("div.sc div.l figure.i img")?.attr("src") ?: ""
+        // Apply fixUrl to poster
+        val poster = fixUrl(doc.selectFirst("div.sc div.l figure.i img")?.attr("src"))
         val description = doc.selectFirst("div.tx p")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
 
         Log.d("VerAnimesProvider", "load - Título extraído: '$title', Póster extraído: '$poster', Descripción extraída: '${description.take(50)}...'")
-        if (poster.isBlank()) {
+        if (poster.isNullOrBlank()) {
             Log.w("VerAnimesProvider", "load - ¡ADVERTENCIA! No se encontró póster con selector 'div.sc div.l figure.i img' para $finalUrlToFetch")
         }
 
@@ -298,7 +322,7 @@ class VerAnimesProvider : MainAPI() {
 
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
-        val additionalTags = mutableListOf<String>()
+        // val additionalTags = mutableListOf<String>() // Se comentó ya que no se usa
 
         val allEpisodes = ArrayList<Episode>()
         // --- MODIFICACIÓN CLAVE PARA EPISODIOS ---
@@ -314,7 +338,9 @@ class VerAnimesProvider : MainAPI() {
 
         episodeContainers.mapNotNullTo(allEpisodes) { element ->
             val epLinkElement = element.selectFirst("a")
-            val epUrl = fixUrl(epLinkElement?.attr("href") ?: "") // Usar fixUrl aquí también
+            // Línea 346: fixUrl(epLinkElement?.attr("href") ?: "") - URL principal del episodio, debe ser no nula
+            val epUrl = fixUrl(epLinkElement?.attr("href") ?: "") ?: return@mapNotNullTo null // Si es nula, no podemos crear el Episode
+
             val epTitleText = epLinkElement?.selectFirst("span")?.text()?.trim() ?: ""
 
             var episodeNumber: Int? = null
@@ -323,7 +349,7 @@ class VerAnimesProvider : MainAPI() {
 
             val finalEpTitle = epTitleText.ifBlank { "Episodio ${episodeNumber ?: "Desconocido"}" }
 
-            val epPoster = poster
+            val epPoster = poster // Use the main poster for episodes
 
             Log.d("VerAnimesProvider", "load - Procesando episodio: Título: '$finalEpTitle', URL: '$epUrl', Número: $episodeNumber")
 
@@ -336,7 +362,7 @@ class VerAnimesProvider : MainAPI() {
                 this.name = finalEpTitle
                 this.season = null
                 this.episode = episodeNumber
-                this.posterUrl = epPoster
+                this.posterUrl = epPoster // epPoster es String?, compatible
                 this.description = finalEpTitle
             }
         }
@@ -347,15 +373,19 @@ class VerAnimesProvider : MainAPI() {
         val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
             val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
             val recLink = element.selectFirst("a")?.attr("href")
-            val recImg = element.selectFirst("img")?.attr("src")
+            // Apply fixUrl to recImg
+            val recImg = fixUrl(element.selectFirst("img")?.attr("src"))
 
             if (recTitle != null && recLink != null && recImg != null) {
+                // Línea 433: fixUrl(recLink) - URL principal de la recomendación, debe ser no nula
+                val finalRecLink = fixUrl(recLink) ?: return@mapNotNull null
+
                 newAnimeSearchResponse(
                     recTitle,
-                    fixUrl(recLink)
+                    finalRecLink
                 ) {
                     this.type = TvType.Anime
-                    this.posterUrl = recImg
+                    this.posterUrl = recImg // recImg es String?, compatible
                 }
             } else {
                 Log.w("VerAnimesProvider", "load - Recomendación incompleta (título, link o póster nulo): ${element.outerHtml().take(100)}")
@@ -364,18 +394,19 @@ class VerAnimesProvider : MainAPI() {
         }
         Log.d("VerAnimesProvider", "load - Total de recomendaciones encontradas: ${recommendations.size}")
 
+        // Línea 455: poster and backgroundPosterUrl are String?
         return newTvSeriesLoadResponse(
             name = title,
-            url = finalUrlToFetch,
+            url = finalUrlToFetch, // finalUrlToFetch ya se comprobó que no es blank
             type = TvType.Anime,
             episodes = finalEpisodes
         ) {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
             this.plot = description
-            this.tags = localTags + additionalTags
+            this.tags = localTags // localTags es List<String>, compatible
             this.year = year
-            //this.status = localStatus
+            //this.status = localStatus // localStatus es ShowStatus, compatible
             this.recommendations = recommendations
         }
     }
@@ -387,7 +418,9 @@ class VerAnimesProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
-        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data)
+        // Ensure targetUrl is fixed and not null
+        // Línea 479: fixUrl(data) - targetUrl debe ser no nulo para loadLinks
+        val targetUrl = parsedEpisodeData?.url ?: fixUrl(data) ?: return false
 
         Log.d("VerAnimesProvider", "loadLinks - URL a cargar: $targetUrl")
 
@@ -417,7 +450,8 @@ class VerAnimesProvider : MainAPI() {
                     Log.d("VerAnimesProvider", "loadLinks - URL de Google Drive modificada a: $iframeSrc")
                 }
                 Log.d("VerAnimesProvider", "loadLinks - Extrayendo del iframe principal: $iframeSrc")
-                loadExtractor(fixUrl(iframeSrc), targetUrl, subtitleCallback, callback)
+                // Línea 341 (ahora cerca de 509): loadExtractor(fixUrl(iframeSrc)!!, ...) - Se afirma no nulo aquí
+                loadExtractor(fixUrl(iframeSrc)!!, targetUrl, subtitleCallback, callback)
                 linksFound = true
             } else {
                 Log.w("VerAnimesProvider", "loadLinks - El src del iframe del reproductor principal es nulo/vacío.")
@@ -439,7 +473,8 @@ class VerAnimesProvider : MainAPI() {
 
                     if (decryptedUrl.isNotBlank()) {
                         Log.d("VerAnimesProvider", "loadLinks - Extractor del servidor desencriptado '$serverName': $decryptedUrl")
-                        loadExtractor(fixUrl(decryptedUrl), targetUrl, subtitleCallback, callback)
+                        // Línea 367 (ahora cerca de 535): loadExtractor(fixUrl(decryptedUrl)!!, ...) - Se afirma no nulo aquí
+                        loadExtractor(fixUrl(decryptedUrl)!!, targetUrl, subtitleCallback, callback)
                         linksFound = true
                     } else {
                         Log.w("VerAnimesProvider", "loadLinks - URL desencriptada vacía para servidor '$serverName'.")
@@ -463,7 +498,8 @@ class VerAnimesProvider : MainAPI() {
                         val downloadServerName = entry[0] as? String ?: "Enlace de Descarga"
                         if (downloadUrl.isNotBlank()) {
                             Log.d("VerAnimesProvider", "loadLinks - Extractor del enlace de descarga '$downloadServerName': $downloadUrl")
-                            loadExtractor(fixUrl(downloadUrl), targetUrl, subtitleCallback, callback)
+                            // Línea 479 (ahora cerca de 566): loadExtractor(fixUrl(downloadUrl)!!, ...) - Se afirma no nulo aquí
+                            loadExtractor(fixUrl(downloadUrl)!!, targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
                             Log.w("VerAnimesProvider", "loadLinks - URL de descarga vacía para servidor '$downloadServerName'.")
@@ -488,16 +524,19 @@ class VerAnimesProvider : MainAPI() {
         }
     }
 
-    private fun fixUrl(url: String): String {
+    // Modified to return String? and handle null input gracefully
+    private fun fixUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+
         return if (url.startsWith("http")) {
             url
-        } else if (url.startsWith("./")) { // Maneja URLs como "./ver/..."
-            mainUrl + url.substring(1) // Elimina el '.' y lo concatena
+        } else if (url.startsWith("./")) {
+            mainUrl + url.substring(1)
         } else if (url.startsWith("/")) {
             mainUrl + url
         } else {
             // Este caso debería ser raro si todas las URLs relativas son con '/' o './'
-            mainUrl + "/" + url
+            "$mainUrl/$url"
         }
     }
 
