@@ -265,24 +265,5 @@
     "iconUrl": "https://otakuverso.net/favicon.ico",
     "language": "es",
     "fileSize": 22000
-  },
-  {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/AnimeonsenProvider.cs3",
-    "status": 1,
-    "version": 1,
-    "apiVersion": 15,
-    "name": "AnimeOnsen",
-    "internalName": "AnimeonsenProvider",
-    "authors": [
-      "Ranita"
-    ],
-    "description": "Plugin para www.animeonsen.xyz",
-    "tvTypes": [
-      "Anime",
-      "OVA"
-    ],
-    "iconUrl": "https://www.animeonsen.xyz/favicon/152x152.png",
-    "language": "en",
-    "fileSize": 41000
   }
 ]
