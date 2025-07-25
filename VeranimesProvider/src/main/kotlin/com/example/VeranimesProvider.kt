@@ -329,7 +329,7 @@ class VerAnimesProvider : MainAPI() {
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
-        subtitleCallback: (SubtitleFile) -> Unit,
+        subtitleCallback: (SubtitleFile) -> Unit, // Correcto, ya lo tienes aquí
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val parsedEpisodeData = tryParseJson<EpisodeLoadData>(data)
@@ -342,7 +342,8 @@ class VerAnimesProvider : MainAPI() {
             return false
         }
 
-        val initialHtml = safeAppGet(targetUrl) ?: run {
+        val initialHtml = app.get(targetUrl).text // Usar app.get().text directamente si safeAppGet es un helper tuyo
+        if (initialHtml.isNullOrBlank()) {
             Log.e("VerAnimesProvider", "loadLinks - Falló la obtención del HTML para: $targetUrl")
             return false
         }
@@ -352,38 +353,17 @@ class VerAnimesProvider : MainAPI() {
 
         var linksFound = false
 
-        val playerIframe = doc.selectFirst("div.ply iframe")
-
-        if (playerIframe != null) {
-            var iframeSrc = playerIframe.attr("src")
-            Log.d("VerAnimesProvider", "loadLinks - Iframe principal encontrado, src: '$iframeSrc'")
-            if (!iframeSrc.isNullOrBlank()) {
-                if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
-                    iframeSrc = iframeSrc.replace("/preview", "/edit")
-                    Log.d("VerAnimesProvider", "loadLinks - URL de Google Drive modificada a: $iframeSrc")
-                }
-                val fixedIframeSrc = fixUrl(iframeSrc)
-                if (fixedIframeSrc != null) {
-                    Log.d("VerAnimesProvider", "loadLinks - Extrayendo del iframe principal: $fixedIframeSrc")
-                    loadExtractor(fixedIframeSrc, targetUrl, subtitleCallback, callback)
-                    linksFound = true
-                } else {
-                    Log.w("VerAnimesProvider", "loadLinks - URL de iframe principal es nula después de fixUrl.")
-                }
-            } else {
-                Log.w("VerAnimesProvider", "loadLinks - El src del iframe del reproductor principal es nulo/vacío.")
-            }
-        } else {
-            Log.w("VerAnimesProvider", "loadLinks - No se encontró el iframe del reproductor principal con el selector 'div.ply iframe'.")
-        }
-
+        // --- PRIORIDAD 1: Extraer enlaces de las opciones (ul.opt) con decodificación hexadecimal ---
         doc.select("ul.opt li").forEach { liElement ->
             val encryptedUrlHex = liElement.attr("encrypt")
-            val serverName = liElement.attr("title").ifBlank { liElement.selectFirst("span")?.text()?.trim() }
-            Log.d("VerAnimesProvider", "loadLinks - Procesando servidor: '$serverName', URL Encriptada: '$encryptedUrlHex'")
+            // Preferir el texto del span si existe, de lo contrario usar el título del atributo
+            val serverName = liElement.selectFirst("span")?.text()?.trim()?.ifBlank { liElement.attr("title").ifBlank { "Servidor Desconocido" } } ?: liElement.attr("title").ifBlank { "Servidor Desconocido" }
+
+            Log.d("VerAnimesProvider", "loadLinks - Procesando servidor de opciones: '$serverName', URL Encriptada: '$encryptedUrlHex'")
 
             if (encryptedUrlHex.isNotBlank()) {
                 try {
+                    // Tu método actual para decodificar hexadecimal
                     val decryptedUrl = encryptedUrlHex.chunked(2)
                         .map { it.toInt(16).toChar() }
                         .joinToString("")
@@ -395,7 +375,7 @@ class VerAnimesProvider : MainAPI() {
                         loadExtractor(fixedDecryptedUrl, targetUrl, subtitleCallback, callback)
                         linksFound = true
                     } else {
-                        Log.w("VerAnimesProvider", "loadLinks - URL desencriptada vacía o nula para servidor '$serverName'.")
+                        Log.w("VerAnimesProvider", "loadLinks - URL desencriptada vacía o nula para servidor '$serverName'. Decodificada: '$decryptedUrl'")
                     }
                 } catch (e: Exception) {
                     Log.e("VerAnimesProvider", "loadLinks - Error al desencriptar URL para el servidor '$serverName': ${e.message}", e)
@@ -405,43 +385,85 @@ class VerAnimesProvider : MainAPI() {
             }
         }
 
-        val downloadButton = doc.selectFirst("ul.ct a.d")
-        downloadButton?.attr("data-dwn")?.let { downloadData ->
+        // --- PRIORIDAD 2: Extraer enlaces del botón de descarga (data-dwn) ---
+        // Usaremos el selector original que funcionaba bien en los logs anteriores
+        val downloadDataElement = doc.selectFirst("div#l button[data-dwn]")
+        downloadDataElement?.attr("data-dwn")?.let { downloadData ->
             Log.d("VerAnimesProvider", "loadLinks - Botón de descarga encontrado, data-dwn: '$downloadData'")
             try {
                 val jsonArray = tryParseJson<List<List<Any>>>(downloadData)
                 jsonArray?.forEach { entry ->
                     if (entry.size >= 3 && entry[2] is String) {
                         val downloadUrl = entry[2] as String
-                        val downloadServerName = entry[0] as? String ?: "Enlace de Descarga"
+                        val downloadServerName = entry[0] as? String ?: "Enlace de Descarga (data-dwn)"
                         val fixedDownloadUrl = fixUrl(downloadUrl)
                         if (fixedDownloadUrl != null && fixedDownloadUrl.isNotBlank()) {
                             Log.d("VerAnimesProvider", "loadLinks - Extractor del enlace de descarga '$downloadServerName': $fixedDownloadUrl")
                             loadExtractor(fixedDownloadUrl, targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
-                            Log.w("VerAnimesProvider", "loadLinks - URL de descarga vacía o nula para servidor '$downloadServerName'.")
+                            Log.w("VerAnimesProvider", "loadLinks - URL de descarga vacía o nula para servidor '$downloadServerName' (data-dwn).")
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e("VerAnimesProvider", "loadLinks - Error al parsear los datos de descarga: ${e.message}", e)
+                Log.e("VerAnimesProvider", "loadLinks - Error al parsear los datos de descarga (data-dwn): ${e.message}", e)
             }
-        } ?: Log.w("VerAnimesProvider", "loadLinks - Botón de descarga no encontrado.")
+        } ?: Log.w("VerAnimesProvider", "loadLinks - Botón de descarga con 'data-dwn' no encontrado.")
+
+
+        // --- Manejo del iframe principal (menos prioridad, posiblemente URL interna que no es directa) ---
+        // Mantenemos este bloque solo si el iframe principal es relevante para otros casos,
+        // pero recuerda que `/reproductor/v.php` necesita manejo especial.
+        val playerIframe = doc.selectFirst("div.ply iframe")
+        if (playerIframe != null) {
+            var iframeSrc = playerIframe.attr("src")
+            if (!iframeSrc.isNullOrBlank()) {
+                if (iframeSrc.contains("/reproductor/v.php")) {
+                    Log.w("VerAnimesProvider", "loadLinks - Iframe principal encontrado con URL de reproductor interno: '$iframeSrc'. Requiere manejo adicional para extraer enlaces directos.")
+                    // No se llama a loadExtractor aquí a menos que tengas un extractor para este formato.
+                } else if (iframeSrc.contains("drive.google.com") && iframeSrc.contains("/preview")) {
+                    iframeSrc = iframeSrc.replace("/preview", "/edit")
+                    Log.d("VerAnimesProvider", "loadLinks - URL de Google Drive modificada a: $iframeSrc")
+                    val fixedIframeSrc = fixUrl(iframeSrc)
+                    if (fixedIframeSrc != null) {
+                        Log.d("VerAnimesProvider", "loadLinks - Extrayendo del iframe principal (Google Drive): $fixedIframeSrc")
+                        loadExtractor(fixedIframeSrc, targetUrl, subtitleCallback, callback)
+                        linksFound = true
+                    } else {
+                        Log.w("VerAnimesProvider", "loadLinks - URL de iframe principal (Google Drive) es nula después de fixUrl.")
+                    }
+                } else {
+                    val fixedIframeSrc = fixUrl(iframeSrc)
+                    if (fixedIframeSrc != null) {
+                        Log.d("VerAnimesProvider", "loadLinks - Extrayendo del iframe principal (URL directa): $fixedIframeSrc")
+                        loadExtractor(fixedIframeSrc, targetUrl, subtitleCallback, callback)
+                        linksFound = true
+                    } else {
+                        Log.w("VerAnimesProvider", "loadLinks - URL de iframe principal es nula después de fixUrl.")
+                    }
+                }
+            } else {
+                Log.w("VerAnimesProvider", "loadLinks - El src del iframe del reproductor principal es nulo/vacío.")
+            }
+        } else {
+            Log.w("VerAnimesProvider", "loadLinks - No se encontró el iframe del reproductor principal con el selector 'div.ply iframe'.")
+        }
+
 
         Log.d("VerAnimesProvider", "loadLinks - Finalizado, enlaces encontrados: $linksFound")
         return linksFound
     }
 
     private fun hex2a(hex: String): String {
-        val sb = StringBuilder()
+        val output = StringBuilder()
         var i = 0
-        while (i < hex.length) {
-            val charCode = hex.substring(i, i + 2).toInt(16)
-            sb.append(charCode.toChar())
+        while (i < hex.length - 1) {
+            val str = hex.substring(i, i + 2)
+            output.append(Integer.parseInt(str, 16).toChar())
             i += 2
         }
-        return sb.toString()
+        return output.toString()
     }
 
     private fun parseStatus(statusString: String?): Int? {
