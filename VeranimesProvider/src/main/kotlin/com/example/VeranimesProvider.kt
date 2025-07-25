@@ -163,7 +163,8 @@ class VerAnimesProvider : MainAPI() {
 
     data class EpisodeLoadData(
         val title: String,
-        val url: String
+        val url: String,
+        val internalPlayerId: String? = null // Añade este campo
     )
 
     override suspend fun load(url: String): LoadResponse? {
@@ -218,7 +219,16 @@ class VerAnimesProvider : MainAPI() {
         val totalEpisodesString = doc.selectFirst("ul.u.sp span[data-ep]")?.attr("data-ep")
         val totalEpisodes = totalEpisodesString?.toIntOrNull()
 
-        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes")
+        val internalPlayerId = doc.selectFirst("div.ply")?.attr("data-id") // Si div.ply tiene data-id
+            ?: doc.selectFirst("div.player-container")?.attr("data-player-id") // Si hay un contenedor de reproductor con data-player-id
+            ?: doc.select("script").map { it.html() }.firstOrNull { it.contains("var animePlayerId") || it.contains("var mainPlayerId") || it.contains("var videoId") }?.let { scriptContent ->
+                // Busca una variable JS como: var animePlayerId = "2934";
+                val regex = "var (?:animePlayerId|mainPlayerId|videoId) = ['\"](\\d+)['\"];".toRegex()
+                regex.find(scriptContent)?.groupValues?.get(1)
+            }
+            ?: doc.selectFirst("meta[name=\"player-data-id\"]")?.attr("content") // Si hay un meta tag con el ID
+
+        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes, InternalPlayerId (extraído): $internalPlayerId")
 
         var foundEpisodesFromScript = false
         if (dataSl != null) {
@@ -241,7 +251,7 @@ class VerAnimesProvider : MainAPI() {
                         val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                         allEpisodes.add(
-                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl, internalPlayerId).toJson()) {
                                 this.episode = epn
                                 this.posterUrl = poster
                                 this.name = episodeTitle
@@ -267,7 +277,8 @@ class VerAnimesProvider : MainAPI() {
                 val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                 allEpisodes.add(
-                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                    // *** Y TAMBIÉN AQUÍ SE PASA internalPlayerId ***
+                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl, internalPlayerId).toJson()) {
                         this.episode = epn
                         this.posterUrl = poster
                         this.name = episodeTitle
@@ -275,7 +286,7 @@ class VerAnimesProvider : MainAPI() {
                     }
                 )
             }
-        } else if (!foundEpisodesFromScript && (dataSl == null || totalEpisodes == null || totalEpisodes <= 0)) { // Condición para log más claro si el fallback tampoco se pudo usar
+        } else if (!foundEpisodesFromScript && (dataSl == null || totalEpisodes == null || totalEpisodes <= 0)) {
             Log.w("VerAnimesProvider", "load - Fallback con data-ep no se pudo usar (data-sl nulo, o totalEpisodes inválido/cero). No se generarán episodios en este caso.")
         }
 
@@ -336,10 +347,7 @@ class VerAnimesProvider : MainAPI() {
             return false
         }
 
-        // 1. Obtener el HTML inicial para buscar enlaces de DESCARGA (data-dwn) y quizás iframes directos.
-        //    Esto se hace con un GET normal a la URL del episodio.
         val initialHtmlForDownload = try {
-            // Se usa el mismo User-Agent y Referer que el navegador para esta primera petición GET
             app.get(
                 targetUrl,
                 headers = mapOf(
@@ -353,8 +361,6 @@ class VerAnimesProvider : MainAPI() {
         }
         val initialDoc = Jsoup.parse(initialHtmlForDownload)
 
-        // 2. Extraer el 'slug' del anime y el número de episodio para la petición POST.
-        //    Ejemplo de targetUrl: https://wwv.veranimes.net/ver/wotaku-ni-koi-wa-muzukashii-10
         val pathSegments = targetUrl.split("/")
         val lastSegment = pathSegments.lastOrNull() // -> "wotaku-ni-koi-wa-muzukashii-10"
 
@@ -370,8 +376,6 @@ class VerAnimesProvider : MainAPI() {
         val postData = "data=$slug&ep=$episodeNum"
         Log.d("VerAnimesProvider", "loadLinks - Datos POST calculados para /process: $postData")
 
-        // 3. Realizar la petición POST a /process para obtener los enlaces de reproductores (li encrypt).
-        //    Los headers son cruciales para simular una petición AJAX desde el navegador.
         val headersForPost = mapOf(
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36", // Asegura que sea el mismo UA que en la red
             "Referer" to targetUrl, // El Referer para la petición POST debe ser la URL del episodio
@@ -383,9 +387,9 @@ class VerAnimesProvider : MainAPI() {
         val playerLinksHtml = try {
             app.post(
                 url = "$mainUrl/process",
-                // *** CAMBIO AQUÍ: USAR toMediaTypeOrNull() ***
                 requestBody = RequestBody.create("application/x-www-form-urlencoded; charset=UTF-8".toMediaTypeOrNull(), postData),
-                headers = headersForPost
+                headers = headersForPost,
+                interceptor = cfKiller
             ).text
         } catch (e: Exception) {
             Log.e("VerAnimesProvider", "loadLinks - Falló la petición POST a /process para obtener reproductores: ${e.message}", e)
@@ -403,7 +407,6 @@ class VerAnimesProvider : MainAPI() {
 
         var linksFound = false
 
-        // 4. Extraer los enlaces de reproductores de la respuesta POST (`playerDoc`).
         val optionsList = playerDoc.select("li[encrypt]") // El selector es solo `li[encrypt]` ya que la respuesta es directa
 
         if (optionsList.isNotEmpty()) {
@@ -439,9 +442,6 @@ class VerAnimesProvider : MainAPI() {
         } else {
             Log.w("VerAnimesProvider", "loadLinks - ❌ NO SE ENCONTRÓ ninguna opción de REPRODUCCIÓN 'li[encrypt]' en la respuesta POST. Esto es un problema.")
         }
-
-        // 5. Extraer enlaces de DESCARGA (data-dwn) y posibles iframes directos del HTML inicial (`initialDoc`).
-        //    Esta lógica permanece igual ya que estos elementos estaban en el HTML de la petición GET inicial.
 
         val downloadDataElement = initialDoc.selectFirst("a.d[data-dwn]")
         downloadDataElement?.attr("data-dwn")?.let { downloadData ->
