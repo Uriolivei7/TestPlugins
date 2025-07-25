@@ -6,18 +6,16 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import kotlin.collections.ArrayList
 import kotlinx.coroutines.delay
-
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
-
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.DubStatus
 
 class VerAnimesProvider : MainAPI() {
     override var mainUrl = "https://wwv.veranimes.net"
@@ -174,19 +172,14 @@ class VerAnimesProvider : MainAPI() {
         if (urlJsonMatch != null) cleanUrl = urlJsonMatch.groupValues[1]
         else if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) cleanUrl = "https://" + cleanUrl.removePrefix("//")
 
-        val finalUrlToFetch: String?
-        // Regex mejorada para capturar el slug principal del anime, manejando también la estructura de /ver/
-        val animePathRegex = Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""") // Modificado para ser más general
-        val match = animePathRegex.find(cleanUrl)
-
-        if (match != null) {
-            val slug = match.groupValues[1]
-            finalUrlToFetch = "${mainUrl}/anime/$slug"
-            Log.d("VerAnimesProvider", "load - Transformando URL de episodio/página incompleta a URL base del anime: $finalUrlToFetch")
+        val finalUrlToFetch: String? = if (Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""").find(cleanUrl)?.let { it.groupValues[1] } != null) {
+            val slug = Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""").find(cleanUrl)!!.groupValues[1]
+            "${mainUrl}/anime/$slug"
         } else {
-            finalUrlToFetch = cleanUrl
-            Log.d("VerAnimesProvider", "load - Usando URL limpia directamente como URL base del anime: $finalUrlToFetch")
+            cleanUrl
         }
+
+        Log.d("VerAnimesProvider", "load - URL limpia inicial: $url, URL procesada: $cleanUrl, URL base final a obtener: $finalUrlToFetch")
 
         val fixedFinalUrlToFetch = fixUrl(finalUrlToFetch)
         if (fixedFinalUrlToFetch.isNullOrBlank()) {
@@ -194,7 +187,8 @@ class VerAnimesProvider : MainAPI() {
             return null
         }
 
-        val html = safeAppGet(fixedFinalUrlToFetch) ?: run {
+        val html = app.get(fixedFinalUrlToFetch).text
+        if (html.isNullOrBlank()) {
             Log.e("VerAnimesProvider", "load - Falló la obtención del HTML para: $fixedFinalUrlToFetch")
             return null
         }
@@ -218,90 +212,60 @@ class VerAnimesProvider : MainAPI() {
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
         val allEpisodes = ArrayList<Episode>()
-        // *** CAMBIO CLAVE APLICADO AQUÍ ***
-        val episodeContainers = doc.select("div.th:has(h2.h:contains(Listado de episodios)) + ul.ep li")
 
-        if (episodeContainers.isEmpty()) {
-            // *** ACTUALIZADO EL MENSAJE DE ADVERTENCIA PARA REFLEJAR EL NUEVO SELECTOR ***
-            Log.w("VerAnimesProvider", "load - ¡ADVERTENCIA! No se encontraron episodios con el selector 'div.th:has(h2.h:contains(Listado de episodios)) + ul.ep li' para $fixedFinalUrlToFetch. Verifique el HTML.")
-        } else {
-            Log.d("VerAnimesProvider", "load - Se encontraron ${episodeContainers.size} contenedores de episodios.")
-        }
+        val dataSl = doc.selectFirst("*[data-sl]")?.attr("data-sl")
+        val dataZr = doc.selectFirst("*[data-zr]")?.attr("data-zr")?.toIntOrNull()
 
-        episodeContainers.mapNotNullTo(allEpisodes) { element ->
-            val epLinkElement = element.selectFirst("a")
-            val epUrlRaw = epLinkElement?.attr("href") ?: ""
-            val epUrl = fixUrl(epUrlRaw)
+        val scriptContent = doc.select("script:contains(var eps)").firstOrNull()?.html()
 
-            val epTitleText = epLinkElement?.selectFirst("span")?.text()?.trim() ?: ""
+        if (scriptContent != null && dataSl != null && dataZr != null) {
+            val epsRegex = "var eps = \\[([^\\]]+)\\];".toRegex()
+            val matchResult = epsRegex.find(scriptContent)
 
-            var episodeNumber: Int? = null
-            // Intentar extraer el número de episodio del título "Episodio X" o solo "X"
-            val episodeNumberMatch = Regex("""\d+""").find(epTitleText)
-            episodeNumber = episodeNumberMatch?.value?.toIntOrNull()
+            if (matchResult != null) {
+                val epsString = matchResult.groupValues[1]
+                val epsArray = epsString.split(",").mapNotNull { it.trim().toIntOrNull() }
 
-            // Si el título es solo el número, o está vacío, construir un título por defecto
-            val finalEpTitle = if (epTitleText.isBlank() || epTitleText.matches(Regex("""\d+"""))) {
-                "Episodio ${episodeNumber ?: "Desconocido"}"
-            } else {
-                epTitleText
-            }
+                Log.d("VerAnimesProvider", "load - `eps` array extraído: ${epsArray.joinToString(", ")}, data-sl: $dataSl, data-zr: $dataZr")
 
-            val epPoster = poster
+                val sortedEpsArray = epsArray.sorted()
 
-            Log.d("VerAnimesProvider", "load - Procesando episodio: Título: '$finalEpTitle', URL: '$epUrl', Número: $episodeNumber")
+                for (epn in sortedEpsArray) {
+                    val episodeTitle = "Episodio $epn"
+                    val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
-            if (epUrl.isNullOrBlank()) {
-                Log.w("VerAnimesProvider", "load - Episodio incompleto encontrado: URL en blanco o nula para elemento: ${element.outerHtml().take(100)}")
-                return@mapNotNullTo null
-            }
-
-            newEpisode(EpisodeLoadData(finalEpTitle, epUrl).toJson()) {
-                this.name = finalEpTitle
-                this.season = null // Si no hay concepto de temporadas, dejar en null
-                this.episode = episodeNumber
-                this.posterUrl = epPoster
-                this.description = finalEpTitle // La descripción del episodio puede ser el mismo título si no hay más info
-            }
-        }
-        Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
-
-        val finalEpisodes = allEpisodes.reversed()
-
-        val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
-            val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
-            val recLink = element.selectFirst("a")?.attr("href")
-            val recImg = fixUrl(element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src"))
-
-            if (recTitle != null && recLink != null) {
-                val finalRecLink = fixUrl(recLink) ?: return@mapNotNull null
-                newAnimeSearchResponse(
-                    recTitle,
-                    finalRecLink
-                ) {
-                    this.type = TvType.Anime
-                    this.posterUrl = recImg
+                    allEpisodes.add(
+                        newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                        }
+                    )
                 }
             } else {
-                Log.w("VerAnimesProvider", "load - Recomendación incompleta (título o link nulo): ${element.outerHtml().take(100)}")
-                null
+                Log.w("VerAnimesProvider", "load - No se pudo encontrar la definición de 'eps' en el script para $fixedFinalUrlToFetch.")
             }
+        } else {
+            Log.w("VerAnimesProvider", "load - No se encontró el script con 'var eps' o data-sl/data-zr en el HTML para $fixedFinalUrlToFetch.")
         }
-        Log.d("VerAnimesProvider", "load - Total de recomendaciones encontradas: ${recommendations.size}")
 
-        return newTvSeriesLoadResponse(
+        Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
+
+        val episodesMap = mutableMapOf<DubStatus, List<Episode>>()
+        if (allEpisodes.isNotEmpty()) {
+            episodesMap[DubStatus.Subbed] = allEpisodes
+        }
+
+        return newAnimeLoadResponse(
             name = title,
             url = fixedFinalUrlToFetch,
             type = TvType.Anime,
-            episodes = finalEpisodes // Asegúrate de usar la lista de episodios final
-        ) {
-            this.posterUrl = poster
-            this.backgroundPosterUrl = poster // A menudo el póster principal puede ser el background
-            this.plot = description
-            this.tags = localTags
-            this.year = year
-            //this.status = localStatus // Descomentado si parseStatus funciona bien
-            this.recommendations = recommendations
+            //year = year // **CORRECCIÓN: Intentamos pasar 'year' aquí directamente como un argumento.**
+        ) { // Este bloque es la lambda 'initializer' para configurar AnimeLoadResponse
+            episodes = episodesMap
+            posterUrl = poster
+            backgroundPosterUrl = poster
+            plot = description
+            tags = localTags
+            //status = localStatus
+            recommendations = recommendations
         }
     }
 
@@ -412,11 +376,22 @@ class VerAnimesProvider : MainAPI() {
         return linksFound
     }
 
-    private fun parseStatus(statusString: String): ShowStatus {
-        return when (statusString.lowercase()) {
-            "finalizado" -> ShowStatus.Completed
-            "en emisión", "en curso" -> ShowStatus.Ongoing
-            else -> ShowStatus.Ongoing
+    private fun hex2a(hex: String): String {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < hex.length) {
+            val charCode = hex.substring(i, i + 2).toInt(16)
+            sb.append(charCode.toChar())
+            i += 2
+        }
+        return sb.toString()
+    }
+
+    private fun parseStatus(statusString: String?): Int? {
+        return when (statusString?.lowercase()) {
+            "En Emisión" -> 1 // Representa "En emisión" o "En curso"
+            "finalizado" -> 2 // Representa "Finalizado"
+            else -> null // Si el estado no se reconoce, devuelve null
         }
     }
 
