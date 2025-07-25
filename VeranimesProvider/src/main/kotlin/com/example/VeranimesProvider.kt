@@ -218,7 +218,7 @@ class VerAnimesProvider : MainAPI() {
 
         val allEpisodes = ArrayList<Episode>()
         // El selector para episodios en la página de carga está bien: section#l ul.ep li
-        val episodeContainers = doc.select("section#l ul.ep li")
+        val episodeContainers = doc.select("div.th:has(h2.h:contains(Listado de episodios)) + ul.ep li")
 
         if (episodeContainers.isEmpty()) {
             Log.w("VerAnimesProvider", "load - ¡ADVERTENCIA! No se encontraron episodios con el selector 'section#l ul.ep li' para $fixedFinalUrlToFetch. Verifique el HTML.")
