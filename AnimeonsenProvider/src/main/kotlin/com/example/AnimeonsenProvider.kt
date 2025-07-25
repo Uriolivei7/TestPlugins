@@ -58,6 +58,11 @@ class AnimeonsenProvider : MainAPI() {
     private suspend fun getApiAuthTokenFromCookie(): String? {
         val mainPageResponse = app.get(mainUrl, interceptor = cfKiller)
 
+        // *** AÑADE ESTAS LÍNEAS PARA DEPURAR ***
+        Log.d("AnimeOnsen", "DEBUG: mainPageResponse.cookies (Valor): ${mainPageResponse.cookies}")
+        Log.d("AnimeOnsen", "DEBUG: mainPageResponse.cookies (Tipo): ${mainPageResponse.cookies?.javaClass?.name}")
+        // **************************************
+
         val cookiesList: List<Pair<String, String>> = mainPageResponse.cookies
                 as? List<Pair<String, String>> ?: run {
             Log.e("AnimeOnsen", "mainPageResponse.cookies no es una lista de Pair<String, String>")
