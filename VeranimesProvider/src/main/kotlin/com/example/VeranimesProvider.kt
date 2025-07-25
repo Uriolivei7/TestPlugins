@@ -183,7 +183,7 @@ class VerAnimesProvider : MainAPI() {
 
         val fixedFinalUrlToFetch = fixUrl(finalUrlToFetch)
         if (fixedFinalUrlToFetch.isNullOrBlank()) {
-            Log.e("VerAnimesProvider", "load - URL final para obtener está en blanco o es nula después de fixUrl: $finalUrlToFetch")
+            Log.e("VerAnimesProvider", "load - URL final para obtener está en blanco o es nula después de fixUrl: $fixedFinalUrlToFetch")
             return null
         }
 
@@ -206,19 +206,21 @@ class VerAnimesProvider : MainAPI() {
         }
 
         val localTags = doc.select("ul.gn li a").map { it.text().trim() }
-        val year = doc.selectFirst("div.ti div span.a")?.text()?.trim()?.toIntOrNull()
-        val localStatus = parseStatus(doc.selectFirst("div.ti div span.fi")?.text()?.trim() ?: "")
+        val year = doc.selectFirst("div.ti div span.a")?.text()?.trim()?.toIntOrNull() // Extraemos el año de todas formas por si lo quieres usar en otra parte del plugin
+        val localStatus = parseStatus(doc.selectFirst("div.ti div span.fi")?.text()?.trim() ?: "") // Extraemos el estado
 
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
         val allEpisodes = ArrayList<Episode>()
 
-        val dataSl = doc.selectFirst("*[data-sl]")?.attr("data-sl")
-        val dataZr = doc.selectFirst("*[data-zr]")?.attr("data-zr")?.toIntOrNull()
+        val dataSl = doc.selectFirst("div.info")?.attr("data-sl")
+        val dataZr = doc.selectFirst("ul.u.sp span[data-zr]")?.attr("data-zr")
 
-        val scriptContent = doc.select("script:contains(var eps)").firstOrNull()?.html()
+        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr")
 
-        if (scriptContent != null && dataSl != null && dataZr != null) {
+        val scriptContent = doc.select("script:contains(var eps = [)").firstOrNull()?.html()
+
+        if (scriptContent != null && dataSl != null) {
             val epsRegex = "var eps = \\[([^\\]]+)\\];".toRegex()
             val matchResult = epsRegex.find(scriptContent)
 
@@ -226,7 +228,7 @@ class VerAnimesProvider : MainAPI() {
                 val epsString = matchResult.groupValues[1]
                 val epsArray = epsString.split(",").mapNotNull { it.trim().toIntOrNull() }
 
-                Log.d("VerAnimesProvider", "load - `eps` array extraído: ${epsArray.joinToString(", ")}, data-sl: $dataSl, data-zr: $dataZr")
+                Log.d("VerAnimesProvider", "load - `eps` array extraído: ${epsArray.joinToString(", ")}, data-sl: $dataSl")
 
                 val sortedEpsArray = epsArray.sorted()
 
@@ -236,36 +238,61 @@ class VerAnimesProvider : MainAPI() {
 
                     allEpisodes.add(
                         newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                            this.episode = epn
+                            this.posterUrl = poster
+                            this.name = episodeTitle
+                            this.description = episodeTitle
                         }
                     )
                 }
             } else {
-                Log.w("VerAnimesProvider", "load - No se pudo encontrar la definición de 'eps' en el script para $fixedFinalUrlToFetch.")
+                Log.w("VerAnimesProvider", "load - Se encontró script, pero no se pudo parsear 'var eps' para $fixedFinalUrlToFetch.")
             }
         } else {
-            Log.w("VerAnimesProvider", "load - No se encontró el script con 'var eps' o data-sl/data-zr en el HTML para $fixedFinalUrlToFetch.")
+            Log.w("VerAnimesProvider", "load - No se encontró el script con 'var eps' o data-sl es nulo en el HTML para $fixedFinalUrlToFetch. No se generarán episodios.")
+            if (dataSl == null) Log.w("VerAnimesProvider", "load - data-sl es nulo, no se pueden construir URLs de episodio.")
+            if (scriptContent == null) Log.w("VerAnimesProvider", "load - scriptContent es nulo, el script 'var eps' no fue encontrado.")
         }
 
         Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
+
+        val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
+            val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
+            val recLink = element.selectFirst("a")?.attr("href")
+            val recImg = fixUrl(element.selectFirst("img")?.attr("data-src") ?: element.selectFirst("img")?.attr("src"))
+
+            if (recTitle != null && recLink != null) {
+                val finalRecLink = fixUrl(recLink) ?: return@mapNotNull null
+                newAnimeSearchResponse(
+                    recTitle,
+                    finalRecLink
+                ) {
+                    this.type = TvType.Anime
+                    this.posterUrl = recImg
+                }
+            } else {
+                Log.w("VerAnimesProvider", "load - Recomendación incompleta (título o link nulo): ${element.outerHtml().take(100)}")
+                null
+            }
+        }
+        Log.d("VerAnimesProvider", "load - Total de recomendaciones encontradas: ${recommendations.size}")
 
         val episodesMap = mutableMapOf<DubStatus, List<Episode>>()
         if (allEpisodes.isNotEmpty()) {
             episodesMap[DubStatus.Subbed] = allEpisodes
         }
 
+
         return newAnimeLoadResponse(
             name = title,
             url = fixedFinalUrlToFetch,
-            type = TvType.Anime,
-            //year = year // **CORRECCIÓN: Intentamos pasar 'year' aquí directamente como un argumento.**
-        ) { // Este bloque es la lambda 'initializer' para configurar AnimeLoadResponse
-            episodes = episodesMap
-            posterUrl = poster
-            backgroundPosterUrl = poster
-            plot = description
-            tags = localTags
-            //status = localStatus
-            recommendations = recommendations
+            type = TvType.Anime
+        ) {
+            episodes = episodesMap // Esto debería funcionar, es estándar
+            posterUrl = poster // Esto debería funcionar
+            backgroundPosterUrl = poster // Esto debería funcionar
+            plot = description // Esto debería funcionar, o 'description' si es el nombre real
+            tags = localTags // Esto debería funcionar
         }
     }
 
