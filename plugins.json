@@ -269,7 +269,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/VeranimesProvider.cs3",
     "status": 1,
-    "version": 1,
+    "version": 2,
     "apiVersion": 15,
     "name": "VerAnimes",
     "internalName": "VeranimesProvider",
@@ -283,6 +283,6 @@
     ],
     "iconUrl": "https://wwv.veranimes.net/cdn/img/favicon.png",
     "language": "es",
-    "fileSize": 24000
+    "fileSize": 25000
   }
 ]
