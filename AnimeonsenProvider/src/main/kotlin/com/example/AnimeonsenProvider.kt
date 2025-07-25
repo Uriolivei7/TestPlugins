@@ -20,8 +20,8 @@ import java.util.Calendar
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
 import com.fasterxml.jackson.annotation.JsonProperty
-import kotlin.collections.toList // Importación para .toList() si fuera necesario
-import com.lagradost.nicehttp.NiceResponse
+// import kotlin.collections.toList // Importación para .toList() si fuera necesario
+import com.lagradost.nicehttp.NiceResponse // Mantén esta importación si es necesaria, pero no la usamos directamente para las cookies
 
 class AnimeonsenProvider : MainAPI() {
     override var mainUrl = "https://www.animeonsen.xyz"
@@ -58,23 +58,16 @@ class AnimeonsenProvider : MainAPI() {
     private suspend fun getApiAuthTokenFromCookie(): String? {
         val mainPageResponse = app.get(mainUrl, interceptor = cfKiller)
 
-        // *** AÑADE ESTAS LÍNEAS PARA DEPURAR ***
-        Log.d("AnimeOnsen", "DEBUG: mainPageResponse.cookies (Valor): ${mainPageResponse.cookies}")
-        Log.d("AnimeOnsen", "DEBUG: mainPageResponse.cookies (Tipo): ${mainPageResponse.cookies?.javaClass?.name}")
-        // **************************************
-
-        val cookiesList: List<Pair<String, String>> = mainPageResponse.cookies
-                as? List<Pair<String, String>> ?: run {
-            Log.e("AnimeOnsen", "mainPageResponse.cookies no es una lista de Pair<String, String>")
+        val cookiesMap: Map<String, String> = mainPageResponse.cookies
+                as? Map<String, String> ?: run {
+            Log.e("AnimeOnsen", "mainPageResponse.cookies no es un Map<String, String>")
             return null
         }
 
-        var aoSessionCookie: String? = null
-
-        aoSessionCookie = cookiesList.firstOrNull { it.first == "ao.session" }?.second
+        var aoSessionCookie: String? = cookiesMap["ao.session"]
 
         if (aoSessionCookie.isNullOrBlank()) {
-            Log.w("AnimeOnsen", "ao.session cookie not found.")
+            Log.w("AnimeOnsen", "ao.session cookie not found or is blank.")
             return null
         }
 
@@ -84,7 +77,7 @@ class AnimeonsenProvider : MainAPI() {
             return null
         }
 
-        val finalToken = decodedCookieValue // O deObfuscateToken(decodedCookieValue)
+        val finalToken = decodedCookieValue
         return finalToken
     }
 
