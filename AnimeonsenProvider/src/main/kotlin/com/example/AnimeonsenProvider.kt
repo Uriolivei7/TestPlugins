@@ -104,6 +104,21 @@ class AnimeonsenProvider : MainAPI() {
                 this["Origin"] = mainUrl
                 this["Referer"] = "$mainUrl/"
                 this["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+
+                // *** AÑADIR ESTOS ENCABEZADOS ***
+                this["Accept"] = "application/json, text/plain, */*"
+                this["Accept-Encoding"] = "gzip, deflate, br, zstd"
+                this["Accept-Language"] = "es-ES,es;q=0.6" // O tu idioma preferido
+                this["Cache-Control"] = "no-cache"
+                this["Pragma"] = "no-cache"
+                this["Sec-Ch-Ua"] = "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\""
+                this["Sec-Ch-Ua-Mobile"] = "?0"
+                this["Sec-Ch-Ua-Platform"] = "\"Windows\""
+                this["Sec-Fetch-Dest"] = "empty"
+                this["Sec-Fetch-Mode"] = "cors"
+                this["Sec-Fetch-Site"] = "same-site"
+                this["Sec-Gpc"] = "1"
+                // **********************************
             }
             headers?.let { putAll(it) }
         }
@@ -159,6 +174,21 @@ class AnimeonsenProvider : MainAPI() {
             this["Origin"] = mainUrl
             this["Referer"] = "$mainUrl/"
             this["User-Agent"] = "Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+
+            // *** AÑADIR ESTOS ENCABEZADOS TAMBIÉN PARA POST ***
+            this["Accept"] = "application/json, text/plain, */*"
+            this["Accept-Encoding"] = "gzip, deflate, br, zstd"
+            this["Accept-Language"] = "es-ES,es;q=0.6" // O tu idioma preferido
+            this["Cache-Control"] = "no-cache"
+            this["Pragma"] = "no-cache"
+            this["Sec-Ch-Ua"] = "\"Not)A;Brand\";v=\"8\", \"Chromium\";v=\"138\", \"Brave\";v=\"138\""
+            this["Sec-Ch-Ua-Mobile"] = "?0"
+            this["Sec-Ch-Ua-Platform"] = "\"Windows\""
+            this["Sec-Fetch-Dest"] = "empty"
+            this["Sec-Fetch-Mode"] = "cors"
+            this["Sec-Fetch-Site"] = "same-site"
+            this["Sec-Gpc"] = "1"
+            // **************************************************
 
             if (url.startsWith(searchOrigin) && searchToken != null) {
                 this["Authorization"] = "Bearer $searchToken"
