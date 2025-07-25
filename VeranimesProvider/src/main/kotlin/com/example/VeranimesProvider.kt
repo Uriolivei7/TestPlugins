@@ -174,7 +174,7 @@ class VerAnimesProvider : MainAPI() {
 
         val finalUrlToFetch: String? = if (Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""").find(cleanUrl)?.let { it.groupValues[1] } != null) {
             val slug = Regex("""(?i)\/(?:ver|anime)\/([^\/]+)(?:-\d+)?\/?$""").find(cleanUrl)!!.groupValues[1]
-            "${mainUrl}/anime/$slug"
+            "${mainUrl}/anime/$slug" // Aseguramos que sea la URL de información del anime (ej: /anime/wotaku-ni-koi-wa-muzukashii)
         } else {
             cleanUrl
         }
@@ -206,8 +206,8 @@ class VerAnimesProvider : MainAPI() {
         }
 
         val localTags = doc.select("ul.gn li a").map { it.text().trim() }
-        val year = doc.selectFirst("div.ti div span.a")?.text()?.trim()?.toIntOrNull() // Extraemos el año de todas formas por si lo quieres usar en otra parte del plugin
-        val localStatus = parseStatus(doc.selectFirst("div.ti div span.fi")?.text()?.trim() ?: "") // Extraemos el estado
+        val year = doc.selectFirst("div.ti div span.a")?.text()?.trim()?.toIntOrNull()
+        val localStatus = parseStatus(doc.selectFirst("div.ti div span.fi")?.text()?.trim() ?: "")
 
         Log.d("VerAnimesProvider", "load - Géneros/Tags: $localTags, Año: $year, Estado: $localStatus")
 
@@ -215,47 +215,77 @@ class VerAnimesProvider : MainAPI() {
 
         val dataSl = doc.selectFirst("div.info")?.attr("data-sl")
         val dataZr = doc.selectFirst("ul.u.sp span[data-zr]")?.attr("data-zr")
+        val totalEpisodesString = doc.selectFirst("ul.u.sp span[data-ep]")?.attr("data-ep")
+        val totalEpisodes = totalEpisodesString?.toIntOrNull()
 
-        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr")
+        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes")
 
-        val scriptContent = doc.select("script:contains(var eps = [)").firstOrNull()?.html()
 
-        if (scriptContent != null && dataSl != null) {
-            val epsRegex = "var eps = \\[([^\\]]+)\\];".toRegex()
-            val matchResult = epsRegex.find(scriptContent)
+        // **INTENTO #1: EXTRAER DE 'var eps' EN EL SCRIPT**
+        var foundEpisodesFromScript = false
+        if (dataSl != null) {
+            // Selector más flexible: busca cualquier script que contenga la cadena "var eps = ["
+            val scriptContent = doc.select("script").map { it.html() }.firstOrNull { it.contains("var eps = [") }
 
-            if (matchResult != null) {
-                val epsString = matchResult.groupValues[1]
-                val epsArray = epsString.split(",").mapNotNull { it.trim().toIntOrNull() }
+            if (scriptContent != null) {
+                val epsRegex = "var eps = \\[([^\\]]+)\\];".toRegex()
+                val matchResult = epsRegex.find(scriptContent)
 
-                Log.d("VerAnimesProvider", "load - `eps` array extraído: ${epsArray.joinToString(", ")}, data-sl: $dataSl")
+                if (matchResult != null) {
+                    val epsString = matchResult.groupValues[1]
+                    val epsArray = epsString.split(",").mapNotNull { it.trim().toIntOrNull() }
 
-                val sortedEpsArray = epsArray.sorted()
+                    Log.d("VerAnimesProvider", "load - `eps` array extraído del script: ${epsArray.joinToString(", ")}, data-sl: $dataSl")
 
-                for (epn in sortedEpsArray) {
-                    val episodeTitle = "Episodio $epn"
-                    val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
+                    val sortedEpsArray = epsArray.sorted() // Asegura el orden ascendente
 
-                    allEpisodes.add(
-                        newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
-                            this.episode = epn
-                            this.posterUrl = poster
-                            this.name = episodeTitle
-                            this.description = episodeTitle
-                        }
-                    )
+                    for (epn in sortedEpsArray) {
+                        val episodeTitle = "Episodio $epn"
+                        val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
+
+                        allEpisodes.add(
+                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                                this.episode = epn
+                                this.posterUrl = poster
+                                this.name = episodeTitle
+                                this.description = episodeTitle
+                            }
+                        )
+                    }
+                    foundEpisodesFromScript = true
+                } else {
+                    Log.w("VerAnimesProvider", "load - Se encontró script que contiene 'var eps', pero no se pudo parsear el array para $fixedFinalUrlToFetch.")
                 }
             } else {
-                Log.w("VerAnimesProvider", "load - Se encontró script, pero no se pudo parsear 'var eps' para $fixedFinalUrlToFetch.")
+                Log.w("VerAnimesProvider", "load - No se encontró ningún script que contenga 'var eps = [' en el HTML para $fixedFinalUrlToFetch. Esto es normal si la página no lo incluye.")
             }
         } else {
-            Log.w("VerAnimesProvider", "load - No se encontró el script con 'var eps' o data-sl es nulo en el HTML para $fixedFinalUrlToFetch. No se generarán episodios.")
-            if (dataSl == null) Log.w("VerAnimesProvider", "load - data-sl es nulo, no se pueden construir URLs de episodio.")
-            if (scriptContent == null) Log.w("VerAnimesProvider", "load - scriptContent es nulo, el script 'var eps' no fue encontrado.")
+            Log.w("VerAnimesProvider", "load - data-sl es nulo, no se puede intentar extraer episodios del script.")
+        }
+
+        // **INTENTO #2: FALLBACK A data-ep SI EL SCRIPT NO FUNCIONÓ**
+        if (!foundEpisodesFromScript && dataSl != null && totalEpisodes != null && totalEpisodes > 0) {
+            Log.d("VerAnimesProvider", "load - Generando episodios con data-ep como fallback. Total: $totalEpisodes")
+            for (epn in 1..totalEpisodes) {
+                val episodeTitle = "Episodio $epn"
+                val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
+
+                allEpisodes.add(
+                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
+                        this.episode = epn
+                        this.posterUrl = poster
+                        this.name = episodeTitle
+                        this.description = episodeTitle
+                    }
+                )
+            }
+        } else if (!foundEpisodesFromScript) { // Este log solo si el script no se encontró Y el fallback tampoco pudo ejecutarse
+            Log.w("VerAnimesProvider", "load - Fallback con data-ep no se pudo usar (data-sl nulo, o totalEpisodes inválido/cero). No se generarán episodios en este caso.")
         }
 
         Log.d("VerAnimesProvider", "load - Total de episodios encontrados: ${allEpisodes.size}")
 
+        // Las recomendaciones - NO SE MOSTRARÁN EN TU VERSIÓN DE CLOUDSTREAM DEBIDO A LA API
         val recommendations = doc.select("aside#r div.ul.x2 article.li").mapNotNull { element ->
             val recTitle = element.selectFirst("h3.h a")?.text()?.trim()
             val recLink = element.selectFirst("a")?.attr("href")
@@ -275,7 +305,7 @@ class VerAnimesProvider : MainAPI() {
                 null
             }
         }
-        Log.d("VerAnimesProvider", "load - Total de recomendaciones encontradas: ${recommendations.size}")
+        Log.d("VerAnimesProvider", "load - Total de recomendaciones encontradas: ${recommendations.size} (No se mostrarán en la UI de CloudStream debido a la API).")
 
         val episodesMap = mutableMapOf<DubStatus, List<Episode>>()
         if (allEpisodes.isNotEmpty()) {
@@ -288,11 +318,12 @@ class VerAnimesProvider : MainAPI() {
             url = fixedFinalUrlToFetch,
             type = TvType.Anime
         ) {
-            episodes = episodesMap // Esto debería funcionar, es estándar
-            posterUrl = poster // Esto debería funcionar
-            backgroundPosterUrl = poster // Esto debería funcionar
-            plot = description // Esto debería funcionar, o 'description' si es el nombre real
-            tags = localTags // Esto debería funcionar
+            episodes = episodesMap
+            posterUrl = poster
+            backgroundPosterUrl = poster
+            plot = description
+            tags = localTags
+            // year, status y recommendations no se pueden asignar aquí.
         }
     }
 
