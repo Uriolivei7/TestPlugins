@@ -404,9 +404,13 @@ class TvporinternetProvider : MainAPI() {
                                         this.name,
                                         this.name,
                                         finalStreamUrl,
-                                        referer = "https://live.saohgdasregions.fun/", // Referer final para el stream
+                                        // Referer y Origin son CRÍTICOS aquí para que el video se cargue correctamente
+                                        referer = "https://live.saohgdasregions.fun/", // Referer exacto de tus logs
                                         quality = Qualities.Unknown.value,
-                                        type = ExtractorLinkType.M3U8
+                                        type = ExtractorLinkType.M3U8,
+                                        headers = mapOf(
+                                            "Origin" to "https://live.saohgdasregions.fun" // ¡Añadido este encabezado!
+                                        )
                                     )
                                 )
                                 return@apmap // Se encontró el stream, sal de esta playerUrl
