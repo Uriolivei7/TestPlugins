@@ -163,8 +163,7 @@ class VerAnimesProvider : MainAPI() {
 
     data class EpisodeLoadData(
         val title: String,
-        val url: String,
-        val internalPlayerId: String? = null // Añade este campo
+        val url: String
     )
 
     override suspend fun load(url: String): LoadResponse? {
@@ -219,16 +218,9 @@ class VerAnimesProvider : MainAPI() {
         val totalEpisodesString = doc.selectFirst("ul.u.sp span[data-ep]")?.attr("data-ep")
         val totalEpisodes = totalEpisodesString?.toIntOrNull()
 
-        val internalPlayerId = doc.selectFirst("div.ply")?.attr("data-id") // Si div.ply tiene data-id
-            ?: doc.selectFirst("div.player-container")?.attr("data-player-id") // Si hay un contenedor de reproductor con data-player-id
-            ?: doc.select("script").map { it.html() }.firstOrNull { it.contains("var animePlayerId") || it.contains("var mainPlayerId") || it.contains("var videoId") }?.let { scriptContent ->
-                // Busca una variable JS como: var animePlayerId = "2934";
-                val regex = "var (?:animePlayerId|mainPlayerId|videoId) = ['\"](\\d+)['\"];".toRegex()
-                regex.find(scriptContent)?.groupValues?.get(1)
-            }
-            ?: doc.selectFirst("meta[name=\"player-data-id\"]")?.attr("content") // Si hay un meta tag con el ID
+        // Eliminamos la extracción de internalPlayerId o dataEncryptValue aquí, ya que no están en la página del anime
+        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes")
 
-        Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes, InternalPlayerId (extraído): $internalPlayerId")
 
         var foundEpisodesFromScript = false
         if (dataSl != null) {
@@ -251,7 +243,7 @@ class VerAnimesProvider : MainAPI() {
                         val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                         allEpisodes.add(
-                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl, internalPlayerId).toJson()) {
+                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) { // SIN dataEncryptValue aquí
                                 this.episode = epn
                                 this.posterUrl = poster
                                 this.name = episodeTitle
@@ -277,8 +269,7 @@ class VerAnimesProvider : MainAPI() {
                 val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                 allEpisodes.add(
-                    // *** Y TAMBIÉN AQUÍ SE PASA internalPlayerId ***
-                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl, internalPlayerId).toJson()) {
+                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) { // SIN dataEncryptValue aquí
                         this.episode = epn
                         this.posterUrl = poster
                         this.name = episodeTitle
@@ -347,41 +338,41 @@ class VerAnimesProvider : MainAPI() {
             return false
         }
 
-        val initialHtmlForDownload = try {
+        // *** PASO CLAVE: Obtener el HTML de la página del episodio para extraer data-encrypt ***
+        val episodeHtml = try {
             app.get(
                 targetUrl,
                 headers = mapOf(
                     "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-                    "Referer" to referer // El referer para la página principal del episodio
+                    "Referer" to referer
                 )
             ).text
         } catch (e: Exception) {
-            Log.e("VerAnimesProvider", "loadLinks - Falló la obtención del HTML inicial para descarga: $targetUrl", e)
-            return false
-        }
-        val initialDoc = Jsoup.parse(initialHtmlForDownload)
-
-        val pathSegments = targetUrl.split("/")
-        val lastSegment = pathSegments.lastOrNull() // -> "wotaku-ni-koi-wa-muzukashii-10"
-
-        val slugAndEpisodeMatch = Regex("""(.+?)-(\d+)$""").find(lastSegment ?: "")
-        val slug = slugAndEpisodeMatch?.groupValues?.get(1) // -> "wotaku-ni-koi-wa-muzukashii"
-        val episodeNum = slugAndEpisodeMatch?.groupValues?.get(2) // -> "10"
-
-        if (slug.isNullOrBlank() || episodeNum.isNullOrBlank()) {
-            Log.e("VerAnimesProvider", "loadLinks - No se pudo extraer slug o número de episodio de la URL para la petición POST: $targetUrl")
+            Log.e("VerAnimesProvider", "loadLinks - Falló la obtención del HTML de la página del episodio: $targetUrl", e)
             return false
         }
 
-        val postData = "data=$slug&ep=$episodeNum"
+        val episodeDoc = Jsoup.parse(episodeHtml)
+
+        // *** EXTRAER data-encrypt del HTML de la página del episodio ***
+        val dataEncryptValue = episodeDoc.selectFirst(".opt")?.attr("data-encrypt")
+
+        if (dataEncryptValue.isNullOrBlank()) {
+            Log.e("VerAnimesProvider", "loadLinks - No se pudo extraer data-encrypt del elemento .opt de la página del episodio: $targetUrl")
+            return false
+        }
+
+        Log.d("VerAnimesProvider", "loadLinks - data-encrypt extraído de la página del episodio: $dataEncryptValue")
+
+        val postData = "acc=opt&i=$dataEncryptValue" // *** AHORA USAMOS EL dataEncryptValue OBTENIDO ***
         Log.d("VerAnimesProvider", "loadLinks - Datos POST calculados para /process: $postData")
 
         val headersForPost = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36", // Asegura que sea el mismo UA que en la red
-            "Referer" to targetUrl, // El Referer para la petición POST debe ser la URL del episodio
-            "X-Requested-With" to "XMLHttpRequest", // Indica que es una petición AJAX
-            "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8", // Tipo de contenido del cuerpo POST
-            "Content-Length" to postData.length.toString() // Longitud del cuerpo POST
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            "Referer" to targetUrl,
+            "X-Requested-With" to "XMLHttpRequest",
+            "Content-Type" to "application/x-www-form-urlencoded; charset=UTF-8",
+            "Content-Length" to postData.length.toString()
         )
 
         val playerLinksHtml = try {
@@ -403,11 +394,10 @@ class VerAnimesProvider : MainAPI() {
 
         Log.d("VerAnimesProvider", "loadLinks - HTML de la respuesta POST recibido (primeros 500 caracteres): ${playerLinksHtml.take(500)}")
 
-        val playerDoc = Jsoup.parse(playerLinksHtml) // Parseamos la RESPUESTA de la petición POST
-
+        val playerDoc = Jsoup.parse(playerLinksHtml)
         var linksFound = false
 
-        val optionsList = playerDoc.select("li[encrypt]") // El selector es solo `li[encrypt]` ya que la respuesta es directa
+        val optionsList = playerDoc.select("li[encrypt]")
 
         if (optionsList.isNotEmpty()) {
             Log.d("VerAnimesProvider", "loadLinks - ✅ ENCONTRADAS ${optionsList.size} opciones de REPRODUCCIÓN en la respuesta POST.")
@@ -419,10 +409,7 @@ class VerAnimesProvider : MainAPI() {
 
                 if (encryptedUrlHex.isNotBlank()) {
                     try {
-                        val decryptedUrl = encryptedUrlHex.chunked(2)
-                            .map { it.toInt(16).toChar() }
-                            .joinToString("")
-
+                        val decryptedUrl = hex2a(encryptedUrlHex) // Utiliza tu función hex2a
                         val fixedDecryptedUrl = fixUrl(decryptedUrl)
 
                         if (fixedDecryptedUrl != null && fixedDecryptedUrl.isNotBlank()) {
@@ -443,7 +430,7 @@ class VerAnimesProvider : MainAPI() {
             Log.w("VerAnimesProvider", "loadLinks - ❌ NO SE ENCONTRÓ ninguna opción de REPRODUCCIÓN 'li[encrypt]' en la respuesta POST. Esto es un problema.")
         }
 
-        val downloadDataElement = initialDoc.selectFirst("a.d[data-dwn]")
+        val downloadDataElement = episodeDoc.selectFirst("a.d[data-dwn]") // Usar episodeDoc aquí
         downloadDataElement?.attr("data-dwn")?.let { downloadData ->
             Log.d("VerAnimesProvider", "loadLinks - ✅ Botón de DESCARGA encontrado en HTML inicial, data-dwn: '$downloadData'")
             try {
@@ -467,7 +454,7 @@ class VerAnimesProvider : MainAPI() {
             }
         } ?: Log.w("VerAnimesProvider", "loadLinks - ❌ Botón de DESCARGA con 'data-dwn' no encontrado en el HTML inicial.")
 
-        val playerIframe = initialDoc.selectFirst("div.ply iframe")
+        val playerIframe = episodeDoc.selectFirst("div.ply iframe") // Usar episodeDoc aquí
         if (playerIframe != null) {
             var iframeSrc = playerIframe.attr("src")
             if (!iframeSrc.isNullOrBlank()) {
