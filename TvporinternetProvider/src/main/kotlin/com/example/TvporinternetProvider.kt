@@ -367,20 +367,52 @@ class TvporinternetProvider : MainAPI() {
 
             if (currentProcessingUrl.contains("tvporinternet2.com/live/") && currentProcessingUrl.endsWith(".php")) {
                 Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
-                // No es necesario pasar additionalHeaders aquí ya que safeAppGet ya tiene un User-Agent por defecto.
                 val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl))
                 if (phpIframeHtml != null) {
-                    // Log que muestra el HTML devuelto por americatv.php (con el frame-buster)
-                    Log.d("TvporInternet", "loadLinks: HTML obtenido de PHP iframe: ${phpIframeHtml.substring(0, Math.min(phpIframeHtml.length, 1000))}...")
-
                     val phpIframeDoc = Jsoup.parse(phpIframeHtml)
+                    // Este selector ahora sabemos que debería encontrar el iframe
                     val nestedIframeSrc = phpIframeDoc.selectFirst("iframe[src*='saohgdasregions.fun']")?.attr("src")
 
                     if (!nestedIframeSrc.isNullOrBlank()) {
-                        currentProcessingUrl = nestedIframeSrc
+                        currentProcessingUrl = nestedIframeSrc // Actualizamos la URL a la de saohgdasregions.fun
                         Log.d("TvporInternet", "loadLinks: Iframe anidado en PHP encontrado: $currentProcessingUrl")
+
+                        // *** AÑADIR LÓGICA PARA SEGUIR REDIRECCIÓN Y EXTRAER DEL CLAPPR JS ***
+                        Log.d("TvporInternet", "loadLinks: Siguiendo potencial redirección de saohgdasregions.fun y buscando URL de stream.")
+                        val finalPlayerHtml = safeAppGet(fixUrl(currentProcessingUrl)) // Realiza la petición a saohgdasregions.fun/stream.php, que se redirigirá automáticamente a mihd.php
+                        if (finalPlayerHtml != null) {
+                            val finalPlayerDoc = Jsoup.parse(finalPlayerHtml)
+                            val scriptContent = finalPlayerDoc.select("script").map { it.html() }.joinToString("\n")
+
+                            // Buscar la URL en el script de Clappr.js
+                            val clapprSourceRegex = """source:\s*['"](https?:\/\/[^'"]*\.(?:m3u8|mpd|mp4)[^'"]*)['"]""".toRegex()
+                            val streamUrlMatch = clapprSourceRegex.find(scriptContent)
+
+                            if (streamUrlMatch != null) {
+                                val finalStreamUrl = streamUrlMatch.groupValues[1]
+                                Log.d("TvporInternet", "loadLinks: ¡URL de stream final encontrada en Clappr.js!: $finalStreamUrl")
+                                callback(
+                                    ExtractorLink(
+                                        this.name,
+                                        this.name,
+                                        finalStreamUrl,
+                                        referer = targetUrl, // o currentProcessingUrl si prefieres
+                                        quality = Qualities.Unknown.value,
+                                        type = ExtractorLinkType.M3U8
+                                    )
+                                )
+                                return@apmap // Hemos encontrado el stream, salimos de este playerUrl
+                            } else {
+                                Log.e("TvporInternet", "loadLinks: No se encontró la URL del stream en el script de Clappr.js para: $currentProcessingUrl")
+                            }
+                        } else {
+                            Log.e("TvporInternet", "loadLinks: Falló la carga del HTML final del reproductor desde: $currentProcessingUrl")
+                        }
+                        // *** FIN LÓGICA AÑADIDA ***
+
                     } else {
-                        Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado en el archivo PHP: $currentProcessingUrl")
+                        Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado con 'saohgdasregions.fun' en el archivo PHP: $currentProcessingUrl")
+                        // Mantenemos los logs de depuración aquí si se quiere ver qué otros iframes o scripts hay
                         val allIframes = phpIframeDoc.select("iframe")
                         if (allIframes.isNotEmpty()) {
                             Log.e("TvporInternet", "loadLinks: Otros iframes encontrados en PHP, pero no coincidieron con el selector 'saohgdasregions.fun':")
@@ -390,7 +422,7 @@ class TvporinternetProvider : MainAPI() {
                         }
                         val allScripts = phpIframeDoc.select("script")
                         if (allScripts.isNotEmpty()) {
-                            Log.e("TvporInternet", "loadLinks: Se encontraron scripts en PHP, podría generarse con JS.")
+                            Log.d("TvporInternet", "loadLinks: Se encontraron scripts en PHP, podría generarse con JS (pero el iframe principal ya fue encontrado).")
                         }
                     }
                 } else {
