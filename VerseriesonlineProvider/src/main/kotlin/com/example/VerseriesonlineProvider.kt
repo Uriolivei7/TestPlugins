@@ -185,7 +185,8 @@ class VerseriesonlineProvider : MainAPI() {
             val mainPageEpisodes = doc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
                 val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty())
                 val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty()
-                val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
+                // --- CAMBIO AQUÍ: Ahora busca "Capítulo" o "Episodio" ---
+                val episodeNumber = epTitle.replace(Regex("(Capítulo|Episodio)\\s*"), "").toIntOrNull()
 
                 if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
                     newEpisode(
@@ -235,7 +236,8 @@ class VerseriesonlineProvider : MainAPI() {
                     val episodesInSeason = seasonDoc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
                         val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty())
                         val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty()
-                        val episodeNumber = epTitle.replace(Regex("Capítulo\\s*"), "").toIntOrNull()
+                        // --- CAMBIO AQUÍ: Ahora busca "Capítulo" o "Episodio" ---
+                        val episodeNumber = epTitle.replace(Regex("(Capítulo|Episodio)\\s*"), "").toIntOrNull()
 
                         if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {
                             newEpisode(
@@ -348,8 +350,6 @@ class VerseriesonlineProvider : MainAPI() {
 
                     Log.d("Veronline", "LOADLINKS_PLAYERS - Decoded URL for $serverName: $fullIframeUrl")
 
-                    // ****** CAMBIO CLAVE AQUI: SIEMPRE DELEGA A loadExtractor ******
-                    // Se elimina la lógica específica de Uqload para que loadExtractor la maneje.
                     Log.d("Veronline", "LOADLINKS_DELEGATING - Delegando a CloudStream's loadExtractor: $fullIframeUrl")
                     loadExtractor(fullIframeUrl, targetUrl, subtitleCallback, callback)
 
