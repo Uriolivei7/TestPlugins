@@ -33,12 +33,9 @@ class OtakustvProvider : MainAPI() {
 
     private fun extractAnimeItem(element: Element): AnimeSearchResponse? {
         val linkElement = element.selectFirst("a")
-        // Intentamos obtener el título del <h2> con las clases específicas
         val titleTextFromH2 = linkElement?.selectFirst("h2.font-GDSherpa-Bold.font15")?.text()?.trim()
-        // Como fallback, usamos el atributo 'alt' de la imagen
         val titleTextFromImgAlt = linkElement?.selectFirst("img.lazyload")?.attr("alt")?.trim()
             ?: linkElement?.selectFirst("img.img-fluid")?.attr("alt")?.trim()
-        // El título final será el de h2, o el de alt de la imagen si h2 no tiene
         val finalTitle = titleTextFromH2 ?: titleTextFromImgAlt
         val link = linkElement?.attr("href") // Obtenemos el href del enlace principal
         val posterElement = element.selectFirst("img.lazyload")
@@ -60,7 +57,6 @@ class OtakustvProvider : MainAPI() {
         }
         return null
     }
-
 
     private suspend fun safeAppGet(
         url: String,

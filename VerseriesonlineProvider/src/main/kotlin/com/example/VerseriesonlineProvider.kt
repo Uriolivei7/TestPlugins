@@ -13,7 +13,7 @@ import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
 class VerseriesonlineProvider : MainAPI() {
-    override var mainUrl = "https://www.veronline.cfd"
+    override var mainUrl = "https://www.veronline.tax"
     override var name = "Veronline"
     override val supportedTypes = setOf(
         TvType.TvSeries,

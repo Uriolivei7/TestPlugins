@@ -119,18 +119,16 @@
     "status": 1,
     "version": 2,
     "apiVersion": 7,
-    "name": "VerOnline",
+    "name": "Veronline",
     "internalName": "VeronlineProvider",
     "authors": [
       "Ranita"
     ],
-    "description": "Plugin para www.veronline.cfd",
+    "description": "Plugin para www.veronline.tax",
     "tvTypes": [
-      "TvSeries",
-      "Cartoon",
-      "Anime"
+      "TvSeries"
     ],
-    "iconUrl": "https://www.veronline.cfd/icon/favicon.ico",
+    "iconUrl": "https://www.veronline.tax/icon/favicon.ico",
     "language": "es",
     "fileSize": 20000
   },
