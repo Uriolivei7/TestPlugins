@@ -266,12 +266,12 @@
     "fileSize": 26000
   },
   {
-    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/Doramasflix.cs3",
+    "url": "https://raw.githubusercontent.com/Uriolivei7/TestPlugins/master/plugins/DoramasflixProvider.cs3",
     "status": 1,
     "version": 2,
     "apiVersion": 15,
     "name": "Doramasflix",
-    "internalName": "Doramasflix",
+    "internalName": "DoramasflixProvider",
     "authors": [
       "Ranita"
     ],
