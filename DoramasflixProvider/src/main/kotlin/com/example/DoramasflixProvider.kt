@@ -124,33 +124,42 @@ class DoramasflixProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
-        // Cambié los cuerpos de la solicitud para usar GraphQL de manera más robusta
         val doramasBody = "{\"operationName\":\"listDoramasMobile\",\"variables\":{\"filter\":{\"isTVShow\":false},\"limit\":32,\"sort\":\"_ID_DESC\"},\"query\":\"query listDoramasMobile(\$limit: Int, \$skip: Int, \$sort: SortFindManyDoramaInput, \$filter: FilterFindManyDoramaInput) {\\n  listDoramas(limit: \$limit, skip: \$skip, sort: \$sort, filter: \$filter) {\\n    _id\\n    name\\n    name_es\\n    slug\\n    poster_path\\n    isTVShow\\n    poster\\n    __typename\\n  }\\n}\\n\"}"
         val peliculasBody = "{\"operationName\":\"paginationMovie\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{},\"page\":1},\"query\":\"query paginationMovie(\$page: Int, \$perPage: Int, \$sort: SortFindManyMovieInput, \$filter: FilterFindManyMovieInput) {\\n  paginationMovie(page: \$page, perPage: \$perPage, sort: \$sort, filter: \$filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      names\\n      poster_path\\n      poster\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
         val variedadesBody = "{\"operationName\":\"paginationDorama\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{\"isTVShow\":true},\"page\":1},\"query\":\"query paginationDorama(\$page: Int, \$perPage: Int, \$sort: SortFindManyDoramaInput, \$filter: FilterFindManyDoramaInput) {\\n  paginationDorama(page: \$page, perPage: \$perPage, sort: \$sort, filter: \$filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      names\\n      poster_path\\n      backdrop_path\\n      isTVShow\\n      poster\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
 
+        // Bloque 1: Cargar Doramas
         try {
             val doraresponse = app.post(doraflixapi, requestBody = doramasBody.toRequestBody(mediaType)).parsed<MainDoramas>()
-            val pelisrresponse = app.post(doraflixapi, requestBody = peliculasBody.toRequestBody(mediaType)).parsed<MainDoramas>()
-            val variedadesresponse = app.post(doraflixapi, requestBody = variedadesBody.toRequestBody(mediaType)).parsed<MainDoramas>()
-
-            val listdoramas = doraresponse.data?.listDoramas?.mapNotNull { info -> tasa(info) } // Usar mapNotNull
-            val pelis = pelisrresponse.data?.paginationMovie?.items?.mapNotNull { info -> tasa(info) } // Usar mapNotNull
-            val vari = variedadesresponse.data?.paginationDorama?.items?.mapNotNull { info -> tasa(info) } // Usar mapNotNull
-
+            val listdoramas = doraresponse.data?.listDoramas?.mapNotNull { info -> tasa(info) }
             if (!listdoramas.isNullOrEmpty()) items.add(HomePageList("Doramas", listdoramas))
-            if (!pelis.isNullOrEmpty()) items.add(HomePageList("Peliculas", pelis))
-            if (!vari.isNullOrEmpty()) items.add(HomePageList("Doramas Populares", vari)) // Cambié el nombre de la lista para claridad
-
-            if (items.isEmpty()) { // Comprobar si no hay elementos después de intentar añadir
-                Log.w(TAG, "No se pudieron cargar elementos para la página principal. Posiblemente API caída o datos vacíos.")
-                throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
-            }
-            return newHomePageResponse(items) // Usar la función auxiliar newHomePageResponse
         } catch (e: Exception) {
-            Log.e(TAG, "Error al cargar la página principal: ${e.message}", e)
-            return null
+            Log.e(TAG, "Error al cargar Doramas: ${e.message}", e)
         }
+
+        // Bloque 2: Cargar Películas
+        try {
+            val pelisrresponse = app.post(doraflixapi, requestBody = peliculasBody.toRequestBody(mediaType)).parsed<MainDoramas>()
+            val pelis = pelisrresponse.data?.paginationMovie?.items?.mapNotNull { info -> tasa(info) }
+            if (!pelis.isNullOrEmpty()) items.add(HomePageList("Peliculas", pelis))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al cargar Películas: ${e.message}", e)
+        }
+
+        // Bloque 3: Cargar Doramas Populares
+        try {
+            val variedadesresponse = app.post(doraflixapi, requestBody = variedadesBody.toRequestBody(mediaType)).parsed<MainDoramas>()
+            val vari = variedadesresponse.data?.paginationDorama?.items?.mapNotNull { info -> tasa(info) }
+            if (!vari.isNullOrEmpty()) items.add(HomePageList("Doramas Populares", vari))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error al cargar Doramas Populares: ${e.message}", e)
+        }
+
+        if (items.isEmpty()) {
+            Log.w(TAG, "No se pudieron cargar elementos para la página principal. Posiblemente API caída o datos vacíos.")
+            throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
+        }
+        return newHomePageResponse(items)
     }
 
     // Esta función tasa se ha actualizado para devolver el tipo de búsqueda correcto

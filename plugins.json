@@ -277,9 +277,10 @@
     ],
     "description": "Plugin para doramasflix.co",
     "tvTypes": [
-      "AsianDrama"
+      "AsianDrama",
+      "Movie"
     ],
-    "iconUrl": "Doramasflix",
+    "iconUrl": "\nhttps://doramasflix.co/favicon.ico",
     "language": "es",
     "fileSize": 35000
   }
