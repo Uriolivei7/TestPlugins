@@ -128,7 +128,6 @@ class DoramasflixProvider : MainAPI() {
         val peliculasBody = "{\"operationName\":\"paginationMovie\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{},\"page\":1},\"query\":\"query paginationMovie(\$page: Int, \$perPage: Int, \$sort: SortFindManyMovieInput, \$filter: FilterFindManyMovieInput) {\\n  paginationMovie(page: \$page, perPage: \$perPage, sort: \$sort, filter: \$filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      names\\n      poster_path\\n      poster\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
         val variedadesBody = "{\"operationName\":\"paginationDorama\",\"variables\":{\"perPage\":32,\"sort\":\"CREATEDAT_DESC\",\"filter\":{\"isTVShow\":true},\"page\":1},\"query\":\"query paginationDorama(\$page: Int, \$perPage: Int, \$sort: SortFindManyDoramaInput, \$filter: FilterFindManyDoramaInput) {\\n  paginationDorama(page: \$page, perPage: \$perPage, sort: \$sort, filter: \$filter) {\\n    count\\n    pageInfo {\\n      currentPage\\n      hasNextPage\\n      hasPreviousPage\\n      __typename\\n    }\\n    items {\\n      _id\\n      name\\n      name_es\\n      slug\\n      names\\n      poster_path\\n      backdrop_path\\n      isTVShow\\n      poster\\n      __typename\\n    }\\n    __typename\\n  }\\n}\\n\"}"
 
-        // Bloque 1: Cargar Doramas
         try {
             val doraresponse = app.post(doraflixapi, requestBody = doramasBody.toRequestBody(mediaType)).parsed<MainDoramas>()
             val listdoramas = doraresponse.data?.listDoramas?.mapNotNull { info -> tasa(info) }
@@ -137,7 +136,6 @@ class DoramasflixProvider : MainAPI() {
             Log.e(TAG, "Error al cargar Doramas: ${e.message}", e)
         }
 
-        // Bloque 2: Cargar Películas
         try {
             val pelisrresponse = app.post(doraflixapi, requestBody = peliculasBody.toRequestBody(mediaType)).parsed<MainDoramas>()
             val pelis = pelisrresponse.data?.paginationMovie?.items?.mapNotNull { info -> tasa(info) }
@@ -146,7 +144,6 @@ class DoramasflixProvider : MainAPI() {
             Log.e(TAG, "Error al cargar Películas: ${e.message}", e)
         }
 
-        // Bloque 3: Cargar Doramas Populares
         try {
             val variedadesresponse = app.post(doraflixapi, requestBody = variedadesBody.toRequestBody(mediaType)).parsed<MainDoramas>()
             val vari = variedadesresponse.data?.paginationDorama?.items?.mapNotNull { info -> tasa(info) }
@@ -159,11 +156,9 @@ class DoramasflixProvider : MainAPI() {
             Log.w(TAG, "No se pudieron cargar elementos para la página principal. Posiblemente API caída o datos vacíos.")
             throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
         }
-        return newHomePageResponse(items) //Yeji
+        return newHomePageResponse(items)
     }
 
-    // Esta función tasa se ha actualizado para devolver el tipo de búsqueda correcto
-    // (MovieSearchResponse o TvSeriesSearchResponse) y usar las funciones auxiliares.
     private fun tasa(info: ListDoramas): SearchResponse? {
         val title = info.name ?: info.nameEs // Preferir name, fallback a nameEs
         val slug = info.slug
