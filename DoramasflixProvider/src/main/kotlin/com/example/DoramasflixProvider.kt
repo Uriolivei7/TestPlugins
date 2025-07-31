@@ -159,7 +159,7 @@ class DoramasflixProvider : MainAPI() {
             Log.w(TAG, "No se pudieron cargar elementos para la página principal. Posiblemente API caída o datos vacíos.")
             throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
         }
-        return newHomePageResponse(items)
+        return newHomePageResponse(items) //Yeji
     }
 
     // Esta función tasa se ha actualizado para devolver el tipo de búsqueda correcto
