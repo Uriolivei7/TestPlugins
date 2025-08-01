@@ -35,9 +35,8 @@ class LacartoonsProvider : MainAPI() {
 
     private fun encode(text: String): String = URLEncoder.encode(text, "UTF-8")
 
-    // Helper para loggear cadenas largas
     private fun logLongString(tag: String, message: String) {
-        val chunkSize = 4000 // Tamaño máximo de línea para logcat
+        val chunkSize = 4000
         var i = 0
         while (i < message.length) {
             val endIndex = min(i + chunkSize, message.length)
@@ -87,40 +86,37 @@ class LacartoonsProvider : MainAPI() {
 
             val actualEpnum = epnum?.toIntOrNull()
 
-            newEpisode(fixUrl(href!!)) { // 'fixUrl(href!!)' es el parámetro 'data'
+            newEpisode(fixUrl(href!!)) {
                 this.name = name
                 this.season = seasonnum?.toIntOrNull()
                 this.episode = actualEpnum
-                this.runTime = null // ¡IMPORTANTE! Añade esta línea para cumplir con la nueva API
+                this.runTime = null
             }
         }
 
-        // --- INICIO: Lógica para "Series recomendadas" ---
         val recommendations = doc.select("div.series-recomendadas a").mapNotNull { element ->
             val recTitle = element.selectFirst("p.nombre-serie")?.text()
             val recLink = element.attr("href")
             val recImg = element.selectFirst("img")?.attr("src")
 
             if (recTitle != null && recLink != null && recImg != null) {
-                newTvSeriesSearchResponse( // Usamos newTvSeriesSearchResponse ya que este proveedor es de Cartoon
+                newTvSeriesSearchResponse(
                     recTitle,
                     fixUrl(recLink)
                 ) {
                     this.posterUrl = fixUrl(recImg)
-                    this.type = TvType.Cartoon // Opcional: especificar el tipo si siempre es Cartoon
+                    this.type = TvType.Cartoon
                 }
             } else {
                 null
             }
         }
-        // --- FIN: Lógica para "Series recomendadas" ---
-
 
         return newTvSeriesLoadResponse(title!!, url, TvType.Cartoon, episodes) {
             this.posterUrl = fixUrl(poster!!)
             this.backgroundPosterUrl = fixUrl(backposter!!)
             this.plot = description
-            this.recommendations = recommendations // Añadir las recomendaciones aquí
+            this.recommendations = recommendations
         }
     }
 
@@ -149,9 +145,7 @@ class LacartoonsProvider : MainAPI() {
                 return false
             }
 
-            // Intenta obtener la URL del video de la etiqueta <source> dentro de <video>
             val videoUrl = embedDoc.selectFirst("video#video-js-video source#video_source")?.attr("src")
-            // Como respaldo, intenta de las meta etiquetas Open Graph
                 ?: embedDoc.selectFirst("meta[property=og:video]")?.attr("content")
                 ?: embedDoc.selectFirst("meta[property=og:video:secure_url]")?.attr("content")
 
@@ -162,7 +156,7 @@ class LacartoonsProvider : MainAPI() {
                         source = "Sendvid",
                         name = "Sendvid",
                         url = videoUrl,
-                        referer = sendvidEmbedUrl, // La URL del embed de Sendvid como referer
+                        referer = sendvidEmbedUrl,
                         quality = Qualities.Unknown.value,
                         type = if (videoUrl.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
                         headers = mapOf("User-Agent" to "Mozilla/50 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")

@@ -82,13 +82,11 @@ class OtakustvProvider : MainAPI() {
         val html = safeAppGet(url) ?: return null
         val doc = Jsoup.parse(html)
 
-        // --- SECCIÓN NUEVA: EPISODIOS ESTRENO (MOVÍDA AL PRINCIPIO) ---
         doc.selectFirst("div.reciente.mt-3:has(h3:contains(EPISODIOS ESTRENO))")?.let { container ->
             val animes = container.select(".row .col-6").mapNotNull { extractEpisodeItem(it) }
             if (animes.isNotEmpty()) items.add(HomePageList("Episodios Estreno", animes))
         }
 
-        // --- SECCIONES EXISTENTES (EN SU ORDEN ORIGINAL DESPUÉS DE "EPISODIOS ESTRENO") ---
         doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")?.let { container ->
             val animes = container.select(".carusel_ranking .item").mapNotNull { extractAnimeItem(it) }
             if (animes.isNotEmpty()) items.add(HomePageList("Animes Finalizados", animes))
@@ -122,39 +120,28 @@ class OtakustvProvider : MainAPI() {
         return HomePageResponse(items)
     }
 
-    // Función específica para extraer elementos de "Episodios Estreno"
     private fun extractEpisodeItem(element: Element): AnimeSearchResponse? {
         try {
             val linkElement = element.selectFirst("a") ?: return null
             val titleElement = element.selectFirst("h2 a") ?: return null
 
             val title = titleElement.text().trim()
-            val episodeUrl = linkElement.attr("href") // URL actual del episodio
+            val episodeUrl = linkElement.attr("href")
 
-            // Modificación clave: extraer la URL base del anime
-            // Esto buscará "/episodio-" y devolverá todo lo que esté antes.
-            // Si no lo encuentra (lo cual no debería pasar para episodios), devuelve la URL original.
             val animeUrl = episodeUrl.substringBeforeLast("/episodio-", episodeUrl)
 
             val posterElement = element.selectFirst("img.lazyload")
                 ?: element.selectFirst("img.img-fluid")
             val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
 
-            // Extraer el número de episodio para quizás usarlo como un "subtítulo" si el AnimeSearchResponse lo permite
             val episodeNumberText = element.selectFirst("p.font15 span.bog")?.text()?.replace("Episodio ", "")?.trim() ?: ""
 
-            // Creamos un AnimeSearchResponse que enlazará a la página del anime
-            // Puedes incluir el número de episodio en el título si quieres que se vea, ej: "$title (Ep. $episodeNumberText)"
-            // O dejarlo así si la UI de CloudStream3 no tiene un campo de subtítulo para estos items.
             return newAnimeSearchResponse(
-                title, // Título del anime
-                fixUrl(animeUrl) // URL que lleva a la página del anime
+                title,
+                fixUrl(animeUrl)
             ) {
                 this.type = TvType.Anime
                 this.posterUrl = img
-                // Si quieres que el número de episodio aparezca en la UI para esta sección,
-                // podrías añadirlo al título así: this.name = "$title (Ep. $episodeNumberText)"
-                // Pero esto podría no ser deseable para la consistencia si otras secciones no lo hacen.
             }
         } catch (e: Exception) {
             Log.e("OtakustvProvider", "Error extracting episode item: ${e.message}", e)
@@ -247,54 +234,47 @@ class OtakustvProvider : MainAPI() {
             val pageHtml = safeAppGet(pageUrl) ?: continue
             val pageDoc = Jsoup.parse(pageHtml)
 
-            // Selector **altamente específico** para los contenedores de episodios dentro de la pestaña de episodios.
             val episodeContainers = pageDoc.select("div#nav-episodios div.row div[class*=\"col-\"]")
 
             if (episodeContainers.isEmpty()) {
                 Log.w("OtakustvProvider", "No se encontraron contenedores de episodios con el selector 'div#nav-episodios div.row div[class*=\"col-\"]' en $pageUrl")
-                // Intentar un fallback si la página actual podría ser un solo episodio
                 val singleEpisodeIframe = pageDoc.selectFirst("div.st-vid #result_server iframe#ytplayer")?.attr("src")
                 if (!singleEpisodeIframe.isNullOrBlank()) {
                     Log.d("OtakustvProvider", "Load: Encontrado iframe de un solo episodio, asumiendo página de episodio directo.")
-                    val currentEpUrl = if (url.contains("/episodio-")) url else "$url/episodio-1" // Asumir episodio 1 si es URL de serie
-                    val currentEpTitle = title // Usar el título de la serie como fallback
+                    val currentEpUrl = if (url.contains("/episodio-")) url else "$url/episodio-1"
+                    val currentEpTitle = title
                     allEpisodes.add(newEpisode(EpisodeLoadData(currentEpTitle, currentEpUrl).toJson()) {
                         this.name = currentEpTitle
                         this.season = null
                         this.episode = 1
                     })
                 }
-                continue // Saltar esta URL de página si no se encontraron episodios por lista
+                continue
             }
 
             val episodesOnPage = episodeContainers.mapNotNull { element ->
                 val epLinkElement = element.selectFirst("a.item-temp")
 
-                // Si no se encuentra a.item-temp, este 'element' no es un episodio válido, saltarlo.
                 if (epLinkElement == null) {
                     Log.w("OtakustvProvider", "Elemento de episodio sin a.item-temp dentro de #nav-episodios div.row: ${element.outerHtml().take(200)}")
-                    return@mapNotNull null // Saltar este elemento
+                    return@mapNotNull null
                 }
 
                 val epUrl = fixUrl(epLinkElement.attr("href")).also {
                     if (it.isBlank()) Log.w("OtakustvProvider", "EpLinkElement href is blank for an episode item: ${element.outerHtml().take(200)}")
                 }
 
-                // --- MOVIDO: EXTRACCIÓN DEL NÚMERO DE EPISODIO ANTES DE USARLO EN EL TÍTULO ---
                 var episodeNumber: Int? = null
                 val episodeUrlMatch = Regex("""episodio-(\d+)""").find(epUrl)
                 episodeNumber = episodeUrlMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
 
-                // --- INICIO DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
                 var epTitle: String = element.selectFirst("p.font-GDSherpa-Bold.font14.mb-1.text-left")?.text()?.trim() ?: ""
-                var epDescription: String = "" // Nueva variable para la descripción
+                var epDescription: String = ""
 
-                // Fallback: si el selector anterior no encontró nada para el título, intentar el atributo 'title' del enlace
                 if (epTitle.isBlank()) {
                     epTitle = epLinkElement.attr("title")?.trim() ?: ""
                 }
 
-                // Extracción de la descripción del episodio
                 epDescription = element.selectFirst("p.font14.mb-0.mt-2 span.bog")?.text()?.trim() ?: ""
 
                 if (episodeNumber == null) {
@@ -309,9 +289,8 @@ class OtakustvProvider : MainAPI() {
                 if (epTitle.isBlank() && episodeNumber != null) {
                     epTitle = "Episodio $episodeNumber"
                 } else if (epTitle.isBlank()) {
-                    epTitle = "Episodio Desconocido" // Fallback final si no hay número
+                    epTitle = "Episodio Desconocido"
                 }
-                // --- FIN DE LA LÓGICA DE EXTRACCIÓN DEL TÍTULO Y DESCRIPCIÓN DEL EPISODIO ---
 
                 if (epTitle.isBlank() || epUrl.isBlank()) {
                     Log.w("OtakustvProvider", "Episodio incompleto encontrado después de intentar varios selectores: URL='$epUrl', Título='$epTitle'")
@@ -324,11 +303,11 @@ class OtakustvProvider : MainAPI() {
                 val episodeData = EpisodeLoadData(epTitle, epUrl)
                 Log.d("OtakustvProvider", "load - Data del episodio antes de crear objeto: Título='$epTitle', Descripción='$epDescription'")
                 newEpisode(episodeData.toJson()) {
-                    this.name = epDescription // Asigna la descripción (Ludo saquea...) al campo 'name' (que tu UI muestra como descripción)
+                    this.name = epDescription
                     this.season = null
                     this.episode = episodeNumber
                     this.posterUrl = epPoster
-                    this.description = epTitle // Asigna el título (La esfera) al campo 'description' (que tu UI muestra como título)
+                    this.description = epTitle
                 }
             }
             allEpisodes.addAll(episodesOnPage)
@@ -365,7 +344,6 @@ class OtakustvProvider : MainAPI() {
             this.plot = description
             this.tags = tags + additionalTags
             this.year = year
-            //this.status = status
             this.recommendations = recommendations
         }
     }
@@ -390,7 +368,6 @@ class OtakustvProvider : MainAPI() {
             Log.e("OtakustvProvider", "loadLinks - Fallo al obtener HTML para: $targetUrl")
             return false
         }
-        // Log para depuración: Primeros 500 caracteres del HTML recibido
         Log.d("OtakustvProvider", "loadLinks - HTML recibido (primeros 500 chars): ${initialHtml.take(500)}")
 
         val doc = Jsoup.parse(initialHtml)
@@ -403,7 +380,6 @@ class OtakustvProvider : MainAPI() {
             link.attr("rel").takeIf { it.isNotBlank() }?.let { encryptedValues.add(it) }
         }
 
-        // Log para depuración: Valores encriptados encontrados
         Log.d("OtakustvProvider", "loadLinks - Valores encriptados encontrados: $encryptedValues")
 
         var linksFound = false

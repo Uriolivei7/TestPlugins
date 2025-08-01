@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import android.util.Base64
 import javax.crypto.Cipher
@@ -33,29 +32,25 @@ class TvporinternetProvider : MainAPI() {
     private val cfKiller = CloudflareKiller()
     private val nowAllowed = listOf("Red Social", "Donacion")
 
-    // Modificada para incluir un User-Agent por defecto
     private suspend fun safeAppGet(
         url: String,
         retries: Int = 3,
         delayMs: Long = 2000L,
         timeoutMs: Long = 15000L,
         additionalHeaders: Map<String, String>? = null,
-        referer: String? = null // ¡Nuevo parámetro!
+        referer: String? = null
     ): String? {
         val requestHeaders = (additionalHeaders ?: emptyMap()).toMutableMap()
-        // Agrega un User-Agent si no se ha proporcionado uno específicamente
         if (!requestHeaders.containsKey("User-Agent")) {
             requestHeaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
             Log.d("TvporInternet", "safeAppGet - Añadido User-Agent por defecto: ${requestHeaders["User-Agent"]}")
         } else {
             Log.d("TvporInternet", "safeAppGet - Usando User-Agent proporcionado: ${requestHeaders["User-Agent"]}")
         }
-        // ¡Añadir Referer si está presente!
         if (!referer.isNullOrBlank() && !requestHeaders.containsKey("Referer")) {
             requestHeaders["Referer"] = referer
             Log.d("TvporInternet", "safeAppGet - Añadido Referer: ${requestHeaders["Referer"]}")
         }
-
 
         for (i in 0 until retries) {
             try {
@@ -298,13 +293,12 @@ class TvporinternetProvider : MainAPI() {
     ): Boolean {
         Log.d("TvporInternet", "loadLinks: Iniciando extracción de enlaces de reproducción para URL: $data")
 
-        val targetUrl = fixUrl(data) // Esta es la URL de la página del canal (ej. america-tv-en-vivo-por-internet.html)
+        val targetUrl = fixUrl(data)
         if (targetUrl.isBlank()) {
             Log.e("TvporInternet", "loadLinks: ERROR - URL objetivo (página del canal) está en blanco.")
             return false
         }
 
-        // Primera petición: a la página del canal. El Referer será su propio dominio principal.
         val initialHtml = safeAppGet(targetUrl, referer = mainUrl)
         if (initialHtml == null) {
             Log.e("TvporInternet", "loadLinks: Falló la carga del HTML para la URL del canal: $targetUrl")
@@ -312,7 +306,6 @@ class TvporinternetProvider : MainAPI() {
         }
         val doc = Jsoup.parse(initialHtml)
 
-        // Comprueba si hay enlaces directos a saohgdasregions.fun en los scripts (si alguna vez aparecen directamente)
         val scriptContent = doc.select("script").map { it.html() }.joinToString("\n")
         val saohgdasregionsRegex = """(https?:\/\/[^'"]*saohgdasregions\.fun[^'"]*)""".toRegex()
         val directSaohgdasRegionsMatches = saohgdasregionsRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
@@ -321,7 +314,6 @@ class TvporinternetProvider : MainAPI() {
             Log.d("TvporInternet", "loadLinks: Encontrado enlace saohgdasregions.fun directamente en script de la página inicial. Procesando...")
             directSaohgdasRegionsMatches.apmap { directUrl ->
                 Log.d("TvporInternet", "loadLinks: Encontrado directo en script: $directUrl")
-                // Aquí, el referer sería la página del canal (targetUrl)
                 loadExtractor(fixUrl(directUrl), targetUrl, subtitleCallback, callback)
             }
             return true
@@ -331,7 +323,6 @@ class TvporinternetProvider : MainAPI() {
 
         val playerLinks = mutableListOf<String>()
 
-        // Obtén el enlace del reproductor del iframe principal
         val mainIframeSrc = doc.selectFirst("iframe[name=\"player\"]")?.attr("src")
         if (!mainIframeSrc.isNullOrBlank()) {
             playerLinks.add(fixUrl(mainIframeSrc))
@@ -340,7 +331,6 @@ class TvporinternetProvider : MainAPI() {
             Log.d("TvporInternet", "loadLinks: No se encontró iframe principal con name='player'.")
         }
 
-        // Obtén opciones adicionales de reproductor (como "Opción 1", "Opción 2", etc.)
         doc.select("div.flex.flex-wrap.gap-3 a.bg-[#626262]").forEach { optionLinkElement ->
             val optionHref = optionLinkElement.attr("href")
             if (!optionHref.isNullOrBlank()) {
@@ -351,7 +341,6 @@ class TvporinternetProvider : MainAPI() {
 
         if (playerLinks.isEmpty()) {
             Log.e("TvporInternet", "loadLinks: No se encontraron enlaces de reproductores en la página del canal: $targetUrl")
-            // Retorno a la regex directa genérica si no se encuentran enlaces de reproductor específicos
             val genericDirectRegex = """url:\s*['"](https?:\/\/[^'"]+)['"]""".toRegex()
             val genericDirectMatches = genericDirectRegex.findAll(scriptContent).map { it.groupValues[1] }.toList()
 
@@ -367,16 +356,13 @@ class TvporinternetProvider : MainAPI() {
             return false
         }
 
-        // Procesa los enlaces de reproductor recolectados
         playerLinks.apmap { playerUrl ->
             Log.d("TvporInternet", "loadLinks: Procesando enlace de reproductor: $playerUrl")
 
             var currentProcessingUrl = playerUrl
 
-            // Lógica específica para tvporinternet2.com/live/*.php y saohgdasregions.fun
             if (currentProcessingUrl.contains("tvporinternet2.com/live/") && currentProcessingUrl.endsWith(".php")) {
                 Log.d("TvporInternet", "loadLinks: Detectado iframe PHP intermedio: $currentProcessingUrl. Buscando iframe anidado.")
-                // Pasa la URL del canal como Referer
                 val phpIframeHtml = safeAppGet(fixUrl(currentProcessingUrl), referer = targetUrl)
                 if (phpIframeHtml != null) {
                     val phpIframeDoc = Jsoup.parse(phpIframeHtml)
@@ -387,7 +373,6 @@ class TvporinternetProvider : MainAPI() {
                         Log.d("TvporInternet", "loadLinks: Iframe anidado en PHP encontrado: $currentProcessingUrl")
 
                         Log.d("TvporInternet", "loadLinks: Siguiendo potencial redirección de saohgdasregions.fun y buscando URL de stream.")
-                        // La solicitud a saohgdasregions.fun/stream.php debe tener la URL PHP original como Referer
                         val finalPlayerHtml = safeAppGet(fixUrl(currentProcessingUrl), referer = playerUrl)
                         if (finalPlayerHtml != null) {
                             val finalPlayerDoc = Jsoup.parse(finalPlayerHtml)
@@ -404,16 +389,15 @@ class TvporinternetProvider : MainAPI() {
                                         this.name,
                                         this.name,
                                         finalStreamUrl,
-                                        // Referer y Origin son CRÍTICOS aquí para que el video se cargue correctamente
-                                        referer = "https://live.saohgdasregions.fun/", // Referer exacto de tus logs
+                                        referer = "https://live.saohgdasregions.fun/",
                                         quality = Qualities.Unknown.value,
                                         type = ExtractorLinkType.M3U8,
                                         headers = mapOf(
-                                            "Origin" to "https://live.saohgdasregions.fun" // ¡Añadido este encabezado!
+                                            "Origin" to "https://live.saohgdasregions.fun"
                                         )
                                     )
                                 )
-                                return@apmap // Se encontró el stream, sal de esta playerUrl
+                                return@apmap
                             } else {
                                 Log.e("TvporInternet", "loadLinks: No se encontró la URL del stream en el script de Clappr.js para: $currentProcessingUrl")
                             }
@@ -422,7 +406,6 @@ class TvporinternetProvider : MainAPI() {
                         }
                     } else {
                         Log.e("TvporInternet", "loadLinks: No se encontró un iframe anidado con 'saohgdasregions.fun' en el archivo PHP: $currentProcessingUrl")
-                        // Opcional: Mantén estos logs de depuración si quieres ver otros iframes encontrados
                         val allIframes = phpIframeDoc.select("iframe")
                         if (allIframes.isNotEmpty()) {
                             Log.e("TvporInternet", "loadLinks: Otros iframes encontrados en PHP, pero no coincidieron con el selector 'saohgdasregions.fun':")
@@ -439,8 +422,6 @@ class TvporinternetProvider : MainAPI() {
                     Log.e("TvporInternet", "loadLinks: No se pudo obtener HTML del iframe PHP: $currentProcessingUrl")
                 }
             } else {
-                // Si no es la cadena específica tvporinternet2.com/live/*.php, pasa al extractor general
-                // Excluimos explícitamente 'saohgdasregions.fun' aquí porque ya lo hemos manejado arriba.
                 if (currentProcessingUrl.isNotBlank() && !currentProcessingUrl.contains("saohgdasregions.fun")) {
                     Log.d("TvporInternet", "loadLinks: Pasando al extractor general de CloudStream con URL final: $currentProcessingUrl")
                     loadExtractor(fixUrl(currentProcessingUrl), targetUrl, subtitleCallback, callback)

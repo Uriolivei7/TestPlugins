@@ -1,4 +1,4 @@
-package com.example // ¡IMPORTANTE! Asegúrate de que este paquete coincida EXACTAMENTE con la ubicación real de tu archivo en el sistema de archivos.
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import android.util.Base64
@@ -17,10 +16,9 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.ArrayList
 import kotlin.text.Charsets.UTF_8
 
-// ¡CRÍTICO! Añadir esta anotación para que el plugin sea reconocido por CloudStream
 class PelisplusProvider : MainAPI() {
     override var mainUrl = "https://pelisplushd.bz"
-    override var name = "Pelisplus" // Nombre más amigable para el usuario
+    override var name = "Pelisplus"
     override val supportedTypes = setOf(
         TvType.Movie,
         TvType.TvSeries,

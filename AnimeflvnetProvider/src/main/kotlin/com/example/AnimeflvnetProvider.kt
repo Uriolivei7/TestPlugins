@@ -140,9 +140,7 @@ class AnimeflvnetProvider : MainAPI() {
                 data.split("],").forEach {
 
                     val epNum = it.removePrefix("[").substringBefore(",")
-                    // val epthumbid = it.removePrefix("[").substringAfter(",").substringBefore("]")
                     val animeid = doc.selectFirst("div.Strs.RateIt")?.attr("data-id")
-                    //val epthumb = "https://cdn.animeflv.net/screenshots/$animeid/$epNum/th_3.jpg"
                     val link = url.replace("/anime/", "/ver/") + "-$epNum"
                     episodes.add(
                         newEpisode(link) {
@@ -183,7 +181,6 @@ class AnimeflvnetProvider : MainAPI() {
                 if (script.data().contains("var videos = {") || script.data()
                         .contains("var anime_id =") || script.data().contains("server")
                 ) {
-                    // Imprimir el contenido del script para depuración
                     println("Script encontrado: ${script.data().substring(0, minOf(script.data().length, 500))}")
 
                     val serversRegex = Regex("var videos = (\\{\"SUB\":\\[\\{.*?\\}\\]\\});")

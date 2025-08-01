@@ -23,7 +23,6 @@ class PlushdProvider : MainAPI() {
     )
 
     private fun base64Encode(bytes: ByteArray): String {
-        // Usa Base64.NO_WRAP para evitar saltos de línea que podrían romper la URL
         return Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
 
@@ -75,7 +74,7 @@ class PlushdProvider : MainAPI() {
                                 this.posterUrl = img
                             }
                         }
-                        else -> null // Ya hemos registrado la advertencia anteriormente
+                        else -> null
                     }
                 }
                 if (home.isNotEmpty()) {
@@ -135,7 +134,7 @@ class PlushdProvider : MainAPI() {
                             this.posterUrl = img
                         }
                     }
-                    else -> null // Ya hemos registrado la advertencia anteriormente
+                    else -> null
                 }
             }
         } catch (e: Exception) {
@@ -144,8 +143,6 @@ class PlushdProvider : MainAPI() {
         }
     }
 
-    // Eliminada la clase MainTemporada que intentaba encapsular el mapa
-    // Ahora, MainTemporadaElement es solo para los elementos internos de la lista
     data class MainTemporadaElement (
         @JsonProperty("title") val title: String? = null,
         @JsonProperty("image") val image: String? = null,
@@ -159,7 +156,6 @@ class PlushdProvider : MainAPI() {
             val doc = app.get(url).document
             Log.d("PlushdProvider", "DEBUG: Documento obtenido para load() de URL: $url")
 
-            // Mejorar la detección de tipo de TV
             val tvType = when {
                 url.contains("/pelicula") -> TvType.Movie
                 url.contains("/serie") -> TvType.TvSeries
@@ -167,7 +163,7 @@ class PlushdProvider : MainAPI() {
                 url.contains("/dorama") -> TvType.AsianDrama
                 else -> {
                     Log.w("PlushdProvider", "WARN: Tipo de URL desconocido para load(): $url, asumiendo TvSeries.")
-                    TvType.TvSeries // Fallback si no coincide con los patrones
+                    TvType.TvSeries
                 }
             }
             Log.d("PlushdProvider", "DEBUG: Tipo detectado para URL $url: $tvType")
@@ -215,7 +211,7 @@ class PlushdProvider : MainAPI() {
                                     val epNum = info.episode
                                     val img = info.image
                                     val realimg = if (img.isNullOrEmpty()) null else "https://image.tmdb.org/t/p/w342${img.replace("\\/", "/")}"
-                                    val epurl = "$url/season/$seasonNum/episode/$epNum" // Ajusta esta URL si el formato de la URL del episodio es diferente
+                                    val epurl = "$url/season/$seasonNum/episode/$epNum"
 
                                     if (epTitle.isNullOrEmpty() || seasonNum == null || epNum == null) {
                                         Log.w("PlushdProvider", "WARN: Datos de episodio incompletos o nulos, saltando. Título: $epTitle, Temporada: $seasonNum, Episodio: $epNum")
@@ -229,7 +225,7 @@ class PlushdProvider : MainAPI() {
                                             this.season = seasonNum
                                             this.episode = epNum
                                             this.posterUrl = realimg
-                                            this.rating = null // Propiedad rating deprecada, dejar en null o usar 'score' si aplica
+                                            this.rating = null
                                             this.description = null
                                             this.runTime = null
                                         }
@@ -239,7 +235,7 @@ class PlushdProvider : MainAPI() {
                             Log.d("PlushdProvider", "DEBUG: Total de episodios añadidos: ${epi.size}")
                         } catch (e: Exception) {
                             Log.e("PlushdProvider", "ERROR al parsear JSON de temporadas o procesar episodios: ${e.message}", e)
-                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript.take(1000)}") // Aumenta el take para más contexto
+                            Log.e("PlushdProvider", "JSON que causó el error (posiblemente truncado): ${jsonscript.take(1000)}")
                         }
                     } else {
                         Log.w("PlushdProvider", "ADVERTENCIA: jsonscript vacío después de la extracción para URL: $url")
@@ -260,7 +256,7 @@ class PlushdProvider : MainAPI() {
                     }
                 }
                 TvType.Movie -> {
-                    newMovieLoadResponse(title, url, tvType, url) { // El último 'url' es dataUrl para MovieLoadResponse
+                    newMovieLoadResponse(title, url, tvType, url) {
                         this.posterUrl = poster
                         this.backgroundPosterUrl = backimage
                         this.plot = description
@@ -285,7 +281,7 @@ class PlushdProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         Log.d("PlushdProvider", "DEBUG: Iniciando loadLinks para data: $data")
-        var linksFound = false // Para saber si se encontró al menos un enlace
+        var linksFound = false
         try {
             val doc = app.get(data).document
             Log.d("PlushdProvider", "DEBUG: Documento obtenido para loadLinks de data: $data")

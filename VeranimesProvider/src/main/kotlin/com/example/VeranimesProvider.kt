@@ -39,7 +39,7 @@ class VerAnimesProvider : MainAPI() {
 
     private fun extractAnimeItem(element: Element): AnimeSearchResponse? {
         val linkElement = element.selectFirst("a")
-        val linkHref = linkElement?.attr("href") // Esta es la URL del anime o episodio
+        val linkHref = linkElement?.attr("href")
 
         val titleText = element.selectFirst("h3.h a")?.text()?.trim()
             ?: element.selectFirst("span.n b")?.text()?.trim()
@@ -218,7 +218,6 @@ class VerAnimesProvider : MainAPI() {
         val totalEpisodesString = doc.selectFirst("ul.u.sp span[data-ep]")?.attr("data-ep")
         val totalEpisodes = totalEpisodesString?.toIntOrNull()
 
-        // Eliminamos la extracción de internalPlayerId o dataEncryptValue aquí, ya que no están en la página del anime
         Log.d("VerAnimesProvider", "load - data-sl encontrado: $dataSl, data-zr encontrado: $dataZr, Total de episodios (data-ep): $totalEpisodes")
 
 
@@ -243,7 +242,7 @@ class VerAnimesProvider : MainAPI() {
                         val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                         allEpisodes.add(
-                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) { // SIN dataEncryptValue aquí
+                            newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
                                 this.episode = epn
                                 this.posterUrl = poster
                                 this.name = episodeTitle
@@ -269,7 +268,7 @@ class VerAnimesProvider : MainAPI() {
                 val episodeUrl = "$mainUrl/ver/$dataSl-$epn"
 
                 allEpisodes.add(
-                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) { // SIN dataEncryptValue aquí
+                    newEpisode(EpisodeLoadData(episodeTitle, episodeUrl).toJson()) {
                         this.episode = epn
                         this.posterUrl = poster
                         this.name = episodeTitle
@@ -319,6 +318,7 @@ class VerAnimesProvider : MainAPI() {
             backgroundPosterUrl = poster
             plot = description
             tags = localTags
+            this.recommendations = recommendations
         }
     }
 
@@ -338,7 +338,6 @@ class VerAnimesProvider : MainAPI() {
             return false
         }
 
-        // *** PASO CLAVE: Obtener el HTML de la página del episodio para extraer data-encrypt ***
         val episodeHtml = try {
             app.get(
                 targetUrl,
@@ -354,7 +353,6 @@ class VerAnimesProvider : MainAPI() {
 
         val episodeDoc = Jsoup.parse(episodeHtml)
 
-        // *** EXTRAER data-encrypt del HTML de la página del episodio ***
         val dataEncryptValue = episodeDoc.selectFirst(".opt")?.attr("data-encrypt")
 
         if (dataEncryptValue.isNullOrBlank()) {
@@ -364,7 +362,7 @@ class VerAnimesProvider : MainAPI() {
 
         Log.d("VerAnimesProvider", "loadLinks - data-encrypt extraído de la página del episodio: $dataEncryptValue")
 
-        val postData = "acc=opt&i=$dataEncryptValue" // *** AHORA USAMOS EL dataEncryptValue OBTENIDO ***
+        val postData = "acc=opt&i=$dataEncryptValue"
         Log.d("VerAnimesProvider", "loadLinks - Datos POST calculados para /process: $postData")
 
         val headersForPost = mapOf(
@@ -400,7 +398,7 @@ class VerAnimesProvider : MainAPI() {
         val optionsList = playerDoc.select("li[encrypt]")
 
         if (optionsList.isNotEmpty()) {
-            Log.d("VerAnimesProvider", "loadLinks - ✅ ENCONTRADAS ${optionsList.size} opciones de REPRODUCCIÓN en la respuesta POST.")
+            Log.d("VerAnimesProvider", "loadLinks - ENCONTRADAS ${optionsList.size} opciones de REPRODUCCIÓN en la respuesta POST.")
             optionsList.forEach { liElement ->
                 val encryptedUrlHex = liElement.attr("encrypt")
                 val serverName = liElement.select("span").firstOrNull()?.text()?.trim()
@@ -409,7 +407,7 @@ class VerAnimesProvider : MainAPI() {
 
                 if (encryptedUrlHex.isNotBlank()) {
                     try {
-                        val decryptedUrl = hex2a(encryptedUrlHex) // Utiliza tu función hex2a
+                        val decryptedUrl = hex2a(encryptedUrlHex)
                         val fixedDecryptedUrl = fixUrl(decryptedUrl)
 
                         if (fixedDecryptedUrl != null && fixedDecryptedUrl.isNotBlank()) {
@@ -417,22 +415,22 @@ class VerAnimesProvider : MainAPI() {
                             loadExtractor(fixedDecryptedUrl, targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
-                            Log.w("VerAnimesProvider", "loadLinks - ⚠️ URL decodificada vacía o nula para '$serverName'. Original HEX: '$encryptedUrlHex', Decodificada: '$decryptedUrl'")
+                            Log.w("VerAnimesProvider", "loadLinks - URL decodificada vacía o nula para '$serverName'. Original HEX: '$encryptedUrlHex', Decodificada: '$decryptedUrl'")
                         }
                     } catch (e: Exception) {
-                        Log.e("VerAnimesProvider", "loadLinks - ❌ Error al decodificar URL hex para '$serverName' ('$encryptedUrlHex'): ${e.message}", e)
+                        Log.e("VerAnimesProvider", "loadLinks - Error al decodificar URL hex para '$serverName' ('$encryptedUrlHex'): ${e.message}", e)
                     }
                 } else {
-                    Log.w("VerAnimesProvider", "loadLinks - ⚠️ Opción para '$serverName' no tiene atributo 'encrypt'.")
+                    Log.w("VerAnimesProvider", "loadLinks - Opción para '$serverName' no tiene atributo 'encrypt'.")
                 }
             }
         } else {
-            Log.w("VerAnimesProvider", "loadLinks - ❌ NO SE ENCONTRÓ ninguna opción de REPRODUCCIÓN 'li[encrypt]' en la respuesta POST. Esto es un problema.")
+            Log.w("VerAnimesProvider", "loadLinks - NO SE ENCONTRÓ ninguna opción de REPRODUCCIÓN 'li[encrypt]' en la respuesta POST. Esto es un problema.")
         }
 
-        val downloadDataElement = episodeDoc.selectFirst("a.d[data-dwn]") // Usar episodeDoc aquí
+        val downloadDataElement = episodeDoc.selectFirst("a.d[data-dwn]")
         downloadDataElement?.attr("data-dwn")?.let { downloadData ->
-            Log.d("VerAnimesProvider", "loadLinks - ✅ Botón de DESCARGA encontrado en HTML inicial, data-dwn: '$downloadData'")
+            Log.d("VerAnimesProvider", "loadLinks - Botón de DESCARGA encontrado en HTML inicial, data-dwn: '$downloadData'")
             try {
                 val jsonArray = tryParseJson<List<List<Any>>>(downloadData)
                 jsonArray?.forEach { entry ->
@@ -445,21 +443,21 @@ class VerAnimesProvider : MainAPI() {
                             loadExtractor(fixedDownloadUrl, targetUrl, subtitleCallback, callback)
                             linksFound = true
                         } else {
-                            Log.w("VerAnimesProvider", "loadLinks - ⚠️ URL de descarga vacía o nula para servidor '$downloadServerName' (data-dwn).")
+                            Log.w("VerAnimesProvider", "loadLinks - URL de descarga vacía o nula para servidor '$downloadServerName' (data-dwn).")
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e("VerAnimesProvider", "loadLinks - ❌ Error al parsear los datos de descarga (data-dwn): ${e.message}", e)
+                Log.e("VerAnimesProvider", "loadLinks - Error al parsear los datos de descarga (data-dwn): ${e.message}", e)
             }
-        } ?: Log.w("VerAnimesProvider", "loadLinks - ❌ Botón de DESCARGA con 'data-dwn' no encontrado en el HTML inicial.")
+        } ?: Log.w("VerAnimesProvider", "loadLinks - Botón de DESCARGA con 'data-dwn' no encontrado en el HTML inicial.")
 
-        val playerIframe = episodeDoc.selectFirst("div.ply iframe") // Usar episodeDoc aquí
+        val playerIframe = episodeDoc.selectFirst("div.ply iframe")
         if (playerIframe != null) {
             var iframeSrc = playerIframe.attr("src")
             if (!iframeSrc.isNullOrBlank()) {
                 if (iframeSrc.contains("/reproductor/v.php")) {
-                    Log.w("VerAnimesProvider", "loadLinks - ⚠️ Iframe principal encontrado con URL de reproductor interno: '$iframeSrc'. Requiere manejo adicional para extraer enlaces directos.")
+                    Log.w("VerAnimesProvider", "loadLinks - Iframe principal encontrado con URL de reproductor interno: '$iframeSrc'. Requiere manejo adicional para extraer enlaces directos.")
                 } else {
                     val fixedIframeSrc = fixUrl(iframeSrc)
                     if (fixedIframeSrc != null) {
@@ -467,14 +465,14 @@ class VerAnimesProvider : MainAPI() {
                         loadExtractor(fixedIframeSrc, targetUrl, subtitleCallback, callback)
                         linksFound = true
                     } else {
-                        Log.w("VerAnimesProvider", "loadLinks - ⚠️ URL de iframe principal es nula después de fixUrl.")
+                        Log.w("VerAnimesProvider", "loadLinks - URL de iframe principal es nula después de fixUrl.")
                     }
                 }
             } else {
-                Log.w("VerAnimesProvider", "loadLinks - ⚠️ El src del iframe del reproductor principal es nulo/vacío.")
+                Log.w("VerAnimesProvider", "loadLinks - El src del iframe del reproductor principal es nulo/vacío.")
             }
         } else {
-            Log.w("VerAnimesProvider", "loadLinks - ❌ No se encontró el iframe del reproductor principal con el selector 'div.ply iframe' en el HTML inicial.")
+            Log.w("VerAnimesProvider", "loadLinks - No se encontró el iframe del reproductor principal con el selector 'div.ply iframe' en el HTML inicial.")
         }
 
         Log.d("VerAnimesProvider", "loadLinks - Finalizado, enlaces encontrados: $linksFound")
@@ -495,9 +493,9 @@ class VerAnimesProvider : MainAPI() {
 
     private fun parseStatus(statusString: String?): Int? {
         return when (statusString?.lowercase()) {
-            "En Emisión" -> 1 // Representa "En emisión" o "En curso"
-            "finalizado" -> 2 // Representa "Finalizado"
-            else -> null // Si el estado no se reconoce, devuelve null
+            "En Emisión" -> 1
+            "finalizado" -> 2
+            else -> null
         }
     }
 

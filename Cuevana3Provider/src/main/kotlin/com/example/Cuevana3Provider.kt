@@ -30,7 +30,6 @@ class Cuevana3Provider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
         val doc = app.get(mainUrl).document
-        // --- Sección de Películas Online ---
         val moviesSection = doc.selectFirst("section.home-movies")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_MOVIES - Movies section found: ${moviesSection != null}")
         val moviesItems = moviesSection?.select("ul.MovieList li.TPostMv")?.mapNotNull { item ->
@@ -56,7 +55,7 @@ class Cuevana3Provider : MainAPI() {
         if (!moviesItems.isNullOrEmpty()) {
             items.add(HomePageList("Películas Online", moviesItems))
         }
-        // --- Sección de Series Online ---
+
         val seriesContainer = doc.selectFirst("div#tabserie-1")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - Series container (div#tabserie-1) found: ${seriesContainer != null}")
 
@@ -85,7 +84,7 @@ class Cuevana3Provider : MainAPI() {
         } else {
             Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_SERIES - 'Series Online' list is empty or null, not added to HomePage.")
         }
-        // --- Sección de TOP ESTRENOS ---
+
         val topEstrenosSection = doc.selectFirst("div#peli_top_estrenos-2 ul.MovieList.top")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_TOP_ESTRENOS - Top Estrenos section found: ${topEstrenosSection != null}")
         val topEstrenosItems = topEstrenosSection?.select("li div.TPost.A")?.mapNotNull { item ->
@@ -116,7 +115,7 @@ class Cuevana3Provider : MainAPI() {
         if (!topEstrenosItems.isNullOrEmpty()) {
             items.add(HomePageList("TOP ESTRENOS", topEstrenosItems))
         }
-        // --- Sección de Películas Destacadas (Actualizadas) ---
+
         val destacadasActualizadasSection = doc.selectFirst("div#aa-mov1 ul.MovieList")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_ACTUALIZADAS - Películas Destacadas (Actualizadas) section found: ${destacadasActualizadasSection != null}")
         val destacadasActualizadasItems = destacadasActualizadasSection?.select("li div.TPost.A")?.mapNotNull { item ->
@@ -141,7 +140,7 @@ class Cuevana3Provider : MainAPI() {
         if (!destacadasActualizadasItems.isNullOrEmpty()) {
             items.add(HomePageList("Películas Destacadas (Actualizadas)", destacadasActualizadasItems))
         }
-        // --- Sección de Películas Destacadas (Destacadas) ---
+
         val destacadasDestacadasSection = doc.selectFirst("div#aa-mov2 ul.MovieList")
         Log.d("Cuevana3Provider", "DEBUG_MAINPAGE_DESTACADAS_DESTACADAS - Películas Destacadas (Destacadas) section found: ${destacadasDestacadasSection != null}")
         val destacadasDestacadasItems = destacadasDestacadasSection?.select("li div.TPost.A")?.mapNotNull { item ->
@@ -189,7 +188,7 @@ class Cuevana3Provider : MainAPI() {
                 link.contains("/series/") -> TvType.TvSeries
                 link.contains("/pelicula/") || link.contains("/peliculas/") -> TvType.Movie
                 link.contains("/anime/") -> TvType.Anime
-                else -> TvType.Movie // Default a Movie si no se puede determinar
+                else -> TvType.Movie
             }
 
             if (title.isNotBlank() && link.isNotBlank()) {
@@ -331,7 +330,7 @@ class Cuevana3Provider : MainAPI() {
                             EpisodeLoadData(epTitleFull, epUrl).toJson()
                         ) {
                             this.name = episodeName
-                            this.season = 1 // Asumir temporada 1
+                            this.season = 1
                             this.episode = episodeNumberMatch
                             this.posterUrl = fixUrl(epImage)
                             if (this.posterUrl.isNullOrBlank()) {
@@ -364,7 +363,6 @@ class Cuevana3Provider : MainAPI() {
                 }
             }
         } else {
-            // Lógica para Películas
             Log.d("Cuevana3Provider", "LOAD_DEBUG_TREATED_AS_MOVIE - URL: $url")
             val movieEpisodes = ArrayList<Episode>()
             movieEpisodes.add(
@@ -407,7 +405,6 @@ class Cuevana3Provider : MainAPI() {
         val targetUrl = parsedData?.url ?: data
         Log.d("Cuevana3Provider", "LOADLINKS_TARGET_URL - URL objetivo: $targetUrl")
 
-        // *** CORRECCIÓN CLAVE AQUÍ: Usar fixUrl para obtener la URL completa ***
         val doc = app.get(fixUrl(targetUrl)).document
         Log.d("Cuevana3Provider", "LOADLINKS_DOC_HTML - (Primeros 1000 chars) ${doc.html().take(1000)}")
 

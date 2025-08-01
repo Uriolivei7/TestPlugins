@@ -1,4 +1,4 @@
-package com.example // Asegúrate de que este paquete sea correcto para tu proyecto
+package com.example
 
 import android.util.Log
 import com.lagradost.cloudstream3.*
@@ -6,17 +6,14 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import kotlin.collections.ArrayList
 import kotlinx.coroutines.delay
-
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.HomePageList
 import com.lagradost.cloudstream3.HomePageResponse
-
 import com.lagradost.cloudstream3.utils.loadExtractor
 
 class OtakuversoProvider : MainAPI() {
@@ -36,12 +33,9 @@ class OtakuversoProvider : MainAPI() {
 
     private fun extractAnimeItem(element: Element): AnimeSearchResponse? {
         val linkElement = element.selectFirst("a")
-        // Intenta obtener el título directamente del <h2>
         val titleTextFromH2 = linkElement?.selectFirst("h2.font-GDSherpa-Bold.font15")?.text()?.trim()
-        // Como respaldo, usa el atributo 'alt' de la imagen
         val titleTextFromImgAlt = linkElement?.selectFirst("img.lazyload")?.attr("alt")?.trim()
             ?: linkElement?.selectFirst("img.img-fluid")?.attr("alt")?.trim()
-        // El título final será el de h2, o el de alt de la imagen si h2 no tiene
         val finalTitle = titleTextFromH2 ?: titleTextFromImgAlt
         val link = linkElement?.attr("href")
         val posterElement = element.selectFirst("img.lazyload")
@@ -88,16 +82,11 @@ class OtakuversoProvider : MainAPI() {
         val html = safeAppGet(url) ?: return null
         val doc = Jsoup.parse(html)
 
-        // --- SECCIÓN NUEVA: EPISODIOS ESTRENO (MOVÍDA AL PRINCIPIO) ---
-        // Selector: Busca un div con clases "reciente" y "mt-3" que contenga un h3 con el texto "EPISODIOS ESTRENO"
         doc.selectFirst("div.reciente.mt-3:has(h3:contains(EPISODIOS ESTRENO))")?.let { container ->
-            // Selecciona todos los elementos de episodio dentro del contenedor.
-            // Los ítems de episodio están en 'div.row' con divs 'col-6'
             val animes = container.select(".row .col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20").mapNotNull { extractEpisodeItem(it) }
             if (animes.isNotEmpty()) items.add(HomePageList("Episodios Estreno", animes))
         }
 
-        // --- SECCIONES EXISTENTES (EN SU ORDEN ORIGINAL DESPUÉS DE "EPISODIOS ESTRENO") ---
         doc.selectFirst("div.reciente:has(h3:contains(ANIMES FINALIZADOS))")?.let { container ->
             val animes = container.select(".carusel_ranking .item").mapNotNull { extractAnimeItem(it) }
             if (animes.isNotEmpty()) items.add(HomePageList("Animes Finalizados", animes))
@@ -126,38 +115,28 @@ class OtakuversoProvider : MainAPI() {
         return HomePageResponse(items)
     }
 
-    // --- NUEVA FUNCIÓN: extractEpisodeItem ---
     private fun extractEpisodeItem(element: Element): AnimeSearchResponse? {
         try {
-            val linkElement = element.selectFirst("a") ?: return null // El 'a' principal del item
-            val titleElement = element.selectFirst("h2 a") ?: return null // El 'a' dentro del h2 para el título
+            val linkElement = element.selectFirst("a") ?: return null
+            val titleElement = element.selectFirst("h2 a") ?: return null
 
             val title = titleElement.text().trim()
-            val episodeUrl = linkElement.attr("href") // La URL del episodio actual
+            val episodeUrl = linkElement.attr("href")
 
-            // Extraer la URL base del anime
-            // Elimina la última parte '/episodio-XX' para obtener la URL del anime.
-            // Ejemplo: "https://otakuverso.net/anime/dr-stone-science-future-latino/episodio-15"
-            // Se convierte en: "https://otakuverso.net/anime/dr-stone-science-future-latino"
             val animeUrl = episodeUrl.substringBeforeLast("/episodio-", episodeUrl)
 
             val posterElement = element.selectFirst("img.lazyload")
                 ?: element.selectFirst("img.img-fluid")
             val img = posterElement?.attr("data-src") ?: posterElement?.attr("src")
 
-            // Extraer el número de episodio para quizás incluirlo en el título
             val episodeNumberText = element.selectFirst("p.font15 span.bog")?.text()?.replace("Episodio ", "")?.trim() ?: ""
 
-            // Crea un AnimeSearchResponse. El enlace ahora será la URL del anime.
-            // Puedes ajustar el 'name' si quieres mostrar el número de episodio ahí.
             return newAnimeSearchResponse(
-                title, // Título del anime
-                fixUrl(animeUrl) // URL que apunta a la página principal del anime
+                title,
+                fixUrl(animeUrl)
             ) {
                 this.type = TvType.Anime
                 this.posterUrl = img
-                // Opcional: Si quieres que el número de episodio se vea en la tarjeta, puedes añadirlo al título:
-                // this.name = "$title (Ep. $episodeNumberText)"
             }
         } catch (e: Exception) {
             Log.e("OtakuversoProvider", "Error extracting episode item: ${e.message}", e)
@@ -216,7 +195,6 @@ class OtakuversoProvider : MainAPI() {
             ?: doc.selectFirst("div.img-in img[itemprop=\"image\"]")?.attr("data-src") ?: ""
         val description = doc.selectFirst("p.font14.mb-0.text-white.mt-0.mt-lg-2")?.textNodes()?.joinToString("") { it.text().trim() }?.trim() ?: ""
 
-        // Extraer géneros/etiquetas directamente del HTML
         val tags = doc.select("ul.fichas li:contains(Etiquetas:) a").map { it.text() }
             ?: doc.select("ul.fichas li a").map { it.text() } ?: emptyList()
 
@@ -312,9 +290,8 @@ class OtakuversoProvider : MainAPI() {
             this.posterUrl = poster
             this.backgroundPosterUrl = poster
             this.plot = description
-            this.tags = tags // Ahora solo usamos los tags extraídos del HTML
+            this.tags = tags
             this.year = year
-            //this.status = status
 
             this.recommendations = doc.select("div.pl-lg-4.pr-lg-4.mb20 div.row div.col-6.col-sm-6.col-md-4.col-lg-3.col-xl-2.pre.text-white.mb20").mapNotNull { element ->
                 val recTitle = element.selectFirst("h1.font-GDSherpa-Bold.font14.mb-1")?.text()?.trim()

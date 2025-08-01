@@ -54,7 +54,6 @@ class AnizoneProvider : MainAPI() {
     override val hasQuickSearch = true
     override val hasDownloadSupport = true
 
-    // Definimos las secciones principales según lo que hay en la web
     override val mainPage = mainPageOf(
         "latest_anime" to "Últimos Animes",
         "latest_episodes" to "Últimos Episodios"
@@ -219,18 +218,15 @@ class AnizoneProvider : MainAPI() {
             val initialReq = app.get(urlToFetch)
             val doc = initialReq.document
 
-            var hasNextPage = false // Por defecto a falso, ya que las secciones no tienen "Load More"
+            var hasNextPage = false
 
             val results: List<SearchResponse> = when (request.data) {
                 "latest_anime" -> {
                     Log.d(name, "getMainPage: Cargando la sección 'Últimos Animes' desde el index.")
-                    // Selector para la sección 'Latest Anime'
                     doc.select("h2:contains(Latest Anime) + ul li[wire:key]").mapNotNull { toResult(it) }
                 }
                 "latest_episodes" -> {
                     Log.d(name, "getMainPage: Cargando la sección 'Últimos Episodios' desde el index.")
-                    // Selector para la sección 'Latest Episodes'
-                    // IMPORTANTE: La función `toResultFromEpisodeElement` se encargará de extraer el enlace a la serie de anime
                     doc.select("h2:contains(Latest Episodes) + ul li").mapNotNull { toResultFromEpisodeElement(it) }
                 }
                 else -> {
@@ -250,7 +246,6 @@ class AnizoneProvider : MainAPI() {
         }
     }
 
-    // Función para convertir un elemento de serie de anime a SearchResponse
     private fun toResult(post: Element): SearchResponse {
         val title = post.selectFirst("img")?.attr("alt") ?: ""
         val url = post.selectFirst("a")?.attr("href") ?: ""
@@ -261,23 +256,16 @@ class AnizoneProvider : MainAPI() {
         }
     }
 
-    // NUEVA FUNCIÓN: Para convertir un elemento de episodio (de "Últimos Episodios") a un SearchResponse
-    // pero apuntando a la URL de la *serie de anime*.
     private fun toResultFromEpisodeElement(episodeElement: Element): SearchResponse {
-        // Extrae el título de la serie de anime
         val animeTitle = episodeElement.selectFirst("div.line-clamp-1 > a.title")?.attr("title")
             ?: episodeElement.selectFirst("div.line-clamp-1 > a.title")?.text() ?: ""
 
-        // Extrae la URL de la serie de anime (anime padre, no el episodio en sí)
         val animeUrl = episodeElement.selectFirst("div.line-clamp-1 > a.title")?.attr("href") ?: ""
 
-        // Extrae la URL del póster (generalmente la instantánea del episodio)
         val posterUrl = episodeElement.selectFirst("img")?.attr("src")
 
         return newMovieSearchResponse(animeTitle, animeUrl, TvType.Anime) {
             this.posterUrl = posterUrl
-            // Podrías añadir el número de episodio a la descripción si es relevante
-            // Ejemplo: plot = episodeElement.selectFirst("a.title[title]")?.attr("title")
         }
     }
 
@@ -418,7 +406,6 @@ class AnizoneProvider : MainAPI() {
                                         break
                                     }
                                 } catch (e: Exception) {
-                                    // Continúa intentando otros formatos
                                 }
                             }
 
@@ -493,6 +480,6 @@ class AnizoneProvider : MainAPI() {
             Log.e(name, "loadLinks: Error al cargar enlaces para $data: ${e.message}", e)
             return false
         }
-        return false // Esta línea nunca debería alcanzarse
+        return false
     }
 }

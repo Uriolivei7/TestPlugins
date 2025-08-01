@@ -5,7 +5,6 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import android.util.Base64
@@ -17,6 +16,7 @@ class VerseriesonlineProvider : MainAPI() {
     override var name = "Veronline"
     override val supportedTypes = setOf(
         TvType.TvSeries,
+        TvType.Cartoon
     )
 
     override var lang = "es"
@@ -28,10 +28,8 @@ class VerseriesonlineProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
         val items = ArrayList<HomePageList>()
 
-        // Obtenemos el documento de la página principal UNA SOLA VEZ
         val mainPageDoc = app.get(mainUrl).document
 
-        // --- SECCIÓN 1: Destacadas (el slider, que ya funciona) ---
         val sliderItems = mainPageDoc.select("div#owl-slider div.owl-item div.shortstory").mapNotNull {
             val tvType = TvType.TvSeries
             val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
@@ -57,9 +55,7 @@ class VerseriesonlineProvider : MainAPI() {
             items.add(0, HomePageList("Destacadas", sliderItems))
         }
 
-        // --- SECCIÓN 2: Últimas Series Agregadas (usando el HTML que me mostraste de la página principal) ---
         val tvType = TvType.TvSeries
-        // Usamos el mismo mainPageDoc ya que esta sección está en la página principal
         val latestSeriesItems = mainPageDoc.select("div.block-site-b div.shortstory-in").mapNotNull {
             val title = it.selectFirst("h4.short-link a")?.text()?.trim().orEmpty()
             val link = it.selectFirst("h4.short-link a")?.attr("href")?.trim().orEmpty()
@@ -81,7 +77,6 @@ class VerseriesonlineProvider : MainAPI() {
         }
         Log.d("Veronline", "Total 'Últimas Series Agregadas' Items: ${latestSeriesItems.size}")
 
-        // Agregamos esta lista a los items de la página principal
         if (latestSeriesItems.isNotEmpty()) {
             items.add(HomePageList("Últimas Series Agregadas", latestSeriesItems))
         }
@@ -185,7 +180,6 @@ class VerseriesonlineProvider : MainAPI() {
             val mainPageEpisodes = doc.select("div#serie-episodes div.episode-list div.saision_LI2").mapNotNull { element ->
                 val epurl = fixUrl(element.selectFirst("a")?.attr("href")?.trim().orEmpty())
                 val epTitle = element.selectFirst("a span")?.text()?.trim().orEmpty()
-                // --- CAMBIO AQUÍ: Ahora busca "Capítulo" o "Episodio" ---
                 val episodeNumber = epTitle.replace(Regex("(Capítulo|Episodio)\\s*"), "").toIntOrNull()
 
                 if (epurl.isNotBlank() && epTitle.isNotBlank() && episodeNumber != null) {

@@ -4,7 +4,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.LoadResponse.Companion.addDuration
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
-import android.util.Log // Importar Log para depuración
+import android.util.Log
 
 class PelispediaProvider:MainAPI() {
     override var mainUrl = "https://pelispedia.is"
@@ -20,7 +20,7 @@ class PelispediaProvider:MainAPI() {
         TvType.TvSeries,
     )
 
-    override suspend fun getMainPage(page: Int, request : MainPageRequest): HomePageResponse? { // Cambiado a HomePageResponse?
+    override suspend fun getMainPage(page: Int, request : MainPageRequest): HomePageResponse? {
         Log.d("PelispediaProvider", "DEBUG: Iniciando getMainPage, página: $page")
         val items = ArrayList<HomePageList>()
         val urls = listOf(
@@ -28,21 +28,19 @@ class PelispediaProvider:MainAPI() {
             Pair("Series","$mainUrl/cartelera-series/"),
         )
         try {
-            urls.map { (name, url) -> // Reemplazado apmap con map
+            urls.map { (name, url) ->
                 Log.d("PelispediaProvider", "DEBUG: Obteniendo datos para la lista: $name de $url")
                 val doc = app.get(url).document
-                val home =  doc.select("section.movies article").mapNotNull { article -> // Usar mapNotNull
+                val home =  doc.select("section.movies article").mapNotNull { article ->
                     val title = article.selectFirst("h2.entry-title")?.text()
                     val img = article.selectFirst("img")?.attr("src")
                     val link = article.selectFirst("a.lnk-blk")?.attr("href")
 
-                    // Validar datos mínimos
                     if (title == null || img == null || link == null) {
                         Log.w("PelispediaProvider", "WARN: Elemento principal con título/img/link nulo, saltando. Título: $title, Link: $link")
                         return@mapNotNull null
                     }
 
-                    // Determinar el TvType basado en la URL de la lista
                     val contentType = if (name == "Películas") TvType.Movie else TvType.TvSeries
 
                     Log.d("PelispediaProvider", "DEBUG: Elemento principal - Título: $title, Tipo: $contentType, Link: $link, Imagen: $img")
@@ -58,13 +56,13 @@ class PelispediaProvider:MainAPI() {
                                 this.posterUrl = fixUrl(img)
                             }
                         }
-                        else -> { // Aunque ya limitamos supportedTypes, es buena práctica
+                        else -> {
                             Log.w("PelispediaProvider", "WARN: Tipo de contenido no soportado en getMainPage: $contentType para link: $link")
                             null
                         }
                     }
                 }
-                if (home.isNotEmpty()) { // Añadir solo si hay elementos válidos
+                if (home.isNotEmpty()) {
                     items.add(HomePageList(name, home))
                 }
             }
@@ -73,10 +71,9 @@ class PelispediaProvider:MainAPI() {
             return null
         }
 
-        if (items.isEmpty()) { // Comprobar si no hay elementos después de intentar añadir
+        if (items.isEmpty()) {
             throw ErrorLoadingException("No se pudieron cargar elementos de la página principal.")
         }
-        // Usar newHomePageResponse
         return newHomePageResponse(items)
     }
 
@@ -85,19 +82,17 @@ class PelispediaProvider:MainAPI() {
         val url = "$mainUrl/?s=$query"
         val doc = app.get(url).document
         Log.d("PelispediaProvider", "DEBUG: Documento de búsqueda obtenido para query: $query")
-        return doc.select("section.movies article").mapNotNull { article -> // Usar mapNotNull
+        return doc.select("section.movies article").mapNotNull { article ->
             val title = article.selectFirst("h2.entry-title")?.text()
             val img = article.selectFirst("img")?.attr("src")
             val link = article.selectFirst("a.lnk-blk")?.attr("href")
 
-            // Validar datos mínimos
             if (title == null || img == null || link == null) {
                 Log.w("PelispediaProvider", "WARN: Resultado de búsqueda con título/img/link nulo, saltando. Título: $title, Link: $link")
                 return@mapNotNull null
             }
 
-            // Pelispedia mezcla películas y series en la búsqueda, hay que intentar inferir el tipo
-            val contentType = if (link.contains("/pelicula/")) TvType.Movie else TvType.TvSeries // Asunción, ajusta si la estructura de URL lo indica mejor
+            val contentType = if (link.contains("/pelicula/")) TvType.Movie else TvType.TvSeries
 
             Log.d("PelispediaProvider", "DEBUG: Resultado de búsqueda - Título: $title, Tipo: $contentType, Link: $link, Imagen: $img")
 
@@ -125,7 +120,7 @@ class PelispediaProvider:MainAPI() {
         val doc = app.get(url).document
         Log.d("PelispediaProvider", "DEBUG: Documento obtenido para load() de URL: $url")
 
-        val tvType = if (url.contains("/pelicula/")) TvType.Movie else TvType.TvSeries // Usar '/pelicula/' para ser más preciso
+        val tvType = if (url.contains("/pelicula/")) TvType.Movie else TvType.TvSeries
         Log.d("PelispediaProvider", "DEBUG: Tipo detectado para URL $url: $tvType")
 
         val poster = doc.selectFirst(".alg-ss img")?.attr("src")?.replace(Regex("\\/p\\/w\\d+.*\\/"),"/p/original/")
@@ -156,7 +151,7 @@ class PelispediaProvider:MainAPI() {
             Pair(seriesid, dataseason)
         }
         val epi = ArrayList<Episode>()
-        if (tvType == TvType.TvSeries) { // Solo si es serie, buscar episodios
+        if (tvType == TvType.TvSeries) {
             Log.d("PelispediaProvider", "DEBUG: Contenido es TvSeries. Buscando temporadas/episodios.")
             seasonsdoc.forEach {(serieid, data) -> // Reemplazado apmap con forEach
                 if (serieid.isNullOrEmpty() || data.isNullOrEmpty()) {
@@ -171,13 +166,13 @@ class PelispediaProvider:MainAPI() {
                         "post" to serieid,
                     )
                 ).document
-                seasonsrequest.select("li article.episodes").mapNotNull { li -> // mapNotNull
+                seasonsrequest.select("li article.episodes").mapNotNull { li ->
                     val href = li.selectFirst("a.lnk-blk")?.attr("href")
                     if (href.isNullOrEmpty()) {
                         Log.w("PelispediaProvider", "WARN: Link de episodio nulo o vacío en temporada $data, saltando.")
                         return@mapNotNull null
                     }
-                    val seasonregex = Regex("temporada-(\\d+)-capitulo-(\\d+)") // Regex más precisa para capturar números
+                    val seasonregex = Regex("temporada-(\\d+)-capitulo-(\\d+)")
                     val match = seasonregex.find(href)
                     val season = match?.groupValues?.getOrNull(1)?.toIntOrNull()
                     val episode = match?.groupValues?.getOrNull(2)?.toIntOrNull()
@@ -196,7 +191,7 @@ class PelispediaProvider:MainAPI() {
         }
 
 
-        val recs = doc.select("article.movies").mapNotNull { rec -> // mapNotNull
+        val recs = doc.select("article.movies").mapNotNull { rec ->
             val recTitle = rec.selectFirst(".entry-title")?.text()
             val recImg = rec.selectFirst("img")?.attr("src")
             val recLink = rec.selectFirst("a")?.attr("href")
@@ -205,7 +200,6 @@ class PelispediaProvider:MainAPI() {
                 Log.w("PelispediaProvider", "WARN: Recomendación con título/img/link nulo, saltando. Título: $recTitle, Link: $recLink")
                 return@mapNotNull null
             }
-            // Asumir que las recomendaciones también pueden ser series o películas
             val recTvType = if (recLink.contains("/pelicula/")) TvType.Movie else TvType.TvSeries
 
             when (recTvType) {
@@ -230,16 +224,11 @@ class PelispediaProvider:MainAPI() {
 
         return when (tvType) {
             TvType.TvSeries -> {
-                // Asegúrate que poster y backimage sean String no nulos o maneja los nulos adecuadamente
                 newTvSeriesLoadResponse(title, url, tvType, epi) {
-                    // Si fixUrl() puede manejar un String nulo o vacío, puedes usarlo directamente.
-                    // Si no, asegúrate de que poster y backimage sean String no nulos.
-                    // Aquí, asumimos que 'poster' y 'backimage' ya manejan su nulabilidad con el operador Elvis
-                    // en las líneas de arriba, por lo que deberían ser String no nulos.
-                    this.posterUrl = poster?.let { fixUrl(it) } // Asegúrate de que poster no sea nulo antes de fixUrl
-                        ?: "" // Valor por defecto si poster es nulo después de fixUrl
-                    this.backgroundPosterUrl = backimage?.let { fixUrl(it) } // Similar para backimage
-                        ?: "" // Valor por defecto si backimage es nulo después de fixUrl
+                    this.posterUrl = poster?.let { fixUrl(it) }
+                        ?: ""
+                    this.backgroundPosterUrl = backimage?.let { fixUrl(it) }
+                        ?: ""
                     this.plot = plot
                     this.tags = tags
                     this.year = yearrr
@@ -248,7 +237,7 @@ class PelispediaProvider:MainAPI() {
                 }
             }
             TvType.Movie -> {
-                newMovieLoadResponse(title, url, tvType, url) { // El último 'url' es dataUrl para MovieLoadResponse
+                newMovieLoadResponse(title, url, tvType, url) {
                     this.posterUrl = poster?.let { fixUrl(it) }
                         ?: ""
                     this.backgroundPosterUrl = backimage?.let { fixUrl(it) }
@@ -277,7 +266,7 @@ class PelispediaProvider:MainAPI() {
         try {
             val doc = app.get(data).document
             Log.d("PelispediaProvider", "DEBUG: Documento obtenido para loadLinks de data: $data")
-            doc.select(".player iframe").forEach { iframe -> // Reemplazado apmap con forEach
+            doc.select(".player iframe").forEach { iframe ->
                 val trembedlink = iframe.attr("data-src")
                 if (trembedlink.isNullOrEmpty()) {
                     Log.w("PelispediaProvider", "WARN: data-src nulo o vacío para iframe en $data, saltando.")

@@ -7,7 +7,6 @@ import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.APIHolder.unixTime
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import android.util.Base64
@@ -64,13 +63,12 @@ class SoloLatinoProvider : MainAPI() {
         return null
     }
 
-    // Función auxiliar para extraer la mejor URL de un srcset
     private fun extractBestSrcset(srcsetAttr: String?): String? {
         if (srcsetAttr.isNullOrBlank()) return null
 
         val sources = srcsetAttr.split(",").map { it.trim().split(" ") }
         var bestUrl: String? = null
-        var bestMetric = 0 // Usaremos esto para comparar anchos o densidades
+        var bestMetric = 0
 
         for (source in sources) {
             if (source.size >= 2) {
@@ -93,9 +91,9 @@ class SoloLatinoProvider : MainAPI() {
                     }
                 }
             } else if (source.isNotEmpty() && source.size == 1) {
-                if (bestUrl == null || bestMetric == 0) { // Considera si no hay mejor opción todavía
+                if (bestUrl == null || bestMetric == 0) {
                     bestUrl = source[0]
-                    bestMetric = 1 // Métrica baja
+                    bestMetric = 1
                 }
             }
         }
@@ -124,7 +122,7 @@ class SoloLatinoProvider : MainAPI() {
                 return@apmap null
             }
             val doc = Jsoup.parse(html)
-            val homeItems = doc.select("div.items article.item").mapNotNull { article -> // Cambié 'it' por 'article' para mayor claridad
+            val homeItems = doc.select("div.items article.item").mapNotNull { article ->
                 val title = article.selectFirst("a div.data h3")?.text()
                 val link = article.selectFirst("a")?.attr("href")
 
@@ -138,7 +136,7 @@ class SoloLatinoProvider : MainAPI() {
                 }
 
                 if (title != null && link != null) {
-                    newAnimeSearchResponse( // Puedes usar newTvSeriesSearchResponse si es más general
+                    newAnimeSearchResponse(
                         title,
                         fixUrl(link)
                     ) {
@@ -168,7 +166,7 @@ class SoloLatinoProvider : MainAPI() {
             return emptyList()
         }
         val doc = Jsoup.parse(html)
-        return doc.select("div.items article.item").mapNotNull { article -> // Cambié 'it' por 'article'
+        return doc.select("div.items article.item").mapNotNull { article ->
             val title = article.selectFirst("a div.data h3")?.text()
             val link = article.selectFirst("a")?.attr("href")
 
@@ -182,11 +180,11 @@ class SoloLatinoProvider : MainAPI() {
             }
 
             if (title != null && link != null) {
-                newTvSeriesSearchResponse( // Usé TvSeriesSearchResponse porque es más general que Anime
+                newTvSeriesSearchResponse(
                     title,
                     fixUrl(link)
                 ) {
-                    this.type = TvType.TvSeries // Asegúrate de que esto sea correcto para todos los resultados de búsqueda
+                    this.type = TvType.TvSeries
                     this.posterUrl = img
                 }
             } else {
@@ -231,7 +229,7 @@ class SoloLatinoProvider : MainAPI() {
 
         val tvType = if (cleanUrl.contains("peliculas")) TvType.Movie else TvType.TvSeries
         val title = doc.selectFirst("div.data h1")?.text() ?: ""
-        val poster = doc.selectFirst("div.poster img")?.attr("src") ?: "" // Se mantiene la lógica original, ya que las imágenes de la página de carga parecían estar bien.
+        val poster = doc.selectFirst("div.poster img")?.attr("src") ?: ""
         val description = doc.selectFirst("div.wp-content")?.text() ?: ""
         val tags = doc.select("div.sgeneros a").map { it.text() }
 
@@ -265,7 +263,7 @@ class SoloLatinoProvider : MainAPI() {
             val recLink = it.selectFirst("a")?.attr("href")
             val recImgElement = it.selectFirst("a img.lazyload") ?: it.selectFirst("a img")
             val recImg = recImgElement?.attr("data-srcset")?.split(",")?.lastOrNull()?.trim()?.split(" ")?.firstOrNull() ?: recImgElement?.attr("src")
-            val recTitle = recImgElement?.attr("alt") // Usamos el atributo 'alt' de la imagen como título
+            val recTitle = recImgElement?.attr("alt")
 
             if (recTitle != null && recLink != null) {
                 newAnimeSearchResponse(
@@ -273,7 +271,6 @@ class SoloLatinoProvider : MainAPI() {
                     fixUrl(recLink)
                 ) {
                     this.posterUrl = recImg
-                    // Podrías inferir el tipo basándote en la URL (si contiene "series" o "peliculas")
                     this.type = if (recLink.contains("/peliculas/")) TvType.Movie else TvType.TvSeries
                 }
             } else {
@@ -293,7 +290,7 @@ class SoloLatinoProvider : MainAPI() {
                     this.backgroundPosterUrl = poster
                     this.plot = description
                     this.tags = tags
-                    this.recommendations = recommendations // Añadir recomendaciones aquí
+                    this.recommendations = recommendations
                 }
             }
 
@@ -308,7 +305,7 @@ class SoloLatinoProvider : MainAPI() {
                     this.backgroundPosterUrl = poster
                     this.plot = description
                     this.tags = tags
-                    this.recommendations = recommendations // Añadir recomendaciones aquí
+                    this.recommendations = recommendations
                 }
             }
 
