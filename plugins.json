@@ -126,7 +126,8 @@
     ],
     "description": "Plugin para www.veronline.tax",
     "tvTypes": [
-      "TvSeries"
+      "TvSeries",
+      "Cartoon"
     ],
     "iconUrl": "https://www.veronline.tax/icon/favicon.ico",
     "language": "es",
@@ -249,7 +250,7 @@
   {
     "url": "https://raw.githubusercontent.com/Uriolivei7/Ranita/master/plugins/VeranimesProvider.cs3",
     "status": 1,
-    "version": 2,
+    "version": 3,
     "apiVersion": 14,
     "name": "VerAnimes",
     "internalName": "VeranimesProvider",
